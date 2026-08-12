@@ -9,6 +9,7 @@ from scripts.server.evaluate_and_infer import (
     kronos_timestamp_series,
     materialize_evaluation_window,
     realized_mean_return,
+    reset_sampling_seed,
     verify_manifest_files,
 )
 from scripts.server.fetch_online_snapshot import (
@@ -61,6 +62,36 @@ def test_kronos_timestamps_match_pinned_official_series_contract() -> None:
     assert isinstance(converted, pd.Series)
     assert converted.dt.day.tolist() == [3, 4, 5]
     assert converted.name == "timestamps"
+
+
+def test_online_sampling_seed_is_independent_of_prior_evaluation_draws() -> None:
+    class FakeCuda:
+        seeds: list[int] = []
+
+        @staticmethod
+        def is_available() -> bool:
+            return True
+
+        @classmethod
+        def manual_seed_all(cls, seed: int) -> None:
+            cls.seeds.append(seed)
+
+    class FakeTorch:
+        cuda = FakeCuda()
+        seeds: list[int] = []
+
+        @classmethod
+        def manual_seed(cls, seed: int) -> None:
+            cls.seeds.append(seed)
+
+    reset_sampling_seed(FakeTorch, 100)
+    first = float(pd.Series([__import__("numpy").random.random()]).iloc[0])
+    __import__("numpy").random.random(50)
+    reset_sampling_seed(FakeTorch, 100)
+    second = float(pd.Series([__import__("numpy").random.random()]).iloc[0])
+    assert first == second
+    assert FakeTorch.seeds == [100, 100]
+    assert FakeCuda.seeds == [100, 100]
 
 
 def test_evaluation_outcome_is_track_independent_under_corporate_action() -> None:

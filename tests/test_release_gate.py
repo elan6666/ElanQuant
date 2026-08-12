@@ -15,7 +15,16 @@ def fixtures() -> tuple[dict[str, object], dict[str, object], str]:
     matrix: dict[str, object] = {
         "schema_version": "elanquant_training_matrix_v2",
         "status": "PASS",
-        "cells": [{"id": model_id} for model_id in MODEL_IDS],
+        "upstream_commit": "u" * 40,
+        "cells": [
+            {
+                "id": model_id,
+                "tokenizer_sha256": f"{index + 1}" * 64,
+                "predictor_sha256": f"{index + 4}" * 64,
+                "config_sha256": f"{index + 7}" * 64,
+            }
+            for index, model_id in enumerate(MODEL_IDS)
+        ],
     }
     matrix["receipt_hash"] = canonical_hash(matrix)
     rendered = json.dumps(matrix, sort_keys=True).encode()
@@ -40,6 +49,8 @@ def fixtures() -> tuple[dict[str, object], dict[str, object], str]:
         "schema_version": "elanquant_kronos_inference_v1",
         "status": "PASS",
         "evaluation_mode": "FORMAL",
+        "upstream_commit": "u" * 40,
+        "inference_code_sha256": "f" * 64,
         "training_matrix_receipt_sha256": matrix_sha,
         "evaluation_support": {
             "validation_2025": {
@@ -55,7 +66,15 @@ def fixtures() -> tuple[dict[str, object], dict[str, object], str]:
                 "anchor_set_sha256": "b" * 64,
             },
         },
-        "models": {model_id: {"metrics": copy.deepcopy(metrics)} for model_id in MODEL_IDS},
+        "models": {
+            model_id: {
+                "tokenizer_sha256": f"{index + 1}" * 64,
+                "predictor_sha256": f"{index + 4}" * 64,
+                "config_sha256": f"{index + 7}" * 64,
+                "metrics": copy.deepcopy(metrics),
+            }
+            for index, model_id in enumerate(MODEL_IDS)
+        },
         "scores": [{} for _ in range(250)],
     }
     return matrix, evaluation, matrix_sha
@@ -98,4 +117,11 @@ def test_rejects_model_support_that_disagrees_with_common_anchor_receipt() -> No
     matrix, evaluation, matrix_sha = fixtures()
     evaluation["models"]["small-strict-pit"]["metrics"]["test_viewed_2026"]["rows"] = 199  # type: ignore[index]
     with pytest.raises(RuntimeError, match="model support disagrees"):
+        validate_release_pair(matrix, evaluation, matrix_sha)
+
+
+def test_rejects_evaluation_model_identity_that_disagrees_with_matrix() -> None:
+    matrix, evaluation, matrix_sha = fixtures()
+    evaluation["models"]["small-zero-shot"]["predictor_sha256"] = "0" * 64  # type: ignore[index]
+    with pytest.raises(RuntimeError, match="model identity disagrees"):
         validate_release_pair(matrix, evaluation, matrix_sha)

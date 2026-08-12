@@ -73,6 +73,7 @@ def validate_release_pair(
     cell_ids = [cell.get("id") for cell in cells if isinstance(cell, dict)]
     if len(cell_ids) != 3 or set(cell_ids) != EXPECTED_MODEL_IDS:
         raise RuntimeError("matrix is not the exact Small three-cell experiment")
+    matrix_cells = {str(cell["id"]): cell for cell in cells if isinstance(cell, dict)}
 
     if evaluation_payload.get("schema_version") != "elanquant_kronos_inference_v1":
         raise RuntimeError("evaluation schema is not supported")
@@ -82,6 +83,11 @@ def validate_release_pair(
         raise RuntimeError("only FORMAL evaluation may be released")
     if evaluation_payload.get("training_matrix_receipt_sha256") != matrix_sha256:
         raise RuntimeError("evaluation was not generated from this matrix")
+    if evaluation_payload.get("upstream_commit") != matrix_payload.get("upstream_commit"):
+        raise RuntimeError("evaluation and matrix upstream commits disagree")
+    inference_code = evaluation_payload.get("inference_code_sha256")
+    if not isinstance(inference_code, str) or len(inference_code) != 64:
+        raise RuntimeError("evaluation inference code identity is invalid")
     models = evaluation_payload.get("models")
     if not isinstance(models, dict) or set(models) != EXPECTED_MODEL_IDS:
         raise RuntimeError("evaluation is not the exact Small three-cell experiment")
@@ -115,6 +121,10 @@ def validate_release_pair(
         model = models[model_id]
         if not isinstance(model, dict):
             raise RuntimeError(f"evaluation model is invalid: {model_id}")
+        matrix_cell = matrix_cells[model_id]
+        for key in ("tokenizer_sha256", "predictor_sha256", "config_sha256"):
+            if model.get(key) != matrix_cell.get(key):
+                raise RuntimeError(f"evaluation model identity disagrees: {model_id}.{key}")
         metrics = model.get("metrics")
         if not isinstance(metrics, dict) or set(metrics) != set(expected_support):
             raise RuntimeError(f"formal split metrics are incomplete: {model_id}")

@@ -209,6 +209,14 @@ def kronos_timestamp_series(values: pd.Index | pd.Series) -> pd.Series:
     return pd.Series(pd.to_datetime(values), name="timestamps").reset_index(drop=True)
 
 
+def reset_sampling_seed(torch_module: Any, seed: int = 100) -> None:
+    """Give evaluation and online inference independent, repeatable RNG streams."""
+    np.random.seed(seed)
+    torch_module.manual_seed(seed)
+    if torch_module.cuda.is_available():
+        torch_module.cuda.manual_seed_all(seed)
+
+
 def sample_cross_sections(
     anchors: list[tuple[str, int]],
     symbols: dict[str, pd.DataFrame],
@@ -437,10 +445,7 @@ def main() -> int:
     output["forecast_sessions"] = [session.strftime("%Y-%m-%d") for session in y_latest]
 
     for model_id, size, track in MODEL_CELLS:
-        np.random.seed(100)
-        torch.manual_seed(100)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(100)
+        reset_sampling_seed(torch)
         tokenizer_path, predictor_path, matrix_cell = model_paths(matrix, model_id)
         if not (tokenizer_path / "model.safetensors").is_file():
             raise RuntimeError(f"missing tokenizer checkpoint for {model_id}")
@@ -504,6 +509,10 @@ def main() -> int:
                         )
                 metrics[split_name] = evaluate_rows(evaluation)
 
+            # Evaluation may consume tens of thousands of Monte Carlo draws.
+            # Reset before the online cross-section so FORMAL and ONLINE_ONLY
+            # produce the same score for the same model, data and configuration.
+            reset_sampling_seed(torch)
             for batch_start in range(0, len(latest_starts), args.batch_size):
                 batch = latest_starts[batch_start : batch_start + args.batch_size]
                 frames, times = [], []
