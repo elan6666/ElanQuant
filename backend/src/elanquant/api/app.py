@@ -191,7 +191,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "data_as_of": data_session,
             "inference_as_of": latest_session,
             "active_job_id": None if active is None else str(active["id"]),
-            "primary_model": "strict-pit-small" if latest is not None else None,
+            "primary_model": "small-strict-pit" if latest is not None else None,
             "warnings": warnings,
             "active_jobs": 0 if active is None else 1,
             "latest_run": None if latest is None else dict(latest),

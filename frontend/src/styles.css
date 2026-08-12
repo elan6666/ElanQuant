@@ -430,6 +430,12 @@ h1, h2, h3 { font-family: "Iowan Old Style", "Baskerville", "Songti SC", "STSong
 }
 .content-section { padding: 28px; }
 .identity-card { border-left: 4px solid var(--red); }
+.identity-card--paper {
+  color: #fffaf3;
+  background: #3b342f;
+  border-color: var(--red);
+}
+.identity-card--paper span, .identity-card--paper small { color: #d9cfc5; }
 .warning-panel, .error-banner, .stale-banner, .online-banner, .gap-notice { border-radius: 13px; }
 
 .matrix-key > div { background: #f1ece3; border-color: var(--line); }
@@ -456,6 +462,7 @@ h1, h2, h3 { font-family: "Iowan Old Style", "Baskerville", "Songti SC", "STSong
 .stage-list li.is-active { background: #f2dfd4; }
 .stage-list li.is-done { color: #52766b; background: #e9efeb; }
 .ranking-table th { color: #7b7168; background: #eee9e1; }
+.orders-table th { color: #5f5750; }
 .ranking-table td { border-color: var(--line); }
 .ranking-table tbody tr:hover { background: #f2ebe3; }
 .stock-detail { color: #f7f1e8; background: #3b342f; border-radius: 17px; }

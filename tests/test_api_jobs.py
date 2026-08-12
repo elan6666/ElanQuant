@@ -80,6 +80,7 @@ def test_completed_run_matches_dashboard_contract(tmp_path: Path) -> None:
     system = client.get("/api/v1/system/status").json()
     assert system["service_state"] == "ready"
     assert system["inference_as_of"] == "2026-08-12"
+    assert system["primary_model"] == "small-strict-pit"
 
     run = client.get("/api/v1/runs/latest").json()
     assert run["status"] == "success"
