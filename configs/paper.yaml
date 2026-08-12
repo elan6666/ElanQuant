@@ -1,0 +1,16 @@
+initial_cash: 100000
+top_k: 3
+equal_target: true
+long_only: true
+board_lot: 100
+execution: next_session_open
+commission_rate: 0.0003
+minimum_commission: 5
+sell_stamp_tax_rate: 0.0005
+reject_without_replacement: true
+size_with_t_known_data: true
+scope_note: >-
+  MVP ledger implements Top-3 entry/exit, board lots, commission, stamp tax,
+  limit/suspension/ST rejection and no replacement. Minimum hold, slippage,
+  corporate actions and full-NAV target rebalancing are intentionally not
+  claimed until separately implemented and tested.

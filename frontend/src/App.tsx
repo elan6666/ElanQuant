@@ -1,0 +1,95 @@
+import { useState } from 'react'
+import { createApiClient } from './api'
+import { Shell, type PageKey } from './components/Shell'
+import { JobsPage } from './pages/JobsPage'
+import { MethodsPage } from './pages/MethodsPage'
+import { OverviewPage } from './pages/OverviewPage'
+import { PaperPage } from './pages/PaperPage'
+import { RankingPage } from './pages/RankingPage'
+import { ResearchPage } from './pages/ResearchPage'
+import type { ApiClient } from './types'
+import { useDashboard } from './useDashboard'
+
+const productionClient = createApiClient()
+
+const validPages: PageKey[] = ['overview', 'jobs', 'research', 'ranking', 'paper', 'methods']
+
+const initialPage = (): PageKey => {
+  const candidate = window.location.hash.replace('#/', '') as PageKey
+  return validPages.includes(candidate) ? candidate : 'overview'
+}
+
+export function App({ client = productionClient }: { client?: ApiClient }) {
+  const [page, setPage] = useState<PageKey>(initialPage)
+  const dashboard = useDashboard(client)
+
+  const navigate = (next: PageKey) => {
+    setPage(next)
+    window.history.replaceState(null, '', `#/${next}`)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  if (dashboard.loading && !dashboard.snapshot) {
+    return (
+      <div className="boot-screen" role="status">
+        <div className="brand__seal">EQ</div>
+        <span className="eyebrow">ElanQuant / Connecting</span>
+        <h1>正在读取服务器状态</h1>
+        <p>请保持 EasyConnect 与 SSH 隧道可用。</p>
+        <div className="boot-line"><span /></div>
+      </div>
+    )
+  }
+
+  if (!dashboard.snapshot) {
+    return (
+      <div className="connection-screen">
+        <span className="eyebrow">Connection unavailable</span>
+        <h1>无法读取 ElanQuant 服务器</h1>
+        <p>{dashboard.error || '没有收到服务器响应。'}</p>
+        <ol>
+          <li>确认 EasyConnect 已连接学校网络。</li>
+          <li>确认 SSH 本地隧道仍在运行。</li>
+          <li>确认服务器API服务已启动。</li>
+        </ol>
+        <button className="primary-action" type="button" onClick={() => void dashboard.refresh()}>
+          <span>重新连接</span><b>↻</b>
+        </button>
+        <small>已有服务器任务不会因为这个页面断线而停止。</small>
+      </div>
+    )
+  }
+
+  const snapshot = dashboard.snapshot
+  return (
+    <Shell
+      page={page}
+      onPageChange={navigate}
+      serviceState={snapshot.system.service_state}
+      refreshing={dashboard.refreshing}
+      onRefresh={() => void dashboard.refresh()}
+    >
+      {dashboard.error ? (
+        <div className="error-banner" role="alert">
+          <strong>刷新失败，当前显示上一次已确认状态</strong>
+          <span>{dashboard.error}</span>
+        </div>
+      ) : null}
+      {page === 'overview' ? (
+        <OverviewPage
+          snapshot={snapshot}
+          submitting={dashboard.submitting}
+          receipt={dashboard.receipt}
+          onSubmit={() => void dashboard.submit()}
+        />
+      ) : null}
+      {page === 'jobs' ? (
+        <JobsPage jobs={snapshot.jobs} submitting={dashboard.submitting} onRetry={(id) => void dashboard.retry(id)} />
+      ) : null}
+      {page === 'research' ? <ResearchPage run={snapshot.latest_run} /> : null}
+      {page === 'ranking' ? <RankingPage run={snapshot.latest_run} /> : null}
+      {page === 'paper' ? <PaperPage account={snapshot.paper} /> : null}
+      {page === 'methods' ? <MethodsPage /> : null}
+    </Shell>
+  )
+}

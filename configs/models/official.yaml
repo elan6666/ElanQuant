@@ -1,0 +1,16 @@
+protocol: official_style_a_share_v1
+upstream_commit: 67b630e67f6a18c9e9be918d9b4337c960db1e9a
+tokenizer: NeoQuasar/Kronos-Tokenizer-base
+models:
+  - NeoQuasar/Kronos-small
+lookback: 90
+predict: 10
+epochs: 30
+batch_size_per_gpu: 50
+tokenizer_learning_rate: 0.0002
+predictor_learning_rate: 0.00004
+weight_decay: 0.1
+seed: 100
+warning: >-
+  Author architecture and training defaults with ElanQuant A-share data and
+  ten-path percentage-return ranking; not an official qlib backtest reproduction.

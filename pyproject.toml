@@ -1,0 +1,51 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "elanquant"
+version = "0.1.0"
+description = "Auditable A-share Kronos research and paper-trading system"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "pydantic>=2.9,<3",
+  "uvicorn>=0.30,<1",
+  "pyyaml>=6,<7",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx>=0.27,<1",
+  "numpy>=1.26,<3",
+  "pandas>=2.2,<3",
+  "pytest>=8,<9",
+  "pytest-asyncio>=0.24,<1",
+  "ruff>=0.8,<1",
+  "pyright>=1.1.390,<2",
+]
+
+[project.scripts]
+elanquant-api = "elanquant.api.app:main"
+elanquant-worker = "elanquant.orchestration.worker:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["backend/src/elanquant"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["backend/src"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pyright]
+include = ["backend/src", "scripts/research"]
+exclude = ["scripts/server"]
+pythonVersion = "3.11"
+typeCheckingMode = "standard"

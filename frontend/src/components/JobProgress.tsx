@@ -1,0 +1,56 @@
+import { formatDateTime, jobStateLabel, stageLabel } from '../format'
+import type { Job, JobStage } from '../types'
+import { Badge } from './Badge'
+
+const orderedStages: JobStage[] = [
+  'queued',
+  'resolving_session',
+  'updating_data',
+  'validating_data',
+  'infer_small',
+  'scoring',
+  'paper_ledger',
+  'completed',
+]
+
+export function JobProgress({ job, compact = false }: { job: Job; compact?: boolean }) {
+  const activeIndex = orderedStages.indexOf(job.stage)
+  return (
+    <article className={`job-progress ${compact ? 'job-progress--compact' : ''}`}>
+      <div className="job-progress__head">
+        <div>
+          <span className="eyebrow">任务 {job.id.slice(0, 12)}</span>
+          <h3>{stageLabel[job.stage]}</h3>
+        </div>
+        <Badge state={job.state}>{jobStateLabel[job.state]}</Badge>
+      </div>
+
+      <div className="progress-track" aria-label={`任务进度 ${Math.round(job.progress * 100)}%`}>
+        <span style={{ width: `${Math.min(100, Math.max(0, job.progress * 100))}%` }} />
+      </div>
+
+      <div className="job-progress__meta">
+        <span>提交 {formatDateTime(job.requested_at)}</span>
+        <span>数据日 {job.as_of || '确认中'}</span>
+        <span>{Math.round(job.progress * 100)}%</span>
+      </div>
+
+      {job.message ? <p className="job-progress__message">{job.message}</p> : null}
+
+      {!compact ? (
+        <ol className="stage-list">
+          {orderedStages.map((stage, index) => {
+            const done = index < activeIndex || job.state === 'succeeded'
+            const active = stage === job.stage && job.state !== 'succeeded'
+            return (
+              <li className={done ? 'is-done' : active ? 'is-active' : ''} key={stage}>
+                <span>{done ? '✓' : String(index + 1).padStart(2, '0')}</span>
+                {stageLabel[stage]}
+              </li>
+            )
+          })}
+        </ol>
+      ) : null}
+    </article>
+  )
+}

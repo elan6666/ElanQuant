@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./data/**)",
+      "Read(./artifacts/**)",
+      "Read(./runs/**)",
+      "Read(./logs/**)",
+      "Read(./checkpoints/**)",
+      "Read(./weights/**)",
+      "Read(./frontend/node_modules/**)",
+      "Read(./frontend/dist/**)"
+    ]
+  }
+}

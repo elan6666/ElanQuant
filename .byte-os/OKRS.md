@@ -1,0 +1,38 @@
+# Objective and Key Results
+
+## Objective
+
+Deliver ElanQuant as a trustworthy learning project and auditable daily A-share
+research workflow, from official Kronos reproduction through strict-PIT paper
+trading and a usable full-stack interface.
+
+## Key Results
+
+1. Freeze three Small cells: zero-shot, official-style extended-data fine-tune,
+   and strict-PIT fine-tune, each with code/data/config/weight hashes. Defer Base.
+2. Materialize and audit the agreed extended daily OHLCVA dataset from
+   2011-01-01 through the latest closed session, with 2025 validation and 2026
+   viewed evaluation separated by label-aware boundaries.
+3. Complete the first workflow from `Update data and run inference` through a
+   durable background job, ranked stocks, forecast evidence, and a dated paper
+   order proposal.
+4. Pass local backend/frontend tests and builds plus server data, training, and
+   inference smoke/full gates without storing restricted artifacts in Git.
+5. Complete three evidence-led iterations and a current ship review with clear
+   limitations and operating instructions.
+
+## Baseline
+
+- GitHub repository existed but was empty at Auto start.
+- Official global Kronos weights exist; no official A-share fine-tuned weights
+  were identified in the prior discussion.
+- Server and VPN route are available, but no ElanQuant service or trained
+  ElanQuant checkpoint exists yet.
+
+## Evidence required
+
+- Official upstream commit and weight identifiers.
+- Dataset manifests, availability rules, split receipts, hashes, and coverage.
+- Training/inference receipts and metrics for every admitted cell.
+- Paper orders, fills, cash/position reconciliation, costs, and rejection logs.
+- Test, lint, typecheck, build, browser, server, review, and iteration records.

@@ -1,0 +1,16 @@
+protocol: strict_pit_v1
+raw_start: 2011-01-01
+raw_end: LATEST_CLOSED_SESSION
+train_target_end: 2024-12-31
+validation_anchor_start: 2025-01-01
+validation_target_end: 2025-12-31
+test_viewed_anchor_start: 2026-01-01
+lookback: 90
+predict: 10
+temperature: 0.6
+top_p: 0.9
+monte_carlo_paths: 10
+universe: CSI300_DYNAMIC_PIT
+models: [small]
+shared_training_only_tokenizer: false
+online_latest_is_unscored: true
