@@ -81,3 +81,8 @@ npm --prefix frontend run build
 - Kronos 上游固定到 commit `67b630e67f6a18c9e9be918d9b4337c960db1e9a`。
 - 本轮训练只使用固定 revision/SHA-256 的 Tokenizer-base 和 Small；Base 不启动训练。
 - 上游代码只读保存；A 股数据适配、严格 PIT、评估和模拟执行放在 ElanQuant 外层。
+
+## License
+
+ElanQuant 源码采用 [MIT License](LICENSE)。Kronos 仍归其原作者所有，并遵循上游
+仓库自己的 MIT License；模型权重和数据还需分别遵守其来源条款。
