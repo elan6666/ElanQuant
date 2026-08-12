@@ -8,7 +8,8 @@
 - Completed stages: repository isolation; goal creation; VPN/SSH preflight;
   Byte start/research/harness/shape/plan; foundation; backend; frontend;
   strict-PIT research contracts; official weights hash gate; extended data v2;
-  DDP smoke; backend/frontend hardening; server API bootstrap.
+  DDP smoke; backend/frontend hardening; server API bootstrap; Claude-inspired
+  responsive redesign; immutable data admission; GitHub source baseline.
 - Remaining plans: complete Small three-cell training/evaluation; publish release;
   start real worker; live integration;
   third iteration; final review; delivery.

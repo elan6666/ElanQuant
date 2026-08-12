@@ -10,7 +10,7 @@ worker heartbeat, consistent close-carry realized outcomes, observed-bar
 execution gate, closed-world raw manifest, account valuation reconciliation,
 Small-only frontend contracts, and a warm Claude-inspired responsive visual layer.
 
-Verification: server 36 pytest, Ruff, Pyright and compile gates pass; frontend
+Verification: server 40 pytest, Ruff, Pyright and compile gates pass; frontend
 7 tests, ESLint and production build pass; desktop and 390px browser QA pass.
 
 Result: no open code-level P1 in the second architecture review. Real training,

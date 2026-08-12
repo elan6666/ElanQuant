@@ -32,8 +32,9 @@ without real brokerage connectivity.
 
 ## Harness
 
-Server verification currently passes 36 pytest tests, Ruff, Pyright, and compileall.
+Server verification currently passes 40 pytest tests, Ruff, Pyright, and compileall.
 Frontend verification passes 7 Vitest tests, ESLint, TypeScript, and Vite build.
+GitHub `main` is published and a fresh-clone backend/frontend verification passes.
 
 ## Next
 

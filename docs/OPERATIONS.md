@@ -86,8 +86,17 @@ cat /data/yilangliu/a_share_research/elanquant/releases/current/manifest.json
 ```
 
 每个 `terminal.json` 必须为 PASS，且包含数据、workspace、日志和 checkpoint 哈希。
-完成后必须运行 `compile_training_matrix.py`；后端只接受由各阶段真实回执派生的 sealed
-matrix，不能靠手写三格 JSON 标记 PASS。Base 本轮不训练。
+完成后必须先存在不可变的 `runs/admission/extended-v2.json`，再运行
+`compile_training_matrix.py`；后端只接受由数据准入和各阶段真实回执派生的 sealed
+matrix，不能靠手写三格 JSON 标记 PASS。Base 本轮不训练。首次准入命令为：
+
+```bash
+python -m scripts.server.audit_dataset_admission \
+  --root /data/yilangliu/a_share_research/elanquant \
+  --out /data/yilangliu/a_share_research/elanquant/runs/admission/extended-v2.json
+```
+
+该路径已存在时命令会拒绝覆盖；新数据版本必须使用新的数据根、回执名和对应矩阵配置。
 训练或封存服务失败时，先读取对应 terminal/日志；修复后创建新的不可变 run/release id，
 不得覆盖旧 checkpoint、旧回执或旧 release。
 

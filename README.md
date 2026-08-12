@@ -65,6 +65,7 @@ npm --prefix frontend run build
 
 服务器部署、训练、故障检查见 [运维手册](docs/OPERATIONS.md)，研究边界见
 [研究协议](docs/RESEARCH_PROTOCOL.md)，零基础学习顺序见
+[第一课全栈总览](docs/LESSON_01_FULLSTACK_OVERVIEW.md)和
 [全栈学习指南](docs/LEARNING_GUIDE.md)。
 
 ## 数据与凭据边界

@@ -84,3 +84,20 @@
   now bind reuse to the snapshot implementation hash.
 - Latest gates: server 36 pytest PASS, Ruff PASS, Pyright 0, compileall and shell
   syntax PASS; frontend 7 Vitest PASS, ESLint PASS and production build PASS.
+
+## 2026-08-13 — Delivery reproducibility and data admission
+
+- Sealed `runs/admission/extended-v2.json`: 3,117 raw CSV files and seven
+  processed files passed closed-world path, endpoint, symbol, row-count,
+  date-range and SHA-256 verification. The Small matrix compiler now requires
+  this receipt and binds its hash.
+- Persisted per-position valuation price/source/value/PnL in each portfolio
+  snapshot. API account totals now reconcile exactly to the displayed position
+  ledger; legacy and T+1 migration paths have direct tests.
+- Server verification now passes 40 pytest tests, Ruff, Pyright, compileall and
+  shell syntax. `npm audit --omit=dev` reports zero vulnerabilities.
+- Published GitHub `main` to `elan6666/ElanQuant` with an MIT license and no
+  data, credentials, weights, checkpoints, predictions, databases or logs.
+- A fresh GitHub clone passed `npm ci`, seven frontend tests, ESLint and build on
+  Mac; a separate fresh server virtualenv passed 40 tests, Ruff, Pyright and
+  compileall.
