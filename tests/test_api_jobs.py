@@ -109,3 +109,7 @@ def test_completed_run_matches_dashboard_contract(tmp_path: Path) -> None:
     assert all(position["last_price"] is not None for position in next_account["positions"])
     assert all(position["market_value"] is not None for position in next_account["positions"])
     assert all(position["unrealized_pnl"] is not None for position in next_account["positions"])
+    assert next_account["market_value"] == sum(
+        position["market_value"] for position in next_account["positions"]
+    )
+    assert next_account["equity"] == next_account["cash"] + next_account["market_value"]
