@@ -116,6 +116,18 @@ def test_real_pipeline_publishes_only_contract_complete_artifacts_atomically(
                 "status": "PASS",
                 "evaluation_mode": "FORMAL",
                 "training_matrix_receipt_sha256": matrix_sha,
+                "evaluation_support": {
+                    "validation_2025": {
+                        "evaluated_rows": 300,
+                        "evaluated_cross_sections": 10,
+                        "anchor_set_sha256": "a" * 64,
+                    },
+                    "test_viewed_2026": {
+                        "evaluated_rows": 200,
+                        "evaluated_cross_sections": 8,
+                        "anchor_set_sha256": "b" * 64,
+                    },
+                },
                 "models": {
                     model_id: {
                         "metrics": {
@@ -123,8 +135,16 @@ def test_real_pipeline_publishes_only_contract_complete_artifacts_atomically(
                                 "rank_ic": 0.1,
                                 "ic": 0.08,
                                 "top10_mean_return": 0.03,
+                                "rows": 300,
+                                "cross_sections": 10,
                             },
-                            "test_viewed_2026": {"rank_ic": 0.05},
+                            "test_viewed_2026": {
+                                "rank_ic": 0.05,
+                                "ic": 0.04,
+                                "top10_mean_return": 0.01,
+                                "rows": 200,
+                                "cross_sections": 8,
+                            },
                         }
                     }
                     for model_id in model_ids

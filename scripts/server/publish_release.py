@@ -85,36 +85,56 @@ def validate_release_pair(
     models = evaluation_payload.get("models")
     if not isinstance(models, dict) or set(models) != EXPECTED_MODEL_IDS:
         raise RuntimeError("evaluation is not the exact Small three-cell experiment")
+    support = evaluation_payload.get("evaluation_support")
+    if not isinstance(support, dict):
+        raise RuntimeError("formal evaluation support receipt is missing")
+    expected_support: dict[str, tuple[int, int]] = {}
+    for split_name in ("validation_2025", "test_viewed_2026"):
+        split_support = support.get(split_name)
+        if not isinstance(split_support, dict):
+            raise RuntimeError(f"formal support receipt is missing: {split_name}")
+        eligible = int(
+            finite_number(split_support.get("eligible_rows"), f"{split_name}.eligible_rows")
+        )
+        evaluated = int(
+            finite_number(split_support.get("evaluated_rows"), f"{split_name}.evaluated_rows")
+        )
+        cross_sections = int(
+            finite_number(
+                split_support.get("evaluated_cross_sections"),
+                f"{split_name}.evaluated_cross_sections",
+            )
+        )
+        anchor_sha = split_support.get("anchor_set_sha256")
+        if eligible <= 0 or evaluated <= 0 or evaluated > eligible or cross_sections <= 0:
+            raise RuntimeError(f"formal support coverage is invalid: {split_name}")
+        if not isinstance(anchor_sha, str) or len(anchor_sha) != 64:
+            raise RuntimeError(f"formal anchor identity is invalid: {split_name}")
+        expected_support[split_name] = (evaluated, cross_sections)
     for model_id in sorted(EXPECTED_MODEL_IDS):
         model = models[model_id]
         if not isinstance(model, dict):
             raise RuntimeError(f"evaluation model is invalid: {model_id}")
         metrics = model.get("metrics")
-        validation = metrics.get("validation_2025") if isinstance(metrics, dict) else None
-        if not isinstance(validation, dict):
-            raise RuntimeError(f"formal validation metrics are missing: {model_id}")
-        for metric in ("rank_ic", "ic", "top10_mean_return"):
-            finite_number(validation.get(metric), f"{model_id}.validation_2025.{metric}")
-        if (
-            int(finite_number(validation.get("rows"), f"{model_id}.validation_2025.rows"))
-            <= 0
-        ):
-            raise RuntimeError(f"formal validation has no rows: {model_id}")
-        if int(
-            finite_number(
-                validation.get("cross_sections"),
-                f"{model_id}.validation_2025.cross_sections",
+        if not isinstance(metrics, dict) or set(metrics) != set(expected_support):
+            raise RuntimeError(f"formal split metrics are incomplete: {model_id}")
+        for split_name, (expected_rows, expected_sections) in expected_support.items():
+            split_metrics = metrics.get(split_name)
+            if not isinstance(split_metrics, dict):
+                raise RuntimeError(f"formal metrics are missing: {model_id}.{split_name}")
+            for metric in ("rank_ic", "ic", "top10_mean_return"):
+                finite_number(split_metrics.get(metric), f"{model_id}.{split_name}.{metric}")
+            rows = int(
+                finite_number(split_metrics.get("rows"), f"{model_id}.{split_name}.rows")
             )
-        ) <= 0:
-            raise RuntimeError(f"formal validation has no cross-sections: {model_id}")
-    support = evaluation_payload.get("evaluation_support")
-    validation_support = support.get("validation_2025") if isinstance(support, dict) else None
-    if not isinstance(validation_support, dict):
-        raise RuntimeError("formal validation support receipt is missing")
-    eligible = finite_number(validation_support.get("eligible_rows"), "eligible_rows")
-    evaluated = finite_number(validation_support.get("evaluated_rows"), "evaluated_rows")
-    if eligible <= 0 or evaluated <= 0 or evaluated > eligible:
-        raise RuntimeError("formal validation coverage is invalid")
+            sections = int(
+                finite_number(
+                    split_metrics.get("cross_sections"),
+                    f"{model_id}.{split_name}.cross_sections",
+                )
+            )
+            if rows != expected_rows or sections != expected_sections:
+                raise RuntimeError(f"formal model support disagrees: {model_id}.{split_name}")
     scores = evaluation_payload.get("scores")
     if not isinstance(scores, list) or len(scores) < 250:
         raise RuntimeError("release ranking has insufficient CSI300 coverage")

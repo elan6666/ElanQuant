@@ -139,22 +139,49 @@ def run_real_pipeline(
     evaluation_result = json.loads(evaluation_path.read_text(encoding="utf-8"))
     expected_models = {"small-zero-shot", "small-official-ft", "small-strict-pit"}
     evaluation_models = evaluation_result.get("models")
+    evaluation_support = evaluation_result.get("evaluation_support")
     if (
         evaluation_result.get("status") != "PASS"
         or evaluation_result.get("evaluation_mode") != "FORMAL"
         or not isinstance(evaluation_models, dict)
         or set(evaluation_models) != expected_models
+        or not isinstance(evaluation_support, dict)
         or evaluation_result.get("training_matrix_receipt_sha256") != matrix_sha
     ):
         raise RuntimeError("formal Small evaluation receipt is incomplete or mismatched")
+    expected_support: dict[str, tuple[int, int]] = {}
+    for split_name in ("validation_2025", "test_viewed_2026"):
+        support = evaluation_support.get(split_name)
+        if not isinstance(support, dict):
+            raise RuntimeError(f"formal support is incomplete: {split_name}")
+        rows = support.get("evaluated_rows")
+        sections = support.get("evaluated_cross_sections")
+        anchor_sha = support.get("anchor_set_sha256")
+        if (
+            not isinstance(rows, int)
+            or rows <= 0
+            or not isinstance(sections, int)
+            or sections <= 0
+            or not isinstance(anchor_sha, str)
+            or len(anchor_sha) != 64
+        ):
+            raise RuntimeError(f"formal support is invalid: {split_name}")
+        expected_support[split_name] = (rows, sections)
     for model_id in expected_models:
         metrics = evaluation_models[model_id].get("metrics")
-        validation = metrics.get("validation_2025") if isinstance(metrics, dict) else None
-        if not isinstance(validation, dict) or not all(
-            isinstance(validation.get(key), (int, float))
-            for key in ("rank_ic", "ic", "top10_mean_return")
-        ):
-            raise RuntimeError(f"formal validation metrics are incomplete: {model_id}")
+        if not isinstance(metrics, dict) or set(metrics) != set(expected_support):
+            raise RuntimeError(f"formal split metrics are incomplete: {model_id}")
+        for split_name, expected in expected_support.items():
+            split_metrics = metrics.get(split_name)
+            if (
+                not isinstance(split_metrics, dict)
+                or not all(
+                    isinstance(split_metrics.get(key), (int, float))
+                    for key in ("rank_ic", "ic", "top10_mean_return")
+                )
+                or (split_metrics.get("rows"), split_metrics.get("cross_sections")) != expected
+            ):
+                raise RuntimeError(f"formal metrics are incomplete: {model_id}.{split_name}")
     advance(
         "VALIDATING_DATA", 0.25, "Online snapshot passed coverage and continuity gates", resolved
     )
