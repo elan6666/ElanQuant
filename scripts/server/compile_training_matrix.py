@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Derive the sealed Small three-cell matrix from immutable receipts."""
+"""Derive a sealed Small or Base three-cell matrix from immutable receipts."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ UPSTREAM_COMMIT = "67b630e67f6a18c9e9be918d9b4337c960db1e9a"
 OFFICIAL_REPOS = {
     "tokenizer": "NeoQuasar/Kronos-Tokenizer-base",
     "small": "NeoQuasar/Kronos-small",
+    "base": "NeoQuasar/Kronos-base",
 }
 
 
@@ -47,9 +48,11 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--run-id", required=True)
+    parser.add_argument("--model-size", choices=("small", "base"), default="small")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     root = args.root.resolve()
+    model_size = args.model_size
     run_root = root / "runs/training" / args.run_id
     save_root = root / "models/training" / args.run_id
     official = load_pass(root / "models/pretrained/receipt.json", "elanquant_official_weights_v1")
@@ -64,12 +67,13 @@ def main() -> int:
     if admission.get("raw_manifest_sha256") != sha256(raw_manifest_path):
         raise RuntimeError("dataset admission receipt does not bind the immutable raw manifest")
     split_sha = canonical_hash(data_manifest["split_contract"])
-    official_config_sha = sha256(root / "source/configs/models/official.yaml")
+    official_config_name = "official.yaml" if model_size == "small" else "base_official.yaml"
+    official_config_sha = sha256(root / f"source/configs/models/{official_config_name}")
 
     terminals: dict[tuple[str, str, str], dict[str, Any]] = {}
     for track in ("official", "strict"):
-        for stage, size in (("tokenizer", "small"), ("predictor", "small")):
-            path = run_root / f"{track}-{stage}-{size}" / "terminal.json"
+        for stage in ("tokenizer", "predictor"):
+            path = run_root / f"{track}-{stage}-{model_size}" / "terminal.json"
             terminal = load_pass(path, "elanquant_training_terminal_v2")
             if not terminal.get("checkpoint_created_by_this_stage"):
                 raise RuntimeError(f"stage did not create a fresh checkpoint: {path}")
@@ -81,55 +85,63 @@ def main() -> int:
                 or sha256(checkpoint) != terminal["checkpoint_sha256"]
             ):
                 raise RuntimeError(f"stage checkpoint identity mismatch: {path}")
-            terminals[(track, stage, size)] = terminal
+            if terminal.get("size") != model_size:
+                raise RuntimeError(f"stage model-size identity mismatch: {path}")
+            terminals[(track, stage, model_size)] = terminal
 
     weight_models = official.get("models", {})
+    selected_repositories = {
+        "tokenizer": OFFICIAL_REPOS["tokenizer"],
+        model_size: OFFICIAL_REPOS[model_size],
+    }
     pretrained_hashes = {
-        size: str(weight_models[repo]["model_sha256"]) for size, repo in OFFICIAL_REPOS.items()
+        size: str(weight_models[repo]["model_sha256"])
+        for size, repo in selected_repositories.items()
     }
     cells: list[dict[str, Any]] = []
-    for size in ("small",):
+    cells.append(
+        {
+            "id": f"{model_size}-zero-shot",
+            "size": model_size,
+            "track": "zero_shot",
+            "tokenizer_path": str(root / "models/pretrained/Kronos-Tokenizer-base"),
+            "tokenizer_sha256": pretrained_hashes["tokenizer"],
+            "predictor_path": str(root / f"models/pretrained/Kronos-{model_size}"),
+            "predictor_sha256": pretrained_hashes[model_size],
+            "config_sha256": official_config_sha,
+            "trained_components": [],
+        }
+    )
+    for track, cell_track in (("official", "official_style"), ("strict", "strict_pit")):
+        tokenizer = terminals[(track, "tokenizer", model_size)]
+        predictor = terminals[(track, "predictor", model_size)]
+        if predictor["input_tokenizer_sha256"] != tokenizer["checkpoint_sha256"]:
+            raise RuntimeError(
+                f"{track}/{model_size} predictor did not reuse the sealed tokenizer"
+            )
+        if predictor["input_predictor_sha256"] != pretrained_hashes[model_size]:
+            raise RuntimeError(
+                f"{track}/{model_size} predictor input is not the pinned official weight"
+            )
         cells.append(
             {
-                "id": f"{size}-zero-shot",
-                "size": size,
-                "track": "zero_shot",
-                "tokenizer_path": str(root / "models/pretrained/Kronos-Tokenizer-base"),
-                "tokenizer_sha256": pretrained_hashes["tokenizer"],
-                "predictor_path": str(root / f"models/pretrained/Kronos-{size}"),
-                "predictor_sha256": pretrained_hashes[size],
-                "config_sha256": official_config_sha,
-                "trained_components": [],
+                "id": f"{model_size}-{'official-ft' if track == 'official' else 'strict-pit'}",
+                "size": model_size,
+                "track": cell_track,
+                "tokenizer_path": str(Path(tokenizer["checkpoint_path"]).parent),
+                "tokenizer_sha256": tokenizer["checkpoint_sha256"],
+                "predictor_path": str(Path(predictor["checkpoint_path"]).parent),
+                "predictor_sha256": predictor["checkpoint_sha256"],
+                "config_sha256": predictor["runtime_config_sha256"],
+                "trained_components": ["tokenizer", "predictor"],
+                "tokenizer_terminal_sha256": sha256(
+                    run_root / f"{track}-tokenizer-{model_size}/terminal.json"
+                ),
+                "predictor_terminal_sha256": sha256(
+                    run_root / f"{track}-predictor-{model_size}/terminal.json"
+                ),
             }
         )
-        for track, cell_track in (("official", "official_style"), ("strict", "strict_pit")):
-            tokenizer = terminals[(track, "tokenizer", "small")]
-            predictor = terminals[(track, "predictor", size)]
-            if predictor["input_tokenizer_sha256"] != tokenizer["checkpoint_sha256"]:
-                raise RuntimeError(f"{track}/{size} predictor did not reuse the sealed tokenizer")
-            if predictor["input_predictor_sha256"] != pretrained_hashes[size]:
-                raise RuntimeError(
-                    f"{track}/{size} predictor input is not the pinned official weight"
-                )
-            cells.append(
-                {
-                    "id": f"{size}-{'official-ft' if track == 'official' else 'strict-pit'}",
-                    "size": size,
-                    "track": cell_track,
-                    "tokenizer_path": str(Path(tokenizer["checkpoint_path"]).parent),
-                    "tokenizer_sha256": tokenizer["checkpoint_sha256"],
-                    "predictor_path": str(Path(predictor["checkpoint_path"]).parent),
-                    "predictor_sha256": predictor["checkpoint_sha256"],
-                    "config_sha256": predictor["runtime_config_sha256"],
-                    "trained_components": ["tokenizer", "predictor"],
-                    "tokenizer_terminal_sha256": sha256(
-                        run_root / f"{track}-tokenizer-small/terminal.json"
-                    ),
-                    "predictor_terminal_sha256": sha256(
-                        run_root / f"{track}-predictor-{size}/terminal.json"
-                    ),
-                }
-            )
 
     payload = {
         "schema_version": "elanquant_training_matrix_v2",

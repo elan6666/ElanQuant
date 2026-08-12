@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Evaluate the three Kronos Small cells and publish a latest-session ranking.
+"""Evaluate three Kronos Small or Base cells and publish a latest-session ranking.
 
 This server-only command keeps model selection on the 2025 validation split and
 labels 2026 metrics TEST_VIEWED.  It uses the pinned author's predictor without
@@ -27,11 +27,14 @@ LOOKBACK = 90
 PREDICT = 10
 UPSTREAM_COMMIT = "67b630e67f6a18c9e9be918d9b4337c960db1e9a"
 FEATURES = ["open", "high", "low", "close", "volume", "amount"]
-MODEL_CELLS = (
-    ("small-zero-shot", "small", "zero_shot"),
-    ("small-official-ft", "small", "official_style"),
-    ("small-strict-pit", "small", "strict_pit"),
-)
+
+
+def model_cells(size: str) -> tuple[tuple[str, str, str], ...]:
+    return (
+        (f"{size}-zero-shot", size, "zero_shot"),
+        (f"{size}-official-ft", size, "official_style"),
+        (f"{size}-strict-pit", size, "strict_pit"),
+    )
 
 
 def sha256(path: Path) -> str:
@@ -277,13 +280,16 @@ def main() -> int:
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--upstream", type=Path, required=True)
     parser.add_argument("--matrix-receipt", type=Path, required=True)
+    parser.add_argument("--model-size", choices=("small", "base"), default="small")
     parser.add_argument("--smoke-evaluation-samples", type=int)
     parser.add_argument("--formal-sessions-per-month", type=int, default=5)
     parser.add_argument("--batch-size", type=int, default=20)
+    parser.add_argument("--online-batch-size", type=int, default=50)
     parser.add_argument("--online-root", type=Path)
     parser.add_argument("--skip-evaluation", action="store_true")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
+    cells = model_cells(args.model_size)
     root = args.root.resolve()
     dataset_root = root / "data/processed/extended-v2"
     manifest_path = dataset_root / "manifest.json"
@@ -369,7 +375,8 @@ def main() -> int:
         "config_sha256": hashlib.sha256(
             json.dumps(
                 {
-                    "batch_size": args.batch_size,
+                    "evaluation_batch_size": args.batch_size,
+                    "online_batch_size": args.online_batch_size,
                     "evaluation_mode": evaluation_mode,
                     "formal_sessions_per_month": args.formal_sessions_per_month,
                     "sampling": {"temperature": 0.6, "top_p": 0.9, "top_k": 0, "sample_count": 10},
@@ -444,7 +451,7 @@ def main() -> int:
     y_latest = future_sessions(calendar, latest)
     output["forecast_sessions"] = [session.strftime("%Y-%m-%d") for session in y_latest]
 
-    for model_id, size, track in MODEL_CELLS:
+    for model_id, size, track in cells:
         reset_sampling_seed(torch)
         tokenizer_path, predictor_path, matrix_cell = model_paths(matrix, model_id)
         if not (tokenizer_path / "model.safetensors").is_file():
@@ -513,8 +520,8 @@ def main() -> int:
             # Reset before the online cross-section so FORMAL and ONLINE_ONLY
             # produce the same score for the same model, data and configuration.
             reset_sampling_seed(torch)
-            for batch_start in range(0, len(latest_starts), args.batch_size):
-                batch = latest_starts[batch_start : batch_start + args.batch_size]
+            for batch_start in range(0, len(latest_starts), args.online_batch_size):
+                batch = latest_starts[batch_start : batch_start + args.online_batch_size]
                 frames, times = [], []
                 for code, start in batch:
                     history = materialize_history(
@@ -565,13 +572,14 @@ def main() -> int:
     rows = []
     for item in online_rows.values():
         scores = item["model_scores"]
-        if not all(model_id in scores for model_id, *_ in MODEL_CELLS):
+        if not all(model_id in scores for model_id, *_ in cells):
             continue
-        item["score"] = float(scores["small-strict-pit"])
+        item["score"] = float(scores[f"{args.model_size}-strict-pit"])
         item["forecast_return"] = item["score"]
         item["coverage"] = 1.0
         item["eligible"] = True
-        item["explanation"] = "严格PIT Small 十日平均收盘预测收益。"
+        label = "Small" if args.model_size == "small" else "Base"
+        item["explanation"] = f"严格PIT {label} 十日平均收盘预测收益。"
         item["forecast"] = []
         rows.append(item)
     rows.sort(key=lambda item: (-float(item["score"]), str(item["code"])))

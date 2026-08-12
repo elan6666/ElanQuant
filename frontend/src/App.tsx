@@ -86,9 +86,19 @@ export function App({ client = productionClient }: { client?: ApiClient }) {
       {page === 'jobs' ? (
         <JobsPage jobs={snapshot.jobs} submitting={dashboard.submitting} onRetry={(id) => void dashboard.retry(id)} />
       ) : null}
-      {page === 'research' ? <ResearchPage run={snapshot.latest_run} /> : null}
+      {page === 'research' ? (
+        <ResearchPage
+          run={snapshot.latest_run}
+          catalog={snapshot.research_catalog}
+          catalogAvailable={snapshot.research_catalog_available}
+          runs={snapshot.runs}
+          diff={snapshot.run_diff}
+        />
+      ) : null}
       {page === 'ranking' ? <RankingPage run={snapshot.latest_run} /> : null}
-      {page === 'paper' ? <PaperPage account={snapshot.paper} /> : null}
+      {page === 'paper' ? (
+        <PaperPage account={snapshot.paper} summary={snapshot.paper_summary} />
+      ) : null}
       {page === 'methods' ? <MethodsPage /> : null}
     </Shell>
   )

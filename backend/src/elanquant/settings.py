@@ -30,6 +30,9 @@ class Settings:
     evaluation_receipt: Path = Path(
         "/data/yilangliu/a_share_research/elanquant/releases/current/formal-evaluation.json"
     )
+    research_catalog: Path = Path(
+        "/data/yilangliu/a_share_research/elanquant/releases/research-catalog.json"
+    )
 
     @classmethod
     def load(cls, config_path: Path | None = None) -> Settings:
@@ -130,6 +133,17 @@ class Settings:
                         raw.get(
                             "evaluation_receipt",
                             "/data/yilangliu/a_share_research/elanquant/releases/current/formal-evaluation.json",
+                        )
+                    ),
+                )
+            ),
+            research_catalog=Path(
+                os.environ.get(
+                    "ELANQUANT_RESEARCH_CATALOG",
+                    str(
+                        raw.get(
+                            "research_catalog",
+                            "/data/yilangliu/a_share_research/elanquant/releases/research-catalog.json",
                         )
                     ),
                 )

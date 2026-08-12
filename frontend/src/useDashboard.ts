@@ -26,9 +26,15 @@ export const useDashboard = (client: ApiClient): DashboardState => {
   const [error, setError] = useState<string | null>(null)
   const [receipt, setReceipt] = useState<SubmitJobReceipt | null>(null)
   const mounted = useRef(true)
+  const requestInFlight = useRef(false)
+  const activePolling = Boolean(
+    snapshot?.jobs.some((job) => job.state === 'queued' || job.state === 'running'),
+  )
 
   const load = useCallback(
     async (quiet = false) => {
+      if (requestInFlight.current) return
+      requestInFlight.current = true
       if (!quiet) setRefreshing(true)
       try {
         const next = await client.getSnapshot()
@@ -38,6 +44,7 @@ export const useDashboard = (client: ApiClient): DashboardState => {
       } catch (nextError) {
         if (mounted.current) setError(errorMessage(nextError))
       } finally {
+        requestInFlight.current = false
         if (mounted.current) {
           setLoading(false)
           setRefreshing(false)
@@ -50,12 +57,17 @@ export const useDashboard = (client: ApiClient): DashboardState => {
   useEffect(() => {
     mounted.current = true
     void load(true)
-    const interval = window.setInterval(() => void load(true), 4_000)
+    const interval = window.setInterval(
+      () => {
+        if (document.visibilityState === 'visible' || activePolling) void load(true)
+      },
+      activePolling ? 4_000 : 45_000,
+    )
     return () => {
       mounted.current = false
       window.clearInterval(interval)
     }
-  }, [load])
+  }, [activePolling, load])
 
   const submit = useCallback(async () => {
     setSubmitting(true)

@@ -9,6 +9,7 @@ Environment=PYTHONUNBUFFERED=1
 Environment=ELANQUANT_CONFIG=/data/yilangliu/a_share_research/elanquant/source/configs/app.yaml
 Environment=ELANQUANT_DB_PATH=/data/yilangliu/a_share_research/elanquant/artifacts/elanquant.sqlite3
 Environment=ELANQUANT_ARTIFACT_ROOT=/data/yilangliu/a_share_research/elanquant/artifacts/runs
+Environment=ELANQUANT_RESEARCH_CATALOG=/data/yilangliu/a_share_research/elanquant/releases/research-catalog.json
 Environment=ELANQUANT_FRONTEND_DIST=/data/yilangliu/a_share_research/elanquant/source/frontend/dist
 Environment=ELANQUANT_PIPELINE_MODE=real
 ExecStart=/data/yilangliu/a_share_research/elanquant/app-venv/bin/elanquant-api

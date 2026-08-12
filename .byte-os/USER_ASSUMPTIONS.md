@@ -6,7 +6,8 @@
   learning project.
 - Training must run on the `yilangliu` research server.
 - Small, strict PIT, and the previously agreed extended dataset are in scope.
-- On 2026-08-13 the owner explicitly deferred Base training.
+- On 2026-08-13 the owner first deferred Base training, then explicitly
+  reactivated the exact Base zero-shot/official-style/strict-PIT comparison.
 - Real brokerage-account testing is not in scope.
 - Daily automatic refresh is not desired; a button should update data and run
   inference.
@@ -23,6 +24,7 @@
 ## Unknowns to resolve with evidence
 
 - Exact data coverage and latest scoreable date.
-- Which fine-tuned model wins after common-support, cost-aware evaluation.
-- Whether and when Base should be promoted into a later cycle.
+- How the three Base tracks compare with Small on frozen common support.
+- Whether Base should ever be promoted; the current authorization is research
+  comparison only and Small remains the online/paper model.
 - Whether a future broker exposes an approved API; this does not affect MVP.

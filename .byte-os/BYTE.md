@@ -3,8 +3,8 @@
 ## Concept
 
 An auditable A-share Kronos research and simulated-trading web system. It
-trains and compares official-aligned Small experiments and strict point-in-time
-adaptations on the agreed extended daily dataset, then lets the owner manually
+trains and compares official-aligned Small and Base experiments plus strict
+point-in-time adaptations on the agreed extended daily dataset, then lets the owner manually
 trigger data refresh and inference on the research server.
 
 ## Target user
@@ -32,12 +32,12 @@ Byte Auto foundation.
 
 ## Success criteria
 
-1. Small official zero-shot and A-share fine-tune experiments have frozen
-   provenance and comparable evaluation receipts.
-2. The Small strict-PIT variant uses the extended 2011-present dataset with
+1. Small and Base zero-shot/A-share fine-tune experiments have frozen
+   provenance and comparable split-aware evaluation receipts.
+2. Both strict-PIT variants use the extended 2011-present dataset with
    causal membership, availability, split, context, and label boundaries.
 3. The owner can press one button to update closed-session data and run
    inference; the server job survives browser or VPN disconnection.
-4. The UI exposes results, data/model provenance, task state, rankings, and a
-   simulated account without connecting a real brokerage account.
+4. The UI exposes six-cell experiments, run differences, data health, rankings,
+   and an evidence-aware simulated account without connecting a real brokerage account.
 5. Server and local verification are recorded and reproducible.

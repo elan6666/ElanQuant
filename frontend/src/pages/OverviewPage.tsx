@@ -68,11 +68,25 @@ export function OverviewPage({ snapshot, submitting, receipt, onSubmit }: Overvi
       </section>
 
       <section className="metric-grid">
-        <Metric label="最近已收盘交易日" value={formatSession(snapshot.system.latest_closed_session)} detail="LATEST_CLOSED_SESSION" />
+        <Metric label="最近已验证数据日" value={formatSession(snapshot.system.latest_closed_session)} detail="来自封存快照；按钮刷新后才能确认市场最新性" />
         <Metric label="服务器数据截止" value={formatSession(snapshot.system.data_as_of)} detail="完整性通过后才可推理" />
-        <Metric label="最近推理日期" value={formatSession(snapshot.system.inference_as_of)} detail={isStale ? '历史结果 · 已过期' : '当前结果'} />
-        <Metric label="生产候选" value={snapshot.system.primary_model || '尚未选择'} detail="只由验证集结果决定" />
+        <Metric label="最近推理日期" value={formatSession(snapshot.system.inference_as_of)} detail={isStale ? '早于最近已验证快照' : '与最近已验证快照一致'} />
+        <Metric label="主排名轨" value={snapshot.system.primary_model || '尚未选择'} detail="严格PIT合规资格 · 非验证集最优声明" />
       </section>
+
+      {latestRun?.data_health ? (
+        <section className="data-health-strip">
+          <div><span className="eyebrow">Data health / 数据健康</span><h2>{latestRun.data_health.eligible_symbols ?? '—'} / {latestRun.data_health.membership_count ?? '—'} 只通过准入</h2></div>
+          <dl>
+            <div><dt>收盘终值化</dt><dd>{latestRun.data_health.generated_after_market_finalization ? 'PASS' : 'UNPROVEN'}</dd></div>
+            <div><dt>排除数</dt><dd>{Object.values(latestRun.data_health.excluded_counts).reduce((sum, count) => sum + count, 0)}</dd></div>
+            <div><dt>成分可用日</dt><dd>{latestRun.data_health.membership_available_session || '—'}</dd></div>
+            <div><dt>快照逻辑</dt><dd><code>{shortHash(latestRun.data_health.snapshot_logic_sha256)}</code></dd></div>
+          </dl>
+          <p>{latestRun.data_health.membership_revision_limitation || '当前快照未记录成分修订限制。'}</p>
+          {latestRun.data_health.transport_caveat ? <small>{latestRun.data_health.transport_caveat}</small> : null}
+        </section>
+      ) : null}
 
       {snapshot.system.warnings.length > 0 ? (
         <section className="warning-panel">
@@ -114,7 +128,7 @@ export function OverviewPage({ snapshot, submitting, receipt, onSubmit }: Overvi
               <span className="eyebrow">Latest evidence</span>
               <h2>最近研究结果</h2>
             </div>
-            {latestRun ? <Badge tone={isStale ? 'stale' : 'success'}>{isStale ? '历史 / 过期' : '最新'}</Badge> : null}
+            {latestRun ? <Badge tone={isStale ? 'stale' : 'success'}>{isStale ? '历史快照' : '已验证快照'}</Badge> : null}
           </div>
           {latestRun ? (
             <div className="evidence-list">
@@ -122,6 +136,10 @@ export function OverviewPage({ snapshot, submitting, receipt, onSubmit }: Overvi
               <div><span>模型</span><strong>{latestRun.model_id}</strong></div>
               <div><span>数据Hash</span><code title={latestRun.data_hash}>{shortHash(latestRun.data_hash)}</code></div>
               <div><span>模型Hash</span><code title={latestRun.model_hash}>{shortHash(latestRun.model_hash)}</code></div>
+              <div><span>Tokenizer Hash</span><code title={latestRun.tokenizer_hash}>{shortHash(latestRun.tokenizer_hash)}</code></div>
+              <div><span>配置Hash</span><code title={latestRun.config_hash}>{shortHash(latestRun.config_hash)}</code></div>
+              <div><span>代码Hash</span><code title={latestRun.code_hash}>{shortHash(latestRun.code_hash)}</code></div>
+              <div><span>评估Hash</span><code title={latestRun.evaluation_hash}>{shortHash(latestRun.evaluation_hash)}</code></div>
               <div><span>发布于</span><strong>{formatDateTime(latestRun.created_at)}</strong></div>
               <div><span>评估身份</span><strong>{latestRun.scoreable ? '已拥有10日标签' : '在线预测 · 尚不可评分'}</strong></div>
             </div>

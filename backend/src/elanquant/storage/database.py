@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS data_snapshots (
     status TEXT NOT NULL,
     row_count INTEGER NOT NULL,
     manifest_sha256 TEXT NOT NULL,
+    summary_json TEXT,
     created_at TEXT NOT NULL,
     UNIQUE(as_of_session, manifest_sha256)
 );
@@ -85,6 +86,19 @@ CREATE TABLE IF NOT EXISTS inference_run_models (
     UNIQUE(run_id, base_model_id)
 );
 
+CREATE TABLE IF NOT EXISTS run_model_evaluations (
+    run_id TEXT NOT NULL REFERENCES inference_runs(id),
+    base_model_id TEXT NOT NULL,
+    split TEXT NOT NULL,
+    rank_ic REAL NOT NULL,
+    ic REAL NOT NULL,
+    top10_mean_return REAL NOT NULL,
+    rows INTEGER NOT NULL,
+    cross_sections INTEGER NOT NULL,
+    anchor_set_sha256 TEXT NOT NULL,
+    PRIMARY KEY(run_id, base_model_id, split)
+);
+
 CREATE TABLE IF NOT EXISTS inference_runs (
     id TEXT PRIMARY KEY,
     job_id TEXT NOT NULL UNIQUE REFERENCES jobs(id),
@@ -96,8 +110,11 @@ CREATE TABLE IF NOT EXISTS inference_runs (
     artifact_sha256 TEXT NOT NULL,
     scoreable INTEGER NOT NULL DEFAULT 0,
     matrix_receipt_sha256 TEXT,
+    evaluation_receipt_sha256 TEXT,
     config_sha256 TEXT,
     code_sha256 TEXT,
+    paper_publication_state TEXT,
+    paper_publication_run_id TEXT,
     created_at TEXT NOT NULL,
     finished_at TEXT
 );
@@ -164,6 +181,29 @@ CREATE TABLE IF NOT EXISTS paper_gaps (
     PRIMARY KEY(account_id, session)
 );
 
+CREATE TABLE IF NOT EXISTS paper_signal_publications (
+    account_id TEXT NOT NULL REFERENCES paper_accounts(id),
+    signal_session TEXT NOT NULL,
+    run_id TEXT NOT NULL REFERENCES inference_runs(id),
+    state TEXT NOT NULL,
+    note TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    PRIMARY KEY(account_id, signal_session)
+);
+
+CREATE TABLE IF NOT EXISTS paper_intent_decisions (
+    run_id TEXT NOT NULL REFERENCES inference_runs(id),
+    code TEXT NOT NULL,
+    name TEXT NOT NULL,
+    rank INTEGER NOT NULL,
+    decision TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    quantity INTEGER NOT NULL,
+    sizing_price REAL NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY(run_id, code)
+);
+
 CREATE TABLE IF NOT EXISTS paper_orders (
     id TEXT PRIMARY KEY,
     account_id TEXT NOT NULL REFERENCES paper_accounts(id),
@@ -175,6 +215,7 @@ CREATE TABLE IF NOT EXISTS paper_orders (
     name TEXT NOT NULL,
     side TEXT NOT NULL,
     quantity INTEGER NOT NULL,
+    rank INTEGER NOT NULL DEFAULT 0,
     sizing_price REAL NOT NULL,
     target_weight REAL NOT NULL,
     status TEXT NOT NULL,
@@ -242,6 +283,12 @@ class Database:
                 row["name"]
                 for row in connection.execute("PRAGMA table_info(model_versions)").fetchall()
             }
+            snapshot_columns = {
+                row["name"]
+                for row in connection.execute("PRAGMA table_info(data_snapshots)").fetchall()
+            }
+            if "summary_json" not in snapshot_columns:
+                connection.execute("ALTER TABLE data_snapshots ADD COLUMN summary_json TEXT")
             for name, definition in (
                 ("base_model_id", "TEXT"),
                 ("validation_rank_ic", "REAL"),
@@ -263,8 +310,11 @@ class Database:
             for name, definition in (
                 ("scoreable", "INTEGER NOT NULL DEFAULT 0"),
                 ("matrix_receipt_sha256", "TEXT"),
+                ("evaluation_receipt_sha256", "TEXT"),
                 ("config_sha256", "TEXT"),
                 ("code_sha256", "TEXT"),
+                ("paper_publication_state", "TEXT"),
+                ("paper_publication_run_id", "TEXT"),
             ):
                 if name not in run_columns:
                     connection.execute(f"ALTER TABLE inference_runs ADD COLUMN {name} {definition}")
@@ -280,10 +330,140 @@ class Database:
                     connection.execute(
                         f"ALTER TABLE paper_positions ADD COLUMN {name} {definition}"
                     )
+            order_columns = {
+                row["name"]
+                for row in connection.execute("PRAGMA table_info(paper_orders)").fetchall()
+            }
+            if "rank" not in order_columns:
+                connection.execute(
+                    "ALTER TABLE paper_orders ADD COLUMN rank INTEGER NOT NULL DEFAULT 0"
+                )
+                connection.execute(
+                    """
+                    UPDATE paper_orders
+                    SET rank = COALESCE((
+                        SELECT ri.rank FROM recommendation_sets rs
+                        JOIN recommendation_items ri ON ri.recommendation_set_id = rs.id
+                        WHERE rs.run_id = paper_orders.run_id AND ri.code = paper_orders.code
+                        LIMIT 1
+                    ), 0)
+                    """
+                )
             connection.execute(
                 """
                 UPDATE paper_positions SET available_quantity = quantity
                 WHERE last_buy_session IS NULL AND available_quantity = 0 AND quantity > 0
+                """
+            )
+            legacy_sessions = connection.execute(
+                """
+                SELECT rs.signal_session
+                FROM recommendation_sets rs
+                GROUP BY rs.signal_session
+                """
+            ).fetchall()
+            for legacy in legacy_sessions:
+                first = connection.execute(
+                    """
+                    SELECT run_id, created_at FROM recommendation_sets
+                    WHERE signal_session = ?
+                    ORDER BY created_at, id LIMIT 1
+                    """,
+                    (legacy["signal_session"],),
+                ).fetchone()
+                if first is None:
+                    continue
+                order_runs = {
+                    str(row["run_id"])
+                    for row in connection.execute(
+                        """
+                        SELECT DISTINCT run_id FROM paper_orders
+                        WHERE account_id = ? AND signal_session = ?
+                        """,
+                        ("paper-default", legacy["signal_session"]),
+                    ).fetchall()
+                }
+                mixed = bool(order_runs - {str(first["run_id"])})
+                connection.execute(
+                    """
+                    INSERT OR IGNORE INTO paper_signal_publications(
+                        account_id, signal_session, run_id, state, note, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "paper-default",
+                        legacy["signal_session"],
+                        first["run_id"],
+                        "LEGACY_MIXED_RUNS" if mixed else "FROZEN",
+                        (
+                            f"检测到 {len(order_runs)} 个历史订单运行来源；"
+                            "原始账本已保留，未静默改写。"
+                            if mixed
+                            else "由该信号日最早的推荐 run 回填冻结发布来源。"
+                        ),
+                        first["created_at"],
+                    ),
+                )
+                if mixed:
+                    connection.execute(
+                        """
+                        UPDATE inference_runs
+                        SET paper_publication_state = 'LEGACY_MIXED_RUNS',
+                            paper_publication_run_id = ?
+                        WHERE id IN (
+                            SELECT DISTINCT run_id FROM paper_orders
+                            WHERE account_id = ? AND signal_session = ?
+                        )
+                          AND paper_publication_state IS NULL
+                        """,
+                        (
+                            first["run_id"],
+                            "paper-default",
+                            legacy["signal_session"],
+                        ),
+                    )
+                connection.execute(
+                    """
+                    UPDATE inference_runs
+                    SET paper_publication_state = ?, paper_publication_run_id = ?
+                    WHERE id = ? AND paper_publication_state IS NULL
+                    """,
+                    (
+                        "LEGACY_MIXED_RUNS" if mixed else "FROZEN",
+                        first["run_id"],
+                        first["run_id"],
+                    ),
+                )
+                connection.execute(
+                    """
+                    UPDATE inference_runs
+                    SET paper_publication_state = 'SKIPPED_EXISTING_FROZEN_RUN',
+                        paper_publication_run_id = ?
+                        WHERE id IN (
+                            SELECT run_id FROM recommendation_sets
+                            WHERE signal_session = ?
+                        ) AND id != ?
+                          AND paper_publication_state IS NULL
+                    """,
+                    (first["run_id"], legacy["signal_session"], first["run_id"]),
+                )
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO paper_intent_decisions(
+                    run_id, code, name, rank, decision, reason, quantity,
+                    sizing_price, created_at
+                )
+                SELECT rs.run_id, ri.code, ri.name, ri.rank,
+                    CASE WHEN po.id IS NULL THEN 'LEGACY_NO_ORDER_UNCLASSIFIED'
+                         ELSE 'ORDER_FROZEN' END,
+                    CASE WHEN po.id IS NULL
+                         THEN 'Historical run predates explicit decision receipts.'
+                         ELSE 'Recovered from immutable historical paper order.' END,
+                    COALESCE(po.quantity, 0), ri.frozen_price, rs.created_at
+                FROM recommendation_sets rs
+                JOIN recommendation_items ri ON ri.recommendation_set_id = rs.id
+                LEFT JOIN paper_orders po
+                  ON po.run_id = rs.run_id AND po.code = ri.code
                 """
             )
             connection.commit()

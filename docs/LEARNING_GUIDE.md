@@ -14,11 +14,23 @@
 4. `backend/src/elanquant/orchestration/worker.py`：独立 Worker 怎样领取任务。
 5. `backend/src/elanquant/pipelines/real.py`：后端怎样编排数据、GPU 推理、排名和账本。
 
+现在可以把一条结果沿证据链追到底：
+
+```text
+data_snapshots（这天的数据是否完整）
+  → inference_runs / run_model_evaluations（哪个实验和哪组哈希）
+  → stock_scores / recommendation_items（为什么进入 Top 3）
+  → paper_signal_publications / paper_orders（哪次运行冻结了账本）
+```
+
+前端对应查看“总览数据健康 → 实验矩阵/运行差异 → 股票排名解释 → 模拟账户”。
+这条链同时练习数据库主外键、HTTP JSON、React 状态和量化审计。
+
 ## 第二阶段：前端
 
 需要学习：HTML 语义、CSS 布局、TypeScript 类型、React 组件、state/effect、异步
 fetch、轮询、表格和响应式设计。先从 `App.tsx` 和 `OverviewPage.tsx` 开始，再看
-`useDashboard.ts` 如何每隔几秒刷新服务器状态。
+`useDashboard.ts` 如何在任务运行时每四秒轮询、空闲时降低频率。
 
 练习顺序：
 
@@ -36,7 +48,8 @@ fetch、轮询、表格和响应式设计。先从 `App.tsx` 和 `OverviewPage.t
 1. 用 TestClient 提交任务并查询。
 2. 观察相同日期的两次提交为何只生成一个任务。
 3. 模拟 Worker 中断，理解为什么系统选择明确失败而不是盲目续跑。
-4. 修改纸面账户规则并补账本不变量测试。
+4. 修改纸面账户规则并补账本不变量测试，特别是同一信号日强制重跑不能改变
+   第一次冻结发布。
 
 ## 第四阶段：模型与量化研究
 

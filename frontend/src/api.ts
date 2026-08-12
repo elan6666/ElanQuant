@@ -1,15 +1,22 @@
 import type {
   ApiClient,
   DashboardSnapshot,
+  DataHealth,
+  EvaluationSplit,
   ExperimentCell,
   ForecastPoint,
   Job,
   JobEvent,
   NavPoint,
   PaperAccount,
+  PaperDecision,
   PaperOrder,
   PaperPosition,
+  PaperSummary,
+  RankChange,
   ResearchRun,
+  RunDiff,
+  RunSummary,
   StockScore,
   SubmitJobReceipt,
   SystemStatus,
@@ -171,6 +178,7 @@ const parseJob = (value: unknown, path: string): Job => {
     message: optionalString(item.message, `${path}.message`) ?? error,
     error_code: optionalString(item.error_code, `${path}.error_code`),
     retry_of: optionalString(item.retry_of ?? item.parent_job_id, `${path}.retry_of`),
+    run_id: optionalString(item.run_id, `${path}.run_id`),
     coalesced: optionalBoolean(item.coalesced, false, `${path}.coalesced`),
     events: optionalArray(item.events, `${path}.events`).map((event, index) =>
       parseEvent(event, `${path}.events[${index}]`),
@@ -180,9 +188,30 @@ const parseJob = (value: unknown, path: string): Job => {
 
 const parseExperiment = (value: unknown, path: string): ExperimentCell => {
   const item = object(value, path)
+  const evaluationsRaw =
+    item.evaluations === undefined || item.evaluations === null
+      ? {}
+      : object(item.evaluations, `${path}.evaluations`)
+  const parseEvaluation = (value: unknown, evaluationPath: string): EvaluationSplit => {
+    const evaluation = object(value, evaluationPath)
+    return {
+      rank_ic: number(evaluation.rank_ic, `${evaluationPath}.rank_ic`),
+      pearson_ic: number(evaluation.pearson_ic, `${evaluationPath}.pearson_ic`),
+      top10_mean_return: number(
+        evaluation.top10_mean_return,
+        `${evaluationPath}.top10_mean_return`,
+      ),
+      rows: number(evaluation.rows, `${evaluationPath}.rows`),
+      cross_sections: number(evaluation.cross_sections, `${evaluationPath}.cross_sections`),
+      anchor_set_sha256: string(
+        evaluation.anchor_set_sha256,
+        `${evaluationPath}.anchor_set_sha256`,
+      ),
+    }
+  }
   return {
     id: string(item.id, `${path}.id`),
-    model_size: enumValue(item.model_size, ['small'], `${path}.model_size`),
+    model_size: enumValue(item.model_size, ['small', 'base'], `${path}.model_size`),
     track: enumValue(item.track, ['zero_shot', 'official_style', 'strict_pit'], `${path}.track`),
     state: enumValue(item.state, ['pending', 'running', 'passed', 'failed', 'blocked'], `${path}.state`),
     rank_ic: nullableNumber(item.rank_ic, `${path}.rank_ic`),
@@ -191,6 +220,63 @@ const parseExperiment = (value: unknown, path: string): ExperimentCell => {
     model_hash: nullableString(item.model_hash, `${path}.model_hash`),
     receipt: nullableString(item.receipt, `${path}.receipt`),
     note: nullableString(item.note, `${path}.note`),
+    evaluations: Object.fromEntries(
+      Object.entries(evaluationsRaw).map(([split, evaluation]) => [
+        enumValue(split, ['validation_2025', 'test_viewed_2026'], `${path}.evaluations.split`),
+        parseEvaluation(evaluation, `${path}.evaluations.${split}`),
+      ]),
+    ),
+  }
+}
+
+const parseDataHealth = (value: unknown, path: string): DataHealth => {
+  const item = object(value, path)
+  const excludedRaw =
+    item.excluded_counts === undefined || item.excluded_counts === null
+      ? {}
+      : object(item.excluded_counts, `${path}.excluded_counts`)
+  return {
+    status: optionalString(item.status, `${path}.status`),
+    resolved_session: optionalString(item.resolved_session, `${path}.resolved_session`),
+    generated_at_utc: optionalString(item.generated_at_utc, `${path}.generated_at_utc`),
+    generated_after_market_finalization:
+      item.generated_after_market_finalization === undefined ||
+      item.generated_after_market_finalization === null
+        ? null
+        : boolean(
+            item.generated_after_market_finalization,
+            `${path}.generated_after_market_finalization`,
+          ),
+    daily_finalization_cutoff: optionalString(
+      item.daily_finalization_cutoff,
+      `${path}.daily_finalization_cutoff`,
+    ),
+    membership_count: optionalNumber(item.membership_count, `${path}.membership_count`),
+    eligible_symbols: optionalNumber(item.eligible_symbols, `${path}.eligible_symbols`),
+    excluded_counts: Object.fromEntries(
+      Object.entries(excludedRaw).map(([reason, count]) => [
+        reason,
+        number(count, `${path}.excluded_counts.${reason}`),
+      ]),
+    ),
+    membership_snapshot: optionalString(item.membership_snapshot, `${path}.membership_snapshot`),
+    membership_available_session: optionalString(
+      item.membership_available_session,
+      `${path}.membership_available_session`,
+    ),
+    membership_availability_policy: optionalString(
+      item.membership_availability_policy,
+      `${path}.membership_availability_policy`,
+    ),
+    membership_revision_limitation: optionalString(
+      item.membership_revision_limitation,
+      `${path}.membership_revision_limitation`,
+    ),
+    transport_caveat: optionalString(item.transport_caveat, `${path}.transport_caveat`),
+    snapshot_logic_sha256: optionalString(
+      item.snapshot_logic_sha256,
+      `${path}.snapshot_logic_sha256`,
+    ),
   }
 }
 
@@ -215,8 +301,18 @@ const parseScore = (value: unknown, path: string): StockScore => {
     score: number(item.score, `${path}.score`),
     forecast_return: number(item.forecast_return, `${path}.forecast_return`),
     coverage: optionalNumber(item.coverage, `${path}.coverage`),
+    input_completeness: optionalNumber(
+      item.input_completeness ?? item.coverage,
+      `${path}.input_completeness`,
+    ),
     eligible: boolean(item.eligible, `${path}.eligible`),
     explanation: optionalString(item.explanation, `${path}.explanation`) ?? '',
+    model_spread: optionalNumber(item.model_spread, `${path}.model_spread`),
+    previous_rank: optionalNumber(item.previous_rank, `${path}.previous_rank`),
+    rank_delta: optionalNumber(item.rank_delta, `${path}.rank_delta`),
+    selected_top3: optionalBoolean(item.selected_top3, false, `${path}.selected_top3`),
+    paper_decision: optionalString(item.paper_decision, `${path}.paper_decision`),
+    paper_reason: optionalString(item.paper_reason, `${path}.paper_reason`),
     model_scores: Object.fromEntries(
       Object.entries(modelScores).map(([key, score]) => [key, number(score, `${path}.model_scores.${key}`)]),
     ),
@@ -251,6 +347,10 @@ const parseRun = (value: unknown, scores: StockScore[] = []): ResearchRun => {
   const item = object(value, 'latest_run')
   const provenance = object(item.provenance, 'latest_run.provenance')
   const modelVersions = parseModelVersions(item.model_versions, 'latest_run.model_versions')
+  const publication =
+    item.paper_publication === undefined || item.paper_publication === null
+      ? {}
+      : object(item.paper_publication, 'latest_run.paper_publication')
   return {
     id: string(item.id, 'latest_run.id'),
     as_of: string(item.as_of, 'latest_run.as_of'),
@@ -266,7 +366,20 @@ const parseRun = (value: unknown, scores: StockScore[] = []): ResearchRun => {
     tokenizer_hash: optionalString(provenance.tokenizer_hash, 'latest_run.provenance.tokenizer_hash') ?? '',
     config_hash: optionalString(provenance.config_hash, 'latest_run.provenance.config_hash') ?? '',
     code_hash: optionalString(provenance.code_hash, 'latest_run.provenance.code_hash') ?? '',
+    evaluation_hash:
+      optionalString(provenance.evaluation_hash, 'latest_run.provenance.evaluation_hash') ?? '',
     warnings: optionalStrings(item.warnings, 'latest_run.warnings'),
+    paper_publication: {
+      state: optionalString(publication.state, 'latest_run.paper_publication.state'),
+      source_run_id: optionalString(
+        publication.source_run_id,
+        'latest_run.paper_publication.source_run_id',
+      ),
+    },
+    data_health:
+      item.data_health === undefined || item.data_health === null
+        ? null
+        : parseDataHealth(item.data_health, 'latest_run.data_health'),
     experiment_matrix: optionalArray(item.experiment_matrix, 'latest_run.experiment_matrix').map((cell, index) =>
       parseExperiment(cell, `latest_run.experiment_matrix[${index}]`),
     ),
@@ -304,6 +417,7 @@ const parseOrder = (value: unknown, path: string): PaperOrder => {
   const symbol = string(item.code ?? item.symbol, `${path}.code`)
   return {
     id: string(item.id, `${path}.id`),
+    run_id: optionalString(item.run_id, `${path}.run_id`),
     signal_session: string(item.signal_date ?? item.signal_session, `${path}.signal_date`),
     execution_session: optionalString(item.execution_date ?? item.execution_session, `${path}.execution_date`),
     symbol,
@@ -350,6 +464,131 @@ const parsePaper = (value: unknown, orders: PaperOrder[] = [], nav: NavPoint[] =
   }
 }
 
+const parseRunSummary = (value: unknown, path: string): RunSummary => {
+  const item = object(value, path)
+  return {
+    id: string(item.id, `${path}.id`),
+    as_of: string(item.as_of_session ?? item.as_of, `${path}.as_of_session`),
+    created_at: string(item.created_at, `${path}.created_at`),
+    protocol: string(item.protocol, `${path}.protocol`),
+    paper_publication_state: optionalString(
+      item.paper_publication_state,
+      `${path}.paper_publication_state`,
+    ),
+    paper_publication_run_id: optionalString(
+      item.paper_publication_run_id,
+      `${path}.paper_publication_run_id`,
+    ),
+  }
+}
+
+const parseRunDiff = (value: unknown): RunDiff => {
+  const item = object(value, 'run_diff')
+  const comparable = boolean(item.comparable, 'run_diff.comparable')
+  const changesRaw =
+    item.identity_changes === undefined || item.identity_changes === null
+      ? {}
+      : object(item.identity_changes, 'run_diff.identity_changes')
+  return {
+    run_id: string(item.run_id, 'run_diff.run_id'),
+    against_run_id: optionalString(item.against_run_id, 'run_diff.against_run_id'),
+    comparable,
+    reason: optionalString(item.reason, 'run_diff.reason'),
+    same_session:
+      item.same_session === undefined || item.same_session === null
+        ? null
+        : boolean(item.same_session, 'run_diff.same_session'),
+    identity_changes: Object.fromEntries(
+      Object.entries(changesRaw).map(([key, changed]) => [
+        key,
+        boolean(changed, `run_diff.identity_changes.${key}`),
+      ]),
+    ),
+    top3_overlap: optionalNumber(item.top3_overlap, 'run_diff.top3_overlap'),
+    top10_overlap: optionalNumber(item.top10_overlap, 'run_diff.top10_overlap'),
+    top3_added: optionalStrings(item.top3_added, 'run_diff.top3_added'),
+    top3_dropped: optionalStrings(item.top3_dropped, 'run_diff.top3_dropped'),
+    largest_rank_changes: optionalArray(
+      item.largest_rank_changes,
+      'run_diff.largest_rank_changes',
+    ).map((change, index): RankChange => {
+      const raw = object(change, `run_diff.largest_rank_changes[${index}]`)
+      return {
+        code: string(raw.code, `run_diff.largest_rank_changes[${index}].code`),
+        from_rank: number(raw.from_rank, `run_diff.largest_rank_changes[${index}].from_rank`),
+        to_rank: number(raw.to_rank, `run_diff.largest_rank_changes[${index}].to_rank`),
+        delta: number(raw.delta, `run_diff.largest_rank_changes[${index}].delta`),
+      }
+    }),
+  }
+}
+
+const parseDecision = (value: unknown, path: string): PaperDecision => {
+  const item = object(value, path)
+  return {
+    run_id: string(item.run_id, `${path}.run_id`),
+    symbol: string(item.code ?? item.symbol, `${path}.code`),
+    name: string(item.name, `${path}.name`),
+    rank: number(item.rank, `${path}.rank`),
+    decision: string(item.decision, `${path}.decision`),
+    reason: string(item.reason, `${path}.reason`),
+    quantity: number(item.quantity, `${path}.quantity`),
+    sizing_price: number(item.sizing_price, `${path}.sizing_price`),
+  }
+}
+
+const parsePaperSummary = (value: unknown): PaperSummary => {
+  const item = object(value, 'paper_summary')
+  const counts = object(item.order_counts, 'paper_summary.order_counts')
+  const decisionCounts = object(item.decision_counts, 'paper_summary.decision_counts')
+  const publication =
+    item.latest_publication === undefined || item.latest_publication === null
+      ? null
+      : object(item.latest_publication, 'paper_summary.latest_publication')
+  return {
+    sample_sessions: number(item.sample_sessions, 'paper_summary.sample_sessions'),
+    evidence_state: enumValue(
+      item.evidence_state,
+      ['available', 'insufficient_evidence'],
+      'paper_summary.evidence_state',
+    ),
+    order_counts: {
+      pending: number(counts.pending, 'paper_summary.order_counts.pending'),
+      filled: number(counts.filled, 'paper_summary.order_counts.filled'),
+      rejected: number(counts.rejected, 'paper_summary.order_counts.rejected'),
+    },
+    decision_counts: Object.fromEntries(
+      Object.entries(decisionCounts).map(([decision, count]) => [
+        decision,
+        number(count, `paper_summary.decision_counts.${decision}`),
+      ]),
+    ),
+    total_fees: number(item.total_fees, 'paper_summary.total_fees'),
+    gross_turnover: optionalNumber(item.gross_turnover, 'paper_summary.gross_turnover'),
+    max_drawdown: optionalNumber(item.max_drawdown, 'paper_summary.max_drawdown'),
+    latest_publication:
+      publication === null
+        ? null
+        : {
+            run_id: string(publication.run_id, 'paper_summary.latest_publication.run_id'),
+            signal_session: string(
+              publication.signal_session,
+              'paper_summary.latest_publication.signal_session',
+            ),
+            state: optionalString(publication.state, 'paper_summary.latest_publication.state'),
+            source_run_id: optionalString(
+              publication.source_run_id,
+              'paper_summary.latest_publication.source_run_id',
+            ),
+          },
+    latest_decisions: optionalArray(
+      item.latest_decisions,
+      'paper_summary.latest_decisions',
+    ).map((decision, index) => parseDecision(decision, `paper_summary.latest_decisions[${index}]`)),
+    warnings: optionalStrings(item.warnings, 'paper_summary.warnings'),
+  }
+}
+
 const parseReceipt = (value: unknown): SubmitJobReceipt => {
   const item = object(value, 'receipt')
   const nestedJob = item.job === undefined ? null : object(item.job, 'receipt.job')
@@ -389,6 +628,20 @@ const optionalJson = async (path: string, signal?: AbortSignal): Promise<unknown
   }
 }
 
+const optionalServiceJson = async (
+  path: string,
+  signal?: AbortSignal,
+): Promise<unknown | null> => {
+  try {
+    return await requestJson(path, { signal })
+  } catch (error) {
+    if (error instanceof ApiRequestError && (error.status === 404 || error.status === 503)) {
+      return null
+    }
+    throw error
+  }
+}
+
 const collection = (value: unknown, keys: string[], path: string): unknown[] => {
   if (Array.isArray(value)) return value
   const envelope = object(value, path)
@@ -400,20 +653,35 @@ const collection = (value: unknown, keys: string[], path: string): unknown[] => 
 
 export const createApiClient = (): ApiClient => ({
   async getSnapshot(signal) {
-    const [systemRaw, jobsRaw, runRaw, paperRaw] = await Promise.all([
+    const [systemRaw, jobsRaw, runRaw, runsRaw, researchRaw, paperRaw] = await Promise.all([
       requestJson('/api/v1/system/status', { signal }),
       requestJson('/api/v1/jobs', { signal }),
       optionalJson('/api/v1/runs/latest', signal),
+      requestJson('/api/v1/runs?limit=10', { signal }),
+      optionalServiceJson('/api/v1/research/experiments', signal),
       optionalJson('/api/v1/paper/account', signal),
     ])
     const jobItems = collection(jobsRaw, ['items', 'jobs'], 'jobs_response')
+    const runItems = collection(runsRaw, ['items', 'runs'], 'runs_response')
+    const runs = runItems.map((run, index) => parseRunSummary(run, `runs[${index}]`))
+    const researchItems =
+      researchRaw === null
+        ? []
+        : collection(researchRaw, ['items', 'experiments'], 'research_response')
+    const researchCatalog = researchItems.map((experiment, index) =>
+      parseExperiment(experiment, `research[${index}]`),
+    )
     const parsedRun = runRaw === null ? null : parseRun(runRaw)
-    const [scoresRaw, ordersRaw, navRaw] = await Promise.all([
+    const [scoresRaw, diffRaw, ordersRaw, navRaw, paperSummaryRaw] = await Promise.all([
       parsedRun === null
         ? Promise.resolve(null)
         : optionalJson(`/api/v1/runs/${encodeURIComponent(parsedRun.id)}/scores`, signal),
+      parsedRun === null
+        ? Promise.resolve(null)
+        : optionalJson(`/api/v1/runs/${encodeURIComponent(parsedRun.id)}/diff`, signal),
       paperRaw === null ? Promise.resolve(null) : optionalJson('/api/v1/paper/orders', signal),
       paperRaw === null ? Promise.resolve(null) : optionalJson('/api/v1/paper/nav', signal),
+      paperRaw === null ? Promise.resolve(null) : optionalJson('/api/v1/paper/summary', signal),
     ])
 
     const embeddedRun = runRaw === null ? null : object(runRaw, 'latest_run')
@@ -433,7 +701,12 @@ export const createApiClient = (): ApiClient => ({
       system: parseSystem(systemRaw),
       jobs: jobItems.map((job, index) => parseJob(job, `jobs[${index}]`)),
       latest_run: runRaw === null ? null : parseRun(runRaw, scores),
+      research_catalog: researchCatalog,
+      research_catalog_available: researchRaw !== null,
+      runs,
+      run_diff: diffRaw === null ? null : parseRunDiff(diffRaw),
       paper: paperRaw === null ? null : parsePaper(paperRaw, orders, nav),
+      paper_summary: paperSummaryRaw === null ? null : parsePaperSummary(paperSummaryRaw),
     } satisfies DashboardSnapshot
   },
 

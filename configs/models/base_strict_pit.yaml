@@ -1,0 +1,11 @@
+protocol: strict_pit_base
+inherits_training_defaults_from: base_official.yaml
+lookback: 90
+predict: 10
+temperature: 0.6
+top_p: 0.9
+monte_carlo_paths: 10
+universe: CSI300_DYNAMIC_PIT
+models: [base]
+shared_training_only_tokenizer: false
+online_latest_is_unscored: true

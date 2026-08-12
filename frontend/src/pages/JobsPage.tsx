@@ -28,6 +28,7 @@ export function JobsPage({ jobs, submitting, onRetry }: { jobs: Job[]; submittin
                 <code>{job.id}</code>
                 <strong>{stageLabel[job.stage]}</strong>
                 <span>{formatDateTime(job.requested_at)} · {job.as_of || '交易日待确认'}</span>
+                {job.run_id ? <small>OUTPUT RUN · {job.run_id}</small> : null}
               </div>
               <div className="history-row__state">
                 <Badge state={job.state}>{jobStateLabel[job.state]}</Badge>

@@ -3,7 +3,13 @@ from pathlib import Path
 
 from elanquant.orchestration.jobs import JobStore
 from elanquant.orchestration.worker import Worker
-from elanquant.pipelines.paper import ensure_account, settle_due_orders, write_portfolio_snapshot
+from elanquant.pipelines.paper import (
+    Recommendation,
+    create_frozen_intents,
+    ensure_account,
+    settle_due_orders,
+    write_portfolio_snapshot,
+)
 from elanquant.settings import Settings
 from elanquant.storage.database import Database
 
@@ -18,10 +24,10 @@ def settings(tmp_path: Path) -> Settings:
     )
 
 
-def run_session(active: Settings, session: str) -> None:
+def run_session(active: Settings, session: str, *, force: bool = False) -> None:
     database = Database(active.database_path)
     database.initialize()
-    JobStore(database).submit_update_infer(session)
+    JobStore(database).submit_update_infer(session, force=force)
     assert Worker(active).run_once() is True
 
 
@@ -59,6 +65,177 @@ def test_intents_are_frozen_at_t_and_fill_only_on_due_session(tmp_path: Path) ->
         connection.commit()
         unlocked = connection.execute("SELECT * FROM paper_positions").fetchall()
     assert all(row["available_quantity"] == row["quantity"] for row in unlocked)
+
+
+def test_force_rerun_keeps_first_signal_publication_immutable(tmp_path: Path) -> None:
+    active = settings(tmp_path)
+    run_session(active, "2026-08-12")
+    database = Database(active.database_path)
+    with database.connect() as connection:
+        first_orders = connection.execute(
+            "SELECT id, run_id, code, quantity FROM paper_orders ORDER BY code"
+        ).fetchall()
+        first_run_id = str(first_orders[0]["run_id"])
+
+    run_session(active, "2026-08-12", force=True)
+    with database.connect() as connection:
+        orders = connection.execute(
+            "SELECT id, run_id, code, quantity FROM paper_orders ORDER BY code"
+        ).fetchall()
+        runs = connection.execute(
+            """
+            SELECT id, paper_publication_state, paper_publication_run_id
+            FROM inference_runs ORDER BY created_at, id
+            """
+        ).fetchall()
+        publications = connection.execute(
+            "SELECT * FROM paper_signal_publications"
+        ).fetchall()
+        skipped_decisions = connection.execute(
+            """
+            SELECT * FROM paper_intent_decisions
+            WHERE run_id = ? ORDER BY rank
+            """,
+            (runs[-1]["id"],),
+        ).fetchall()
+    assert [tuple(row) for row in orders] == [tuple(row) for row in first_orders]
+    assert len(publications) == 1
+    assert publications[0]["run_id"] == first_run_id
+    assert runs[0]["paper_publication_state"] == "FROZEN"
+    assert runs[-1]["paper_publication_state"] == "SKIPPED_EXISTING_FROZEN_RUN"
+    assert runs[-1]["paper_publication_run_id"] == first_run_id
+    assert len(skipped_decisions) == 3
+    assert {row["decision"] for row in skipped_decisions} == {"PAPER_PUBLICATION_SKIPPED"}
+
+
+def test_migration_labels_legacy_mixed_run_orders_without_rewriting_them(tmp_path: Path) -> None:
+    active = settings(tmp_path)
+    run_session(active, "2026-08-12")
+    run_session(active, "2026-08-12", force=True)
+    database = Database(active.database_path)
+    with database.connect() as connection:
+        runs = connection.execute(
+            "SELECT id FROM inference_runs ORDER BY created_at, id"
+        ).fetchall()
+        first_run_id, second_run_id = str(runs[0]["id"]), str(runs[1]["id"])
+        connection.execute("DELETE FROM paper_signal_publications")
+        connection.execute("DELETE FROM paper_intent_decisions")
+        connection.execute(
+            """
+            UPDATE inference_runs
+            SET paper_publication_state = NULL, paper_publication_run_id = NULL
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO paper_orders(
+                id, account_id, run_id, signal_session, due_session, code, name,
+                side, quantity, sizing_price, target_weight, status,
+                frozen_intent_json, created_at, updated_at
+            ) VALUES ('legacy-second-order', 'paper-default', ?, '2026-08-12',
+                '2026-08-13', '999999.SZ', 'Legacy mixed', 'BUY', 100, 10,
+                0.333333, 'PENDING', '{}', 'later', 'later')
+            """,
+            (second_run_id,),
+        )
+        before = connection.execute("SELECT COUNT(*) FROM paper_orders").fetchone()[0]
+        connection.commit()
+
+    database.initialize()
+    with database.connect() as connection:
+        publication = connection.execute(
+            "SELECT * FROM paper_signal_publications WHERE signal_session = '2026-08-12'"
+        ).fetchone()
+        states = {
+            row["id"]: row["paper_publication_state"]
+            for row in connection.execute("SELECT * FROM inference_runs").fetchall()
+        }
+        after = connection.execute("SELECT COUNT(*) FROM paper_orders").fetchone()[0]
+    assert before == after
+    assert publication["state"] == "LEGACY_MIXED_RUNS"
+    assert publication["run_id"] == first_run_id
+    assert "原始账本已保留" in publication["note"]
+    assert states[first_run_id] == "LEGACY_MIXED_RUNS"
+    assert states[second_run_id] == "LEGACY_MIXED_RUNS"
+
+
+def test_migration_locks_zero_order_recommendation_day_to_first_run(tmp_path: Path) -> None:
+    active = settings(tmp_path)
+    run_session(active, "2026-08-12")
+    database = Database(active.database_path)
+    with database.connect() as connection:
+        first_run_id = str(
+            connection.execute(
+                "SELECT run_id FROM recommendation_sets ORDER BY created_at, id LIMIT 1"
+            ).fetchone()["run_id"]
+        )
+        connection.execute("DELETE FROM paper_signal_publications")
+        connection.execute("DELETE FROM paper_intent_decisions")
+        connection.execute("DELETE FROM paper_orders")
+        connection.execute(
+            """
+            UPDATE inference_runs
+            SET paper_publication_state = NULL, paper_publication_run_id = NULL
+            """
+        )
+        connection.commit()
+
+    database.initialize()
+    run_session(active, "2026-08-12", force=True)
+    with database.connect() as connection:
+        publication = connection.execute(
+            "SELECT * FROM paper_signal_publications WHERE signal_session = '2026-08-12'"
+        ).fetchone()
+        latest = connection.execute(
+            "SELECT * FROM inference_runs ORDER BY created_at DESC, id DESC LIMIT 1"
+        ).fetchone()
+    assert publication["run_id"] == first_run_id
+    assert publication["state"] == "FROZEN"
+    assert latest["paper_publication_state"] == "SKIPPED_EXISTING_FROZEN_RUN"
+    assert latest["paper_publication_run_id"] == first_run_id
+
+
+def test_migration_marks_later_only_order_source_as_legacy_mixed(tmp_path: Path) -> None:
+    active = settings(tmp_path)
+    run_session(active, "2026-08-12")
+    run_session(active, "2026-08-12", force=True)
+    database = Database(active.database_path)
+    with database.connect() as connection:
+        runs = connection.execute(
+            "SELECT id FROM inference_runs ORDER BY created_at, id"
+        ).fetchall()
+        first_run_id, second_run_id = str(runs[0]["id"]), str(runs[1]["id"])
+        connection.execute("DELETE FROM paper_signal_publications")
+        connection.execute("DELETE FROM paper_intent_decisions")
+        connection.execute("DELETE FROM paper_orders")
+        connection.execute(
+            """
+            UPDATE inference_runs
+            SET paper_publication_state = NULL, paper_publication_run_id = NULL
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO paper_orders(
+                id, account_id, run_id, signal_session, due_session, code, name,
+                side, quantity, rank, sizing_price, target_weight, status,
+                frozen_intent_json, created_at, updated_at
+            ) VALUES ('later-only', 'paper-default', ?, '2026-08-12', '2026-08-13',
+                '999999.SZ', 'Later only', 'BUY', 100, 1, 10, 0.333333,
+                'PENDING', '{}', 'later', 'later')
+            """,
+            (second_run_id,),
+        )
+        connection.commit()
+
+    database.initialize()
+    with database.connect() as connection:
+        publication = connection.execute(
+            "SELECT * FROM paper_signal_publications WHERE signal_session = '2026-08-12'"
+        ).fetchone()
+    assert publication["run_id"] == first_run_id
+    assert publication["state"] == "LEGACY_MIXED_RUNS"
+    assert "原始账本已保留" in publication["note"]
 
 
 def test_missed_next_session_rejects_without_late_fill(tmp_path: Path) -> None:
@@ -188,3 +365,140 @@ def test_database_migration_unlocks_legacy_positions_only(tmp_path: Path) -> Non
         }
     assert rows["LEGACY"]["available_quantity"] == 100
     assert rows["NEW"]["available_quantity"] == 0
+
+
+def test_top_ranked_stock_below_board_lot_is_an_explicit_decision(tmp_path: Path) -> None:
+    database = Database(tmp_path / "board-lot.sqlite3")
+    database.initialize()
+    with database.connect() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        ensure_account(connection, 100_000)
+        connection.execute(
+            """
+            INSERT INTO jobs(
+                id, idempotency_key, job_type, requested_session, status, stage,
+                progress, message, created_at
+            ) VALUES ('job', 'job', 'UPDATE_INFER', '2026-08-12', 'SUCCEEDED',
+                'SUCCEEDED', 1, 'done', 'now')
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO data_snapshots(
+                id, as_of_session, source, status, row_count, manifest_sha256, created_at
+            ) VALUES ('snapshot', '2026-08-12', 'TEST', 'PASS', 1, ?, 'now')
+            """,
+            ("a" * 64,),
+        )
+        connection.execute(
+            """
+            INSERT INTO inference_runs(
+                id, job_id, snapshot_id, as_of_session, status, protocol,
+                artifact_path, artifact_sha256, created_at
+            ) VALUES ('run', 'job', 'snapshot', '2026-08-12', 'SUCCEEDED',
+                'TEST', 'ignored', ?, 'now')
+            """,
+            ("b" * 64,),
+        )
+        result = create_frozen_intents(
+            connection,
+            "run",
+            "2026-08-12",
+            [
+                Recommendation(
+                    code="688001.SH",
+                    name="High price",
+                    score=0.1,
+                    reference_price=1_000.0,
+                    rank=1,
+                )
+            ],
+            top_k=3,
+            due_session="2026-08-13",
+        )
+        decision = connection.execute(
+            "SELECT * FROM paper_intent_decisions WHERE run_id = 'run'"
+        ).fetchone()
+        order_count = connection.execute("SELECT COUNT(*) FROM paper_orders").fetchone()[0]
+        connection.commit()
+    assert result["state"] == "FROZEN"
+    assert order_count == 0
+    assert decision["decision"] == "SKIPPED_BELOW_BOARD_LOT"
+    assert decision["quantity"] == 0
+
+
+def test_buy_budget_reserves_commission_and_executes_by_rank(tmp_path: Path) -> None:
+    database = Database(tmp_path / "ranked-orders.sqlite3")
+    database.initialize()
+    with database.connect() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        ensure_account(connection, 100_000)
+        connection.execute(
+            """
+            INSERT INTO jobs(
+                id, idempotency_key, job_type, requested_session, status, stage,
+                progress, message, created_at
+            ) VALUES ('job', 'job', 'UPDATE_INFER', '2026-08-12', 'SUCCEEDED',
+                'SUCCEEDED', 1, 'done', 'now')
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO data_snapshots(
+                id, as_of_session, source, status, row_count, manifest_sha256, created_at
+            ) VALUES ('snapshot', '2026-08-12', 'TEST', 'PASS', 3, ?, 'now')
+            """,
+            ("a" * 64,),
+        )
+        connection.execute(
+            """
+            INSERT INTO inference_runs(
+                id, job_id, snapshot_id, as_of_session, status, protocol,
+                artifact_path, artifact_sha256, created_at
+            ) VALUES ('run', 'job', 'snapshot', '2026-08-12', 'SUCCEEDED',
+                'TEST', 'ignored', ?, 'now')
+            """,
+            ("b" * 64,),
+        )
+        recommendations = [
+            Recommendation(
+                code=f"00000{rank}.SZ",
+                name=f"Rank {rank}",
+                score=1 - rank / 10,
+                reference_price=160.0,
+                rank=rank,
+            )
+            for rank in (1, 2, 3)
+        ]
+        create_frozen_intents(
+            connection,
+            "run",
+            "2026-08-12",
+            recommendations,
+            top_k=3,
+            due_session="2026-08-13",
+        )
+        frozen = connection.execute(
+            "SELECT * FROM paper_orders ORDER BY rank"
+        ).fetchall()
+        known_total = sum(
+            row["quantity"] * row["sizing_price"]
+            + json.loads(row["frozen_intent_json"])["reserved_commission"]
+            for row in frozen
+        )
+        assert known_total <= 100_000
+        settle_due_orders(
+            connection,
+            "2026-08-13",
+            {str(row["code"]): 170.0 for row in frozen},
+        )
+        outcomes = connection.execute(
+            "SELECT rank, status, reject_reason FROM paper_orders ORDER BY rank"
+        ).fetchall()
+        connection.commit()
+    assert [(row["rank"], row["status"]) for row in outcomes] == [
+        (1, "FILLED"),
+        (2, "FILLED"),
+        (3, "REJECTED"),
+    ]
+    assert outcomes[-1]["reject_reason"] == "INSUFFICIENT_CASH"

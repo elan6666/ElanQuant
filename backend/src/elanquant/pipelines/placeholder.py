@@ -211,7 +211,21 @@ def run_placeholder_pipeline(
         connection.execute("BEGIN IMMEDIATE")
         ensure_account(connection, settings.initial_cash)
         settle_due_orders(connection, as_of, prices)
-        create_frozen_intents(connection, run_id, as_of, recommendations, settings.top_k)
+        paper_publication = create_frozen_intents(
+            connection, run_id, as_of, recommendations, settings.top_k
+        )
+        connection.execute(
+            """
+            UPDATE inference_runs
+            SET paper_publication_state = ?, paper_publication_run_id = ?
+            WHERE id = ?
+            """,
+            (
+                paper_publication["state"],
+                paper_publication["source_run_id"],
+                run_id,
+            ),
+        )
         write_portfolio_snapshot(connection, as_of, prices)
         finished = utc_now()
         connection.execute(
@@ -221,22 +235,28 @@ def run_placeholder_pipeline(
             """,
             (artifact_hash, finished, run_id),
         )
+        completed_message = (
+            "Run completed; paper intents were already frozen by "
+            f"{paper_publication['source_run_id']}"
+            if paper_publication["state"] == "SKIPPED_EXISTING_FROZEN_RUN"
+            else "Run completed"
+        )
         changed = connection.execute(
             """
             UPDATE jobs SET status = 'SUCCEEDED', stage = 'SUCCEEDED', progress = 1,
-                message = 'Run completed', heartbeat_at = ?, finished_at = ?, run_id = ?
+                message = ?, heartbeat_at = ?, finished_at = ?, run_id = ?
             WHERE id = ? AND status = 'RUNNING'
             """,
-            (finished, finished, run_id, job_id),
+            (completed_message, finished, finished, run_id, job_id),
         ).rowcount
         if changed != 1:
             raise RuntimeError("job terminal state changed before atomic placeholder publication")
         connection.execute(
             """
             INSERT INTO job_events(job_id, created_at, status, stage, progress, message)
-            VALUES (?, ?, 'SUCCEEDED', 'SUCCEEDED', 1, 'Run completed')
+            VALUES (?, ?, 'SUCCEEDED', 'SUCCEEDED', 1, ?)
             """,
-            (job_id, finished),
+            (job_id, finished, completed_message),
         )
         connection.commit()
     return run_id

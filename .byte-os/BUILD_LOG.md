@@ -101,3 +101,28 @@
 - A fresh GitHub clone passed `npm ci`, seven frontend tests, ESLint and build on
   Mac; a separate fresh server virtualenv passed 40 tests, Ruff, Pyright and
   compileall.
+
+## 2026-08-13 — Base supplement and evidence-chain iteration 3
+
+- Parameterized the author-aligned training/matrix/evaluation entrypoints for an
+  isolated Base three-cell candidate while preserving Small defaults and
+  prohibiting Base promotion to `releases/current`.
+- Started durable two-GPU Base training under systemd and a separate finalizer;
+  the remote work survives Mac/VPN disconnect. Final receipt audit remains
+  pending because the old SSH ControlMaster expired while port 22 stayed reachable.
+- Researched current primary-source patterns from Qlib, MLflow, Evidently,
+  vn.py, QuantStats, vectorbt, LEAN and OpenBB. Adapted run lineage, split-aware
+  support, data-health receipts, explicit order outcomes and evidence-aware
+  portfolio summaries without embedding third-party code or adding runtimes.
+- Added exact same-session paper publication freezing, zero-order legacy
+  migration, commission-reserving board-lot sizing, deterministic rank order,
+  immutable per-run evaluation identities and final snapshot-file revalidation.
+- Added six-cell catalog producer/consumer gates, run history/diff, data health,
+  stock explanations, paper summary, adaptive polling and optional catalog
+  degradation so a bad research catalog cannot take down the control plane.
+- Extended the Claude-warm editorial UI; the accent was darkened to `#a84d30`
+  for AA contrast (5.37:1 with warm white text, 5.07:1 on the paper background).
+- Current local gates: 42 focused Python tests, Ruff, compileall and diff-check
+  PASS; 10 frontend tests, ESLint, build and npm audit PASS. Independent static
+  review is SHIP; full server/API, live migration/data refresh and deployed
+  1440/390 QA remain delivery gates.

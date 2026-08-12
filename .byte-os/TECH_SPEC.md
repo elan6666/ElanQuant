@@ -16,17 +16,20 @@ contracts plus training/data CLIs live under `scripts/`.
 
 ## Data model
 
-Jobs/events; data snapshots; model versions; inference runs; stock scores;
-recommendation sets/items; paper accounts; positions; order intents; fills;
-portfolio snapshots. Large paths are immutable artifacts referenced by hash.
+Jobs/events; data snapshots with safe health summaries; model versions;
+run-bound split evaluations; inference runs; stock scores; recommendation
+sets/items; one publication per signal session; intent decisions; paper
+accounts, positions, orders, fills and portfolio snapshots. Large paths are
+immutable artifacts referenced by hash.
 
 ## API
 
 - `GET /api/v1/health`, `/system/status`
 - `POST /api/v1/jobs/update-infer` -> 202/idempotent ID
 - `GET /api/v1/jobs`, `/jobs/{id}`; `POST /jobs/{id}/retry`
-- `GET /api/v1/runs/latest`, `/runs/{id}`, scores and stock detail
-- `GET /api/v1/paper/account`, orders, NAV
+- `GET /api/v1/research/experiments` for the sealed six-cell catalog
+- `GET /api/v1/runs`, `/runs/latest`, `/runs/{id}`, scores, diff and data health
+- `GET /api/v1/paper/account`, orders, NAV and evidence-aware summary
 
 ## Research protocols
 
@@ -53,5 +56,6 @@ portfolio snapshots. Large paths are immutable artifacts referenced by hash.
   paper transaction and duplicate-date protection.
 - Research: official pin/hash, future perturbation, membership, adjustment,
   tokenizer fit boundary, common-support metrics.
-- Frontend: schema rejection, empty/running/failure/success and responsive build.
+- Frontend: schema rejection, live backend-shaped envelopes,
+  empty/running/failure/success, keyboard ranking and responsive build.
 - E2E: submit, disconnect, reconnect, completion; GPU released after job.

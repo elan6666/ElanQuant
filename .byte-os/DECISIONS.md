@@ -45,3 +45,24 @@ or downloaded official weights do not constitute an admitted result.
   session with sufficient Amount coverage.
 - One server GPU can complete the selected fine-tunes within the available Auto
   runtime; otherwise terminal resumable receipts must preserve progress.
+
+## 2026-08-13 — Base comparison reactivated
+
+The owner subsequently authorized the exact Base three-cell experiment on the
+same admitted data and official-aligned protocol. Base is a comparison track,
+not an automatic production promotion; the Small strict-PIT release remains
+the online model until a separate evidence-backed decision changes it.
+
+## 2026-08-13 — Evidence-chain product wave
+
+Patterns from Qlib, MLflow, Evidently, vn.py, QuantStats and related high-quality
+repositories are adapted as small native features: split-aware experiments,
+run diff, data health, signal explanation and sample-aware paper summaries.
+No third-party runtime or broker surface is embedded.
+
+## 2026-08-13 — One paper publication per signal session
+
+The first successful run for a signal session freezes the only paper
+publication. A forced same-session rerun may publish new research evidence but
+must not add, remove or replace paper intents. Historical mixed-run provenance
+is preserved and labelled rather than silently rewritten.

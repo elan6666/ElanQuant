@@ -22,6 +22,11 @@ class Recommendation(TypedDict):
     rank: int
 
 
+class PaperPublication(TypedDict):
+    state: str
+    source_run_id: str
+
+
 def utc_now() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -61,7 +66,7 @@ def settle_due_orders(
         """
         SELECT * FROM paper_orders
         WHERE account_id = ? AND status = 'PENDING' AND due_session <= ?
-        ORDER BY CASE side WHEN 'SELL' THEN 0 ELSE 1 END, created_at, id
+        ORDER BY CASE side WHEN 'SELL' THEN 0 ELSE 1 END, rank, created_at, id
         """,
         (ACCOUNT_ID, as_of_session),
     ).fetchall()
@@ -196,8 +201,41 @@ def create_frozen_intents(
     recommendations: list[Recommendation],
     top_k: int,
     due_session: str | None = None,
-) -> None:
+) -> PaperPublication:
     now = utc_now()
+    connection.execute(
+        """
+        INSERT OR IGNORE INTO paper_signal_publications(
+            account_id, signal_session, run_id, state, note, created_at
+        ) VALUES (?, ?, ?, 'FROZEN', 'First immutable paper publication for signal session.', ?)
+        """,
+        (ACCOUNT_ID, signal_session, run_id, now),
+    )
+    publication = connection.execute(
+        """
+        SELECT run_id, state FROM paper_signal_publications
+        WHERE account_id = ? AND signal_session = ?
+        """,
+        (ACCOUNT_ID, signal_session),
+    ).fetchone()
+    if publication is None:
+        raise RuntimeError("Paper signal publication claim failed")
+    source_run_id = str(publication["run_id"])
+    if source_run_id != run_id:
+        for item in recommendations[:top_k]:
+            _record_decision(
+                connection,
+                run_id,
+                item,
+                "PAPER_PUBLICATION_SKIPPED",
+                f"Signal session was already frozen by run {source_run_id}.",
+                0,
+                now,
+            )
+        return {
+            "state": "SKIPPED_EXISTING_FROZEN_RUN",
+            "source_run_id": source_run_id,
+        }
     account = connection.execute(
         "SELECT cash FROM paper_accounts WHERE id = ?", (ACCOUNT_ID,)
     ).fetchone()
@@ -230,6 +268,7 @@ def create_frozen_intents(
             str(position["name"]),
             "SELL",
             int(position["quantity"]),
+            0,
             float(position["average_cost"]),
             0,
             {"reason": "left_top_k", "selected_at": signal_session},
@@ -238,11 +277,48 @@ def create_frozen_intents(
     allocation = float(account["cash"]) / max(1, top_k)
     for item in recommendations[:top_k]:
         code = str(item["code"])
-        if code in positions or code in pending_codes:
+        if code in positions:
+            _record_decision(
+                connection,
+                run_id,
+                item,
+                "HELD_EXISTING_POSITION",
+                "Already held at the frozen signal time; no new buy order.",
+                0,
+                now,
+            )
+            continue
+        if code in pending_codes:
+            _record_decision(
+                connection,
+                run_id,
+                item,
+                "SKIPPED_PENDING_ORDER",
+                "An earlier immutable order is still pending; no duplicate order.",
+                0,
+                now,
+            )
             continue
         frozen_price = float(item["reference_price"])
         quantity = int(allocation // (frozen_price * BOARD_LOT)) * BOARD_LOT
+        while quantity > 0:
+            frozen_gross = round(frozen_price * quantity, 2)
+            frozen_commission = round(
+                max(frozen_gross * COMMISSION_RATE, MINIMUM_COMMISSION), 2
+            )
+            if frozen_gross + frozen_commission <= allocation + 1e-9:
+                break
+            quantity -= BOARD_LOT
         if quantity <= 0:
+            _record_decision(
+                connection,
+                run_id,
+                item,
+                "SKIPPED_BELOW_BOARD_LOT",
+                "One equal-weight cash slice cannot buy the A-share 100-share board lot.",
+                0,
+                now,
+            )
             continue
         intent = {
             "signal_session": signal_session,
@@ -250,6 +326,7 @@ def create_frozen_intents(
             "score": float(item["score"]),
             "sizing_price": frozen_price,
             "sizing_cash": allocation,
+            "reserved_commission": frozen_commission,
             "known_through": signal_session,
         }
         _insert_order(
@@ -261,11 +338,52 @@ def create_frozen_intents(
             str(item["name"]),
             "BUY",
             quantity,
+            int(item["rank"]),
             frozen_price,
             1 / max(1, top_k),
             intent,
             now,
         )
+        _record_decision(
+            connection,
+            run_id,
+            item,
+            "ORDER_FROZEN",
+            "T-close intent frozen for the next real trading session.",
+            quantity,
+            now,
+        )
+    return {"state": str(publication["state"]), "source_run_id": source_run_id}
+
+
+def _record_decision(
+    connection: sqlite3.Connection,
+    run_id: str,
+    item: Recommendation,
+    decision: str,
+    reason: str,
+    quantity: int,
+    now: str,
+) -> None:
+    connection.execute(
+        """
+        INSERT INTO paper_intent_decisions(
+            run_id, code, name, rank, decision, reason, quantity,
+            sizing_price, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            run_id,
+            str(item["code"]),
+            str(item["name"]),
+            int(item["rank"]),
+            decision,
+            reason,
+            quantity,
+            float(item["reference_price"]),
+            now,
+        ),
+    )
 
 
 def write_portfolio_snapshot(
@@ -362,6 +480,7 @@ def _insert_order(
     name: str,
     side: str,
     quantity: int,
+    rank: int,
     sizing_price: float,
     target_weight: float,
     intent: dict[str, object],
@@ -371,9 +490,9 @@ def _insert_order(
         """
         INSERT OR IGNORE INTO paper_orders(
             id, account_id, run_id, signal_session, due_session, code, name, side,
-            quantity, sizing_price, target_weight, status, frozen_intent_json,
+            quantity, rank, sizing_price, target_weight, status, frozen_intent_json,
             created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?)
         """,
         (
             str(uuid.uuid4()),
@@ -385,6 +504,7 @@ def _insert_order(
             name,
             side,
             quantity,
+            rank,
             sizing_price,
             target_weight,
             json.dumps(intent, sort_keys=True, separators=(",", ":")),

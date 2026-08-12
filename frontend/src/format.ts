@@ -58,3 +58,30 @@ export const experimentStateLabel: Record<ExperimentState, string> = {
   failed: '失败',
   blocked: '未通过准入',
 }
+
+const paperDecisionLabels: Record<string, string> = {
+  ORDER_FROZEN: '订单已冻结',
+  HELD_EXISTING_POSITION: '已有持仓',
+  SKIPPED_PENDING_ORDER: '已有待执行订单',
+  SKIPPED_BELOW_BOARD_LOT: '资金不足一手',
+  PAPER_PUBLICATION_SKIPPED: '同日重算不改账本',
+  LEGACY_NO_ORDER_UNCLASSIFIED: '历史原因未分类',
+}
+
+const paperDecisionReasons: Record<string, string> = {
+  ORDER_FROZEN: '已按 T 日收盘时可知的信息冻结，等待下一真实交易日执行。',
+  HELD_EXISTING_POSITION: '信号冻结时账户已经持有该股票，因此没有新增买单。',
+  SKIPPED_PENDING_ORDER: '已有一笔不可改写的待执行订单，因此不重复下单。',
+  SKIPPED_BELOW_BOARD_LOT: '等权现金份额不足以买入 A 股最小的 100 股整手。',
+  PAPER_PUBLICATION_SKIPPED: '该信号日已由更早的运行冻结；本次只保留研究结果。',
+  LEGACY_NO_ORDER_UNCLASSIFIED: '这条历史记录早于显式决策回执，系统保留原状而不猜测原因。',
+}
+
+export const paperDecisionLabel = (decision: string | null | undefined): string =>
+  decision ? paperDecisionLabels[decision] ?? decision : '尚无回执'
+
+export const paperDecisionReason = (
+  decision: string | null | undefined,
+  fallback: string | null | undefined,
+): string =>
+  (decision ? paperDecisionReasons[decision] : undefined) ?? fallback ?? '尚无可解释回执。'

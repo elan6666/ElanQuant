@@ -21,6 +21,11 @@ export NCCL_IB_DISABLE=${NCCL_IB_DISABLE:-1}
 export NCCL_SHM_DISABLE=${NCCL_SHM_DISABLE:-1}
 export NCCL_SOCKET_IFNAME=${NCCL_SOCKET_IFNAME:-lo}
 export ELANQUANT_WORLD_SIZE=${ELANQUANT_WORLD_SIZE:-2}
+ELANQUANT_MODEL_SIZE_ONLY=${ELANQUANT_MODEL_SIZE_ONLY:-small}
+if [[ "$ELANQUANT_MODEL_SIZE_ONLY" != small && "$ELANQUANT_MODEL_SIZE_ONLY" != base ]]; then
+  echo "ELANQUANT_MODEL_SIZE_ONLY must be small or base" >&2
+  exit 64
+fi
 
 export ELANQUANT_RECEIPT_ROOT=${ELANQUANT_RECEIPT_ROOT:-$ELANQUANT_ROOT/runs/training/$ELANQUANT_RUN_ID}
 export ELANQUANT_SAVE_ROOT=${ELANQUANT_SAVE_ROOT:-$ELANQUANT_ROOT/models/training/$ELANQUANT_RUN_ID}
@@ -182,8 +187,8 @@ run_track() {
   local visible_gpu=$2
   export CUDA_VISIBLE_DEVICES=$visible_gpu
   export ELANQUANT_WORLD_SIZE=1
-  run_stage "$track" tokenizer small
-  run_stage "$track" predictor small
+  run_stage "$track" tokenizer "$ELANQUANT_MODEL_SIZE_ONLY"
+  run_stage "$track" predictor "$ELANQUANT_MODEL_SIZE_ONLY"
 }
 
 if [[ ${ELANQUANT_PARALLEL_TRACKS:-0} == 1 ]]; then
@@ -197,8 +202,8 @@ if [[ ${ELANQUANT_PARALLEL_TRACKS:-0} == 1 ]]; then
   wait "$official_pid"
   wait "$strict_pid"
 else
-  run_stage official tokenizer small
-  run_stage official predictor small
-  run_stage strict tokenizer small
-  run_stage strict predictor small
+  run_stage official tokenizer "$ELANQUANT_MODEL_SIZE_ONLY"
+  run_stage official predictor "$ELANQUANT_MODEL_SIZE_ONLY"
+  run_stage strict tokenizer "$ELANQUANT_MODEL_SIZE_ONLY"
+  run_stage strict predictor "$ELANQUANT_MODEL_SIZE_ONLY"
 fi

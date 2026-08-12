@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import math
 import sqlite3
+from collections import Counter
 from datetime import UTC, date, datetime, timedelta
 from typing import Annotated
 
@@ -20,6 +23,177 @@ from elanquant.storage.database import Database
 class UpdateInferRequest(BaseModel):
     target_session: date | None = Field(default=None, description="Requested A-share session")
     force: bool = False
+
+
+def canonical_hash(payload: object) -> str:
+    rendered = json.dumps(
+        payload,
+        ensure_ascii=False,
+        allow_nan=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return hashlib.sha256(rendered.encode("utf-8")).hexdigest()
+
+
+def valid_sha256(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value.lower())
+    )
+
+
+def validate_research_catalog(payload: object) -> dict[str, object]:
+    if not isinstance(payload, dict):
+        raise RuntimeError("catalog is not an object")
+    content = dict(payload)
+    receipt_hash = content.pop("receipt_hash", None)
+    expected_tracks = {
+        f"{size}-{identity}": (size, track)
+        for size in ("small", "base")
+        for identity, track in (
+            ("zero-shot", "zero_shot"),
+            ("official-ft", "official_style"),
+            ("strict-pit", "strict_pit"),
+        )
+    }
+    experiments = payload.get("experiments")
+    sources = payload.get("sources")
+    if (
+        payload.get("schema_version") != "elanquant_research_catalog_v1"
+        or payload.get("status") != "PASS"
+        or not valid_sha256(receipt_hash)
+        or canonical_hash(content) != receipt_hash
+        or not isinstance(experiments, list)
+        or len(experiments) != len(expected_tracks)
+        or not all(isinstance(item, dict) for item in experiments)
+        or not isinstance(sources, dict)
+        or set(sources) != {"small", "base"}
+    ):
+        raise RuntimeError("catalog top-level receipt is invalid")
+    if {str(item["id"]) for item in experiments} != set(expected_tracks):
+        raise RuntimeError("catalog is not the exact six-cell experiment")
+    support_by_split: dict[str, tuple[object, object, object]] = {}
+    for item in experiments:
+        model_id = str(item["id"])
+        expected_size, expected_track = expected_tracks[model_id]
+        if (
+            item.get("model_size") != expected_size
+            or item.get("track") != expected_track
+            or item.get("state") != "passed"
+            or not valid_sha256(item.get("model_hash"))
+            or not valid_sha256(item.get("receipt"))
+        ):
+            raise RuntimeError(f"catalog cell identity is invalid: {model_id}")
+        evaluations = item.get("evaluations")
+        if not isinstance(evaluations, dict) or set(evaluations) != {
+            "validation_2025",
+            "test_viewed_2026",
+        }:
+            raise RuntimeError(f"catalog split evidence is incomplete: {model_id}")
+        for split, values in evaluations.items():
+            if not isinstance(values, dict):
+                raise RuntimeError(f"catalog split evidence is invalid: {model_id}.{split}")
+            for metric in ("rank_ic", "pearson_ic", "top10_mean_return"):
+                value = values.get(metric)
+                if (
+                    isinstance(value, bool)
+                    or not isinstance(value, (int, float))
+                    or not math.isfinite(value)
+                ):
+                    raise RuntimeError(f"catalog metric is invalid: {model_id}.{split}.{metric}")
+            rows = values.get("rows")
+            sections = values.get("cross_sections")
+            anchor = values.get("anchor_set_sha256")
+            if (
+                isinstance(rows, bool)
+                or not isinstance(rows, int)
+                or rows <= 0
+                or isinstance(sections, bool)
+                or not isinstance(sections, int)
+                or sections <= 0
+                or not valid_sha256(anchor)
+            ):
+                raise RuntimeError(f"catalog support is invalid: {model_id}.{split}")
+            signature = (rows, sections, anchor)
+            if split in support_by_split and support_by_split[split] != signature:
+                raise RuntimeError(f"catalog common support disagrees: {split}")
+            support_by_split[split] = signature
+    comparable_keys = (
+        "upstream_commit",
+        "official_weights_receipt_sha256",
+        "training_data_sha256",
+        "admission_sha256",
+        "split_contract_sha256",
+        "evaluation_data_sha256",
+        "evaluation_config_sha256",
+        "inference_code_sha256",
+        "as_of_session",
+        "support",
+    )
+    source_payloads: dict[str, dict[str, object]] = {}
+    for size in ("small", "base"):
+        source = sources.get(size)
+        if not isinstance(source, dict):
+            raise RuntimeError(f"catalog source is invalid: {size}")
+        for identity in (
+            "matrix_sha256",
+            "evaluation_sha256",
+            "official_weights_receipt_sha256",
+            "training_data_sha256",
+            "admission_sha256",
+            "split_contract_sha256",
+            "evaluation_data_sha256",
+            "evaluation_config_sha256",
+            "inference_code_sha256",
+        ):
+            if not valid_sha256(source.get(identity)):
+                raise RuntimeError(f"catalog source identity is invalid: {size}.{identity}")
+        upstream = source.get("upstream_commit")
+        if (
+            not isinstance(upstream, str)
+            or len(upstream) != 40
+            or any(character not in "0123456789abcdef" for character in upstream.lower())
+        ):
+            raise RuntimeError(f"catalog upstream identity is invalid: {size}")
+        as_of = source.get("as_of_session")
+        try:
+            parsed_as_of = date.fromisoformat(str(as_of))
+        except ValueError as error:
+            raise RuntimeError(f"catalog as-of session is invalid: {size}") from error
+        if parsed_as_of.isoformat() != as_of:
+            raise RuntimeError(f"catalog as-of session is invalid: {size}")
+        source_support = source.get("support")
+        if not isinstance(source_support, dict) or set(source_support) != set(support_by_split):
+            raise RuntimeError(f"catalog source support is invalid: {size}")
+        for split, expected_signature in support_by_split.items():
+            values = source_support.get(split)
+            if not isinstance(values, dict):
+                raise RuntimeError(f"catalog source support is invalid: {size}.{split}")
+            eligible_rows = values.get("eligible_rows")
+            if (
+                isinstance(eligible_rows, bool)
+                or not isinstance(eligible_rows, int)
+                or eligible_rows < expected_signature[0]
+            ):
+                raise RuntimeError(f"catalog source support is invalid: {size}.{split}")
+            signature = (
+                values.get("evaluated_rows"),
+                values.get("evaluated_cross_sections"),
+                values.get("anchor_set_sha256"),
+            )
+            if signature != expected_signature:
+                raise RuntimeError(f"catalog source support is mismatched: {size}.{split}")
+        source_payloads[size] = source
+    for key in comparable_keys:
+        if source_payloads["small"].get(key) != source_payloads["base"].get(key):
+            raise RuntimeError(f"catalog Small/Base identity differs: {key}")
+    for item in experiments:
+        size = str(item["model_size"])
+        if item.get("receipt") != source_payloads[size].get("evaluation_sha256"):
+            raise RuntimeError(f"catalog cell receipt is mismatched: {item['id']}")
+    return payload
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -79,6 +253,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 """,
                 (run["id"],),
             ).fetchall()
+            evaluations = connection.execute(
+                """
+                SELECT * FROM run_model_evaluations
+                WHERE run_id = ? ORDER BY base_model_id, split
+                """,
+                (run["id"],),
+            ).fetchall()
             if not models and str(run["protocol"]).startswith("PLACEHOLDER"):
                 models = connection.execute(
                     """
@@ -91,11 +272,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             f"{model['id']}:{model['checkpoint_sha256']}" for model in model_rows
         )
         model_hash = hashlib.sha256(checkpoint_material.encode()).hexdigest()
-        warning = None
+        warnings: list[str] = []
         if str(run["protocol"]).startswith("PLACEHOLDER"):
-            warning = "占位输出，不是市场数据、模型结论或投资建议。"
+            warnings.append("占位输出，不是市场数据、模型结论或投资建议。")
         elif not bool(run.get("scoreable")):
-            warning = "这是最新在线预测，未来十个交易日标签尚未成熟，不能计入评估指标。"
+            warnings.append("这是最新在线预测，未来十个交易日标签尚未成熟，不能计入评估指标。")
+        if run.get("paper_publication_state") == "LEGACY_MIXED_RUNS":
+            warnings.append("该历史信号日包含多个运行来源；原始账本已保留且未被改写。")
+        if run.get("paper_publication_state") == "SKIPPED_EXISTING_FROZEN_RUN":
+            warnings.append("该信号日的模拟意图已由更早运行冻结；本次只更新研究结果。")
+        evaluations_by_model: dict[str, dict[str, dict[str, object]]] = {}
+        for evaluation in evaluations:
+            raw = dict(evaluation)
+            evaluations_by_model.setdefault(str(raw["base_model_id"]), {})[
+                str(raw["split"])
+            ] = {
+                "rank_ic": raw["rank_ic"],
+                "pearson_ic": raw["ic"],
+                "top10_mean_return": raw["top10_mean_return"],
+                "rows": raw["rows"],
+                "cross_sections": raw["cross_sections"],
+                "anchor_set_sha256": raw["anchor_set_sha256"],
+            }
         track_by_variant = {
             "zero_shot": "zero_shot",
             "official_ft": "official_style",
@@ -104,14 +302,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         matrix = []
         for model in model_rows:
             variant = str(model["variant"]).split("@", 1)[0]
+            track = track_by_variant.get(variant)
             matrix.append(
                 {
                     "id": model["id"],
                     "model_size": model["size"],
-                    "track": track_by_variant.get(variant, "strict_pit"),
+                    "track": track or "zero_shot",
                     "state": (
                         "passed"
-                        if model["status"] == "PASS" and model["evaluation_receipt_sha256"]
+                        if track is not None
+                        and model["status"] == "PASS"
+                        and model["evaluation_receipt_sha256"]
                         else "blocked"
                     ),
                     "rank_ic": model["validation_rank_ic"],
@@ -119,10 +320,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "top10_mean_return": model["validation_top10_mean_return"],
                     "model_hash": model["checkpoint_sha256"],
                     "receipt": model["evaluation_receipt"],
-                    "note": warning,
+                    "evaluations": evaluations_by_model.get(
+                        str(model["base_model_id"] or model["id"]), {}
+                    ),
+                    "note": (
+                        f"未知模型变体 {variant}；已阻止展示为正式实验。"
+                        if track is None
+                        else warnings[0] if warnings else None
+                    ),
                 }
             )
         snapshot_dict = {} if snapshot is None else dict(snapshot)
+        data_health: dict[str, object] | None = None
+        if snapshot_dict.get("summary_json"):
+            parsed = json.loads(str(snapshot_dict["summary_json"]))
+            if isinstance(parsed, dict):
+                data_health = parsed
         return {
             "id": run["id"],
             "as_of": run["as_of_session"],
@@ -141,8 +354,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ).hexdigest(),
                 "config_hash": str(run.get("config_sha256") or ""),
                 "code_hash": str(run.get("code_sha256") or ""),
+                "evaluation_hash": str(run.get("evaluation_receipt_sha256") or ""),
             },
-            "warnings": [] if warning is None else [warning],
+            "warnings": warnings,
+            "paper_publication": {
+                "state": run.get("paper_publication_state"),
+                "source_run_id": run.get("paper_publication_run_id"),
+            },
+            "data_health": data_health,
             "experiment_matrix": matrix,
         }
 
@@ -204,6 +423,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "automatic_schedule": False,
         }
 
+    @app.get("/api/v1/research/experiments")
+    def research_experiments() -> dict[str, object]:
+        if not active_settings.research_catalog.is_file():
+            return {"generated_at": None, "experiments": []}
+        try:
+            payload = json.loads(active_settings.research_catalog.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            raise HTTPException(
+                status_code=503, detail="Research catalog could not be read safely"
+            ) from error
+        try:
+            validated = validate_research_catalog(payload)
+        except (KeyError, RuntimeError, TypeError, ValueError) as error:
+            raise HTTPException(
+                status_code=503, detail="Research catalog failed its receipt gate"
+            ) from error
+        return {
+            "generated_at": validated.get("generated_at"),
+            "experiments": validated["experiments"],
+        }
+
     @app.post("/api/v1/jobs/update-infer", status_code=status.HTTP_202_ACCEPTED)
     def submit_update_infer(payload: UpdateInferRequest, response: Response) -> dict[str, object]:
         job, created = jobs.submit_update_infer(payload.target_session, force=payload.force)
@@ -245,6 +485,156 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="No completed run")
         return run_payload(row)
 
+    @app.get("/api/v1/runs")
+    def list_runs(limit: Annotated[int, Query(ge=1, le=50)] = 10) -> dict[str, object]:
+        with database.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, as_of_session, status, protocol, created_at,
+                    finished_at, scoreable, matrix_receipt_sha256,
+                    evaluation_receipt_sha256, config_sha256, code_sha256,
+                    paper_publication_state,
+                    paper_publication_run_id
+                FROM inference_runs WHERE status = 'SUCCEEDED'
+                ORDER BY created_at DESC LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return {"runs": [dict(row) for row in rows]}
+
+    def strict_ranks(connection: sqlite3.Connection, run_id: str) -> dict[str, int]:
+        return {
+            str(row["code"]): int(row["rank"])
+            for row in connection.execute(
+                """
+                SELECT ss.code, ss.rank FROM stock_scores ss
+                JOIN inference_run_models irm
+                  ON irm.run_id = ss.run_id AND irm.model_version_id = ss.model_version_id
+                WHERE ss.run_id = ? AND irm.base_model_id LIKE '%-strict-pit'
+                """,
+                (run_id,),
+            ).fetchall()
+        }
+
+    @app.get("/api/v1/runs/{run_id}/diff")
+    def run_diff(run_id: str, against: str | None = None) -> dict[str, object]:
+        with database.connect() as connection:
+            current = connection.execute(
+                "SELECT * FROM inference_runs WHERE id = ? AND status = 'SUCCEEDED'", (run_id,)
+            ).fetchone()
+            if current is None:
+                raise HTTPException(status_code=404, detail="Run not found")
+            baseline = (
+                connection.execute(
+                    "SELECT * FROM inference_runs WHERE id = ? AND status = 'SUCCEEDED'",
+                    (against,),
+                ).fetchone()
+                if against is not None
+                else connection.execute(
+                    """
+                    SELECT * FROM inference_runs
+                    WHERE status = 'SUCCEEDED' AND (created_at < ? OR (created_at = ? AND id < ?))
+                    ORDER BY created_at DESC, id DESC LIMIT 1
+                    """,
+                    (current["created_at"], current["created_at"], run_id),
+                ).fetchone()
+            )
+            current_ranks = strict_ranks(connection, run_id)
+            baseline_ranks = (
+                {} if baseline is None else strict_ranks(connection, str(baseline["id"]))
+            )
+        if baseline is None:
+            return {
+                "run_id": run_id,
+                "against_run_id": None,
+                "comparable": False,
+                "reason": "NO_PREVIOUS_COMPLETED_RUN",
+            }
+        common = set(current_ranks) & set(baseline_ranks)
+        minimum_coverage = 250
+        if (
+            len(current_ranks) < minimum_coverage
+            or len(baseline_ranks) < minimum_coverage
+            or len(common) < minimum_coverage
+        ):
+            return {
+                "run_id": run_id,
+                "against_run_id": str(baseline["id"]),
+                "comparable": False,
+                "reason": "STRICT_RANK_COVERAGE_INCOMPLETE",
+                "coverage": {
+                    "current": len(current_ranks),
+                    "baseline": len(baseline_ranks),
+                    "common": len(common),
+                    "required": minimum_coverage,
+                },
+            }
+        current_top3 = {code for code, rank in current_ranks.items() if rank <= 3}
+        baseline_top3 = {code for code, rank in baseline_ranks.items() if rank <= 3}
+        current_top10 = {code for code, rank in current_ranks.items() if rank <= 10}
+        baseline_top10 = {code for code, rank in baseline_ranks.items() if rank <= 10}
+        largest_changes = sorted(
+            (
+                {
+                    "code": code,
+                    "from_rank": baseline_ranks[code],
+                    "to_rank": current_ranks[code],
+                    "delta": baseline_ranks[code] - current_ranks[code],
+                }
+                for code in common
+            ),
+            key=lambda item: (-abs(int(item["delta"])), str(item["code"])),
+        )[:20]
+        fields = (
+            "snapshot_id",
+            "matrix_receipt_sha256",
+            "evaluation_receipt_sha256",
+            "config_sha256",
+            "code_sha256",
+        )
+        return {
+            "run_id": run_id,
+            "against_run_id": str(baseline["id"]),
+            "comparable": True,
+            "same_session": current["as_of_session"] == baseline["as_of_session"],
+            "identity_changes": {
+                field: current[field] != baseline[field] for field in fields
+            },
+            "top3_overlap": len(current_top3 & baseline_top3),
+            "top10_overlap": len(current_top10 & baseline_top10),
+            "top3_added": sorted(current_top3 - baseline_top3),
+            "top3_dropped": sorted(baseline_top3 - current_top3),
+            "largest_rank_changes": largest_changes,
+        }
+
+    @app.get("/api/v1/runs/{run_id}/data-health")
+    def run_data_health(run_id: str) -> dict[str, object]:
+        with database.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT ds.* FROM inference_runs ir
+                JOIN data_snapshots ds ON ds.id = ir.snapshot_id
+                WHERE ir.id = ?
+                """,
+                (run_id,),
+            ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Run not found")
+        summary: dict[str, object] = {
+            "status": row["status"],
+            "resolved_session": row["as_of_session"],
+            "eligible_symbols": row["row_count"],
+        }
+        if row["summary_json"]:
+            parsed = json.loads(str(row["summary_json"]))
+            if isinstance(parsed, dict):
+                summary = parsed
+        return {
+            "run_id": run_id,
+            "manifest_sha256": row["manifest_sha256"],
+            "summary": summary,
+        }
+
     @app.get("/api/v1/runs/{run_id}")
     def get_run(run_id: str) -> dict[str, object]:
         with database.connect() as connection:
@@ -261,7 +651,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ).fetchall()
         if row is None:
             raise HTTPException(status_code=404, detail="Run not found")
-        return {"run": dict(row), "recommendations": [dict(item) for item in recommendations]}
+        safe_run = {key: row[key] for key in row if key != "artifact_path"}
+        return {"run": safe_run, "recommendations": [dict(item) for item in recommendations]}
 
     @app.get("/api/v1/runs/{run_id}/scores")
     def run_scores(run_id: str, model_id: str | None = None) -> dict[str, object]:
@@ -278,9 +669,44 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         query += " ORDER BY irm.base_model_id, ss.rank"
         with database.connect() as connection:
             exists = connection.execute(
-                "SELECT 1 FROM inference_runs WHERE id = ?", (run_id,)
+                "SELECT * FROM inference_runs WHERE id = ?", (run_id,)
             ).fetchone()
             rows = connection.execute(query, params).fetchall()
+            previous = (
+                None
+                if exists is None
+                else connection.execute(
+                    """
+                    SELECT id FROM inference_runs
+                    WHERE status = 'SUCCEEDED'
+                      AND (created_at < ? OR (created_at = ? AND id < ?))
+                    ORDER BY created_at DESC, id DESC LIMIT 1
+                    """,
+                    (exists["created_at"], exists["created_at"], run_id),
+                ).fetchone()
+            )
+            previous_ranks = (
+                {}
+                if previous is None
+                else strict_ranks(connection, str(previous["id"]))
+            )
+            recommended = {
+                str(row["code"])
+                for row in connection.execute(
+                    """
+                    SELECT ri.code FROM recommendation_items ri
+                    JOIN recommendation_sets rs ON rs.id = ri.recommendation_set_id
+                    WHERE rs.run_id = ?
+                    """,
+                    (run_id,),
+                ).fetchall()
+            }
+            decisions = {
+                str(row["code"]): dict(row)
+                for row in connection.execute(
+                    "SELECT * FROM paper_intent_decisions WHERE run_id = ?", (run_id,)
+                ).fetchall()
+            }
         if exists is None:
             raise HTTPException(status_code=404, detail="Run not found")
         by_code: dict[str, dict[str, object]] = {}
@@ -321,6 +747,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             assert isinstance(strict_values, list)
             consensus_values = strict_values or values
             consensus = sum(consensus_values) / len(consensus_values)
+            item["model_spread"] = max(values) - min(values) if values else None
             aggregated.append((consensus, item))
         aggregated.sort(key=lambda pair: (-pair[0], str(pair[1]["code"])))
         scores_payload = []
@@ -333,9 +760,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "score": consensus,
                     "forecast_return": consensus,
                     "coverage": 1.0 if eligible else 0.0,
+                    "input_completeness": 1.0 if eligible else 0.0,
                     "eligible": eligible,
+                    "model_spread": item.pop("model_spread"),
+                    "previous_rank": previous_ranks.get(str(item["code"])),
+                    "rank_delta": (
+                        None
+                        if str(item["code"]) not in previous_ranks
+                        else previous_ranks[str(item["code"])] - rank
+                    ),
+                    "selected_top3": str(item["code"]) in recommended,
+                    "paper_decision": decisions.get(str(item["code"]), {}).get("decision"),
+                    "paper_reason": decisions.get(str(item["code"]), {}).get("reason"),
                     "explanation": (
-                        "Small 严格PIT模型分数。"
+                        "严格PIT轨驱动排名；三轨分歧只用于解释，不代表置信区间。"
                         if eligible
                         else "占位分数，不可用于研究结论或投资决策。"
                     ),
@@ -482,6 +920,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "orders": [
                 {
                     "id": row["id"],
+                    "run_id": row["run_id"],
                     "signal_date": row["signal_session"],
                     "execution_date": row["execution_session"],
                     "code": row["code"],
@@ -499,6 +938,100 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 }
                 for row in rows
             ]
+        }
+
+    @app.get("/api/v1/paper/summary")
+    def paper_summary() -> dict[str, object]:
+        with database.connect() as connection:
+            account = connection.execute(
+                "SELECT * FROM paper_accounts WHERE id = ?", (ACCOUNT_ID,)
+            ).fetchone()
+            nav_rows = connection.execute(
+                """
+                SELECT * FROM portfolio_snapshots
+                WHERE account_id = ? ORDER BY as_of_session
+                """,
+                (ACCOUNT_ID,),
+            ).fetchall()
+            order_rows = connection.execute(
+                "SELECT * FROM paper_orders WHERE account_id = ?", (ACCOUNT_ID,)
+            ).fetchall()
+            fill_rows = connection.execute(
+                """
+                SELECT pf.* FROM paper_fills pf
+                JOIN paper_orders po ON po.id = pf.order_id
+                WHERE po.account_id = ?
+                """,
+                (ACCOUNT_ID,),
+            ).fetchall()
+            latest_run = connection.execute(
+                """
+                SELECT id, as_of_session, paper_publication_state, paper_publication_run_id
+                FROM inference_runs WHERE status = 'SUCCEEDED'
+                ORDER BY created_at DESC LIMIT 1
+                """
+            ).fetchone()
+            decisions = (
+                []
+                if latest_run is None
+                else connection.execute(
+                    """
+                    SELECT * FROM paper_intent_decisions
+                    WHERE run_id = ? ORDER BY rank, code
+                    """,
+                    (latest_run["id"],),
+                ).fetchall()
+            )
+            legacy = connection.execute(
+                """
+                SELECT signal_session, run_id, note FROM paper_signal_publications
+                WHERE account_id = ? AND state = 'LEGACY_MIXED_RUNS'
+                ORDER BY signal_session
+                """,
+                (ACCOUNT_ID,),
+            ).fetchall()
+        if account is None:
+            raise HTTPException(status_code=404, detail="Paper account not initialized")
+        status_counts = Counter(str(row["status"]).lower() for row in order_rows)
+        decision_counts = Counter(str(row["decision"]) for row in decisions)
+        max_drawdown: float | None = None
+        if len(nav_rows) >= 2:
+            peak = float(nav_rows[0]["nav"])
+            max_drawdown = 0.0
+            for row in nav_rows:
+                value = float(row["nav"])
+                peak = max(peak, value)
+                max_drawdown = min(max_drawdown, value / peak - 1)
+        initial_cash = float(account["initial_cash"])
+        gross = sum(float(row["gross_amount"]) for row in fill_rows)
+        return {
+            "sample_sessions": len(nav_rows),
+            "evidence_state": "available" if len(nav_rows) >= 2 else "insufficient_evidence",
+            "order_counts": {
+                "pending": status_counts.get("pending", 0),
+                "filled": status_counts.get("filled", 0),
+                "rejected": status_counts.get("rejected", 0),
+            },
+            "decision_counts": dict(sorted(decision_counts.items())),
+            "total_fees": sum(
+                float(row["commission"]) + float(row["stamp_tax"]) for row in fill_rows
+            ),
+            "gross_turnover": gross / initial_cash if initial_cash > 0 else None,
+            "max_drawdown": max_drawdown,
+            "latest_publication": (
+                None
+                if latest_run is None
+                else {
+                    "run_id": latest_run["id"],
+                    "signal_session": latest_run["as_of_session"],
+                    "state": latest_run["paper_publication_state"],
+                    "source_run_id": latest_run["paper_publication_run_id"],
+                }
+            ),
+            "latest_decisions": [dict(row) for row in decisions],
+            "warnings": [
+                f"{row['signal_session']}: {row['note']}" for row in legacy
+            ],
         }
 
     @app.get("/api/v1/paper/nav")

@@ -1,4 +1,11 @@
-import type { DashboardSnapshot, Job, PaperAccount, ResearchRun } from '../types'
+import type {
+  DashboardSnapshot,
+  ExperimentCell,
+  Job,
+  PaperAccount,
+  PaperSummary,
+  ResearchRun,
+} from '../types'
 
 export const runningJob: Job = {
   id: 'job-20260812-001',
@@ -13,6 +20,7 @@ export const runningJob: Job = {
   message: '正在批量运行Kronos Small。',
   error_code: null,
   retry_of: null,
+  run_id: null,
   coalesced: false,
   events: [],
 }
@@ -43,7 +51,25 @@ export const successRun: ResearchRun = {
   tokenizer_hash: 'token000000000000000000000000000000000001',
   config_hash: 'config00000000000000000000000000000000001',
   code_hash: 'code000000000000000000000000000000000001',
+  evaluation_hash: 'evaluation00000000000000000000000000000000001',
   warnings: [],
+  paper_publication: { state: 'FROZEN', source_run_id: 'run-20260812-001' },
+  data_health: {
+    status: 'PASS',
+    resolved_session: '2026-08-12',
+    generated_at_utc: '2026-08-12T16:20:00+08:00',
+    generated_after_market_finalization: true,
+    daily_finalization_cutoff: '16:15:00',
+    membership_count: 300,
+    eligible_symbols: 300,
+    excluded_counts: {},
+    membership_snapshot: '2026-07-31',
+    membership_available_session: '2026-08-12',
+    membership_availability_policy: 'provider_trade_date_plus_one_complete_session',
+    membership_revision_limitation: '供应商无历史first-seen回执。',
+    transport_caveat: '数据代理使用HTTP。',
+    snapshot_logic_sha256: 'snapshot0000000000000000000000000000000000001',
+  },
   experiment_matrix: [],
   scores: [
     {
@@ -53,8 +79,15 @@ export const successRun: ResearchRun = {
       score: 0.0832,
       forecast_return: 0.041,
       coverage: 1,
+      input_completeness: 1,
       eligible: true,
       explanation: 'Small严格PIT轨分数，数据覆盖完整。',
+      model_spread: 0.012,
+      previous_rank: 3,
+      rank_delta: 2,
+      selected_top3: true,
+      paper_decision: 'ORDER_FROZEN',
+      paper_reason: 'T日冻结。',
       model_scores: { small: 0.0832 },
       forecast: [
         { session: '2026-08-13', p10: 10.1, mean: 10.3, p90: 10.5 },
@@ -78,6 +111,66 @@ export const paperAccount: PaperAccount = {
   gaps: [],
 }
 
+export const passedSmallCell: ExperimentCell = {
+  id: 'small-zero-shot',
+  model_size: 'small',
+  track: 'zero_shot',
+  state: 'passed',
+  rank_ic: 0.0153,
+  pearson_ic: 0.0124,
+  top10_mean_return: 0.0064,
+  model_hash: 'model0000000000000000000000000000000000001',
+  receipt: 'receipt00000000000000000000000000000000001',
+  note: 'Audited baseline.',
+  evaluations: {
+    validation_2025: {
+      rank_ic: 0.0153,
+      pearson_ic: 0.0124,
+      top10_mean_return: 0.0064,
+      rows: 18_000,
+      cross_sections: 60,
+      anchor_set_sha256: 'a'.repeat(64),
+    },
+    test_viewed_2026: {
+      rank_ic: -0.0341,
+      pearson_ic: -0.02,
+      top10_mean_return: 0.001,
+      rows: 10_500,
+      cross_sections: 35,
+      anchor_set_sha256: 'b'.repeat(64),
+    },
+  },
+}
+
+export const paperSummary: PaperSummary = {
+  sample_sessions: 1,
+  evidence_state: 'insufficient_evidence',
+  order_counts: { pending: 1, filled: 0, rejected: 0 },
+  decision_counts: { SKIPPED_BELOW_BOARD_LOT: 1 },
+  total_fees: 0,
+  gross_turnover: 0,
+  max_drawdown: null,
+  latest_publication: {
+    run_id: successRun.id,
+    signal_session: successRun.as_of,
+    state: 'FROZEN',
+    source_run_id: successRun.id,
+  },
+  latest_decisions: [
+    {
+      run_id: successRun.id,
+      symbol: '688001.SH',
+      name: '高价股',
+      rank: 2,
+      decision: 'SKIPPED_BELOW_BOARD_LOT',
+      reason: '等权现金不足买入100股。',
+      quantity: 0,
+      sizing_price: 703.03,
+    },
+  ],
+  warnings: [],
+}
+
 export const snapshot = (overrides: Partial<DashboardSnapshot> = {}): DashboardSnapshot => ({
   system: {
     service_state: 'ready',
@@ -91,6 +184,11 @@ export const snapshot = (overrides: Partial<DashboardSnapshot> = {}): DashboardS
   },
   jobs: [],
   latest_run: null,
+  research_catalog: [],
+  research_catalog_available: true,
+  runs: [],
+  run_diff: null,
   paper: null,
+  paper_summary: null,
   ...overrides,
 })

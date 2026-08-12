@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import io
 import json
+import math
 import os
 import subprocess
 import uuid
@@ -28,6 +30,14 @@ class DataIncompleteError(RuntimeError):
     """Raised when a provider snapshot fails a typed data admission gate."""
 
 
+def valid_sha256(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value.lower())
+    )
+
+
 def utc_now() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -40,8 +50,43 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def safe_snapshot_summary(manifest: dict[str, Any]) -> dict[str, object]:
+    excluded = manifest.get("excluded")
+    excluded_counts: dict[str, int] = {}
+    if isinstance(excluded, dict):
+        if all(isinstance(entries, (list, int)) for entries in excluded.values()):
+            for reason, entries in excluded.items():
+                excluded_counts[str(reason)] = (
+                    len(entries) if isinstance(entries, list) else int(entries)
+                )
+        else:
+            for reason in excluded.values():
+                reason_key = str(reason)
+                excluded_counts[reason_key] = excluded_counts.get(reason_key, 0) + 1
+    return {
+        "status": manifest.get("status"),
+        "requested_session": manifest.get("requested_session"),
+        "resolved_session": manifest.get("resolved_session"),
+        "generated_at_utc": manifest.get("generated_at_utc"),
+        "generated_after_market_finalization": manifest.get(
+            "generated_after_market_finalization"
+        ),
+        "daily_finalization_cutoff": manifest.get("daily_finalization_cutoff"),
+        "market_timezone": manifest.get("market_timezone"),
+        "membership_count": manifest.get("membership_count"),
+        "eligible_symbols": manifest.get("eligible_symbols"),
+        "excluded_counts": excluded_counts,
+        "membership_snapshot": manifest.get("membership_snapshot"),
+        "membership_available_session": manifest.get("membership_available_session"),
+        "membership_availability_policy": manifest.get("membership_availability_policy"),
+        "membership_revision_limitation": manifest.get("membership_revision_limitation"),
+        "transport_caveat": manifest.get("transport_caveat"),
+        "snapshot_logic_sha256": manifest.get("snapshot_logic_sha256"),
+    }
+
+
 def record_manual_gaps(
-    connection: Any, current_session: str, calendar_path: Path, now: str
+    connection: Any, current_session: str, open_days: list[str], now: str
 ) -> None:
     previous = connection.execute(
         """
@@ -52,12 +97,6 @@ def record_manual_gaps(
     ).fetchone()
     if previous is None:
         return
-    with calendar_path.open(newline="", encoding="utf-8") as handle:
-        open_days = [
-            str(row["cal_date"])
-            for row in csv.DictReader(handle)
-            if int(row["is_open"]) == 1
-        ]
     previous_compact = str(previous["signal_session"]).replace("-", "")
     current_compact = current_session.replace("-", "")
     skipped = sorted(day for day in open_days if previous_compact < day < current_compact)
@@ -70,6 +109,45 @@ def record_manual_gaps(
             """,
             (session, now),
         )
+
+
+def verified_snapshot_inputs(
+    snapshot_path: Path,
+    manifest_path: Path,
+    manifest: dict[str, Any],
+    manifest_sha256: str,
+) -> tuple[dict[str, dict[str, Any]], list[str]]:
+    if sha256(manifest_path) != manifest_sha256:
+        raise RuntimeError("online snapshot manifest changed before paper publication")
+    files = manifest.get("files")
+    expected_names = ("online_data.pkl", "trade_cal.csv", "execution.json")
+    if not isinstance(files, dict) or not all(name in files for name in expected_names):
+        raise RuntimeError("online snapshot manifest lacks the closed file receipt")
+    contents: dict[str, bytes] = {}
+    for name in expected_names:
+        expected = files.get(name)
+        if not isinstance(expected, str) or len(expected) != 64:
+            raise RuntimeError(f"online snapshot file identity is invalid: {name}")
+        payload = (snapshot_path / name).read_bytes()
+        if hashlib.sha256(payload).hexdigest() != expected:
+            raise RuntimeError(f"online snapshot file changed before paper publication: {name}")
+        contents[name] = payload
+    execution_raw = json.loads(contents["execution.json"].decode("utf-8"))
+    if not isinstance(execution_raw, dict):
+        raise RuntimeError("online execution payload is not an object")
+    execution = {
+        str(code): values
+        for code, values in execution_raw.items()
+        if isinstance(values, dict)
+    }
+    open_days = [
+        str(row["cal_date"])
+        for row in csv.DictReader(io.StringIO(contents["trade_cal.csv"].decode("utf-8")))
+        if int(row["is_open"]) == 1
+    ]
+    if sha256(manifest_path) != manifest_sha256:
+        raise RuntimeError("online snapshot manifest changed during paper publication")
+    return execution, open_days
 
 
 def _run(command: list[str], settings: Settings) -> dict[str, Any]:
@@ -142,7 +220,9 @@ def run_real_pipeline(
     evaluation_support = evaluation_result.get("evaluation_support")
     if (
         evaluation_result.get("status") != "PASS"
+        or evaluation_result.get("schema_version") != "elanquant_kronos_inference_v1"
         or evaluation_result.get("evaluation_mode") != "FORMAL"
+        or evaluation_result.get("test_status") != "TEST_VIEWED"
         or not isinstance(evaluation_models, dict)
         or set(evaluation_models) != expected_models
         or not isinstance(evaluation_support, dict)
@@ -162,8 +242,7 @@ def run_real_pipeline(
             or rows <= 0
             or not isinstance(sections, int)
             or sections <= 0
-            or not isinstance(anchor_sha, str)
-            or len(anchor_sha) != 64
+            or not valid_sha256(anchor_sha)
         ):
             raise RuntimeError(f"formal support is invalid: {split_name}")
         expected_support[split_name] = (rows, sections)
@@ -176,7 +255,9 @@ def run_real_pipeline(
             if (
                 not isinstance(split_metrics, dict)
                 or not all(
-                    isinstance(split_metrics.get(key), (int, float))
+                    not isinstance(split_metrics.get(key), bool)
+                    and isinstance(split_metrics.get(key), (int, float))
+                    and math.isfinite(float(split_metrics[key]))
                     for key in ("rank_ic", "ic", "top10_mean_return")
                 )
                 or (split_metrics.get("rows"), split_metrics.get("cross_sections")) != expected
@@ -201,6 +282,8 @@ def run_real_pipeline(
             "--online-root",
             str(snapshot_path),
             "--skip-evaluation",
+            "--online-batch-size",
+            "50",
             "--out",
             str(artifact_path),
         ],
@@ -231,6 +314,17 @@ def run_real_pipeline(
         for item in scores
     ):
         raise RuntimeError("ranking rows do not contain the exact Small model set")
+    for model_id in expected_models:
+        evaluated_model = evaluation_models[model_id]
+        online_model = models[model_id]
+        if not isinstance(evaluated_model, dict) or not isinstance(online_model, dict):
+            raise RuntimeError(f"model identity is incomplete: {model_id}")
+        for identity in ("predictor_sha256", "tokenizer_sha256", "config_sha256"):
+            if (
+                not valid_sha256(evaluated_model.get(identity))
+                or evaluated_model.get(identity) != online_model.get(identity)
+            ):
+                raise RuntimeError(f"formal/online model identity differs: {model_id}.{identity}")
     advance("SCORING", 0.74, "Publishing strict-PIT Small ranking", resolved)
     snapshot_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"elanquant:{resolved}:{snapshot_hash}"))
     recommendations: list[Recommendation] = [
@@ -244,7 +338,9 @@ def run_real_pipeline(
         for item in scores
     ]
     now = utc_now()
-    execution = json.loads((snapshot_path / "execution.json").read_text(encoding="utf-8"))
+    execution, calendar_open_days = verified_snapshot_inputs(
+        snapshot_path, snapshot_manifest_path, snapshot_manifest, snapshot_hash
+    )
     prices = {code: float(values["open"]) for code, values in execution.items()}
     closes = {code: float(values["close"]) for code, values in execution.items()}
     forecast_sessions = result.get("forecast_sessions")
@@ -261,10 +357,25 @@ def run_real_pipeline(
         connection.execute(
             """
             INSERT OR IGNORE INTO data_snapshots(
-                id, as_of_session, source, status, row_count, manifest_sha256, created_at
-            ) VALUES (?, ?, 'TUSHARE_PROXY_IMMUTABLE_ONLINE', 'PASS', ?, ?, ?)
+                id, as_of_session, source, status, row_count, manifest_sha256,
+                summary_json, created_at
+            ) VALUES (?, ?, 'TUSHARE_PROXY_IMMUTABLE_ONLINE', 'PASS', ?, ?, ?, ?)
             """,
-            (snapshot_id, resolved, len(scores), snapshot_hash, now),
+            (
+                snapshot_id,
+                resolved,
+                len(scores),
+                snapshot_hash,
+                json.dumps(safe_snapshot_summary(snapshot_manifest), sort_keys=True),
+                now,
+            ),
+        )
+        connection.execute(
+            """
+            UPDATE data_snapshots SET summary_json = COALESCE(summary_json, ?)
+            WHERE id = ?
+            """,
+            (json.dumps(safe_snapshot_summary(snapshot_manifest), sort_keys=True), snapshot_id),
         )
         version_ids: dict[str, str] = {}
         for model_id, model in models.items():
@@ -275,9 +386,15 @@ def run_real_pipeline(
                 "strict_pit": "strict_pit_ft",
             }[str(model["track"])]
             predictor_sha = str(model["predictor_sha256"])
-            version_id = f"{model_id}@{predictor_sha[:12]}"
+            version_identity = hashlib.sha256(
+                (
+                    f"{predictor_sha}:{model['tokenizer_sha256']}:"
+                    f"{model.get('config_sha256', '')}:{evaluation_sha}"
+                ).encode()
+            ).hexdigest()
+            version_id = f"{model_id}@{version_identity[:16]}"
             version_ids[model_id] = version_id
-            variant = f"{variant_base}@{predictor_sha[:12]}"
+            variant = f"{variant_base}@{version_identity[:16]}"
             evaluated = evaluation_models.get(model_id, {})
             evaluated_metrics = evaluated.get("metrics", {}) if isinstance(evaluated, dict) else {}
             validation = evaluated_metrics.get("validation_2025", {})
@@ -291,7 +408,22 @@ def run_real_pipeline(
                     viewed_test_rank_ic, evaluation_receipt,
                     evaluation_receipt_sha256
                 ) VALUES (?, ?, ?, ?, ?, 'PASS', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(id) DO NOTHING
+                ON CONFLICT(id) DO UPDATE SET
+                    base_model_id = excluded.base_model_id,
+                    size = excluded.size,
+                    variant = excluded.variant,
+                    protocol = excluded.protocol,
+                    status = excluded.status,
+                    checkpoint_sha256 = excluded.checkpoint_sha256,
+                    tokenizer_sha256 = excluded.tokenizer_sha256,
+                    config_sha256 = excluded.config_sha256,
+                    code_sha256 = excluded.code_sha256,
+                    validation_rank_ic = excluded.validation_rank_ic,
+                    validation_ic = excluded.validation_ic,
+                    validation_top10_mean_return = excluded.validation_top10_mean_return,
+                    viewed_test_rank_ic = excluded.viewed_test_rank_ic,
+                    evaluation_receipt = excluded.evaluation_receipt,
+                    evaluation_receipt_sha256 = excluded.evaluation_receipt_sha256
                 """,
                 (
                     version_id,
@@ -311,8 +443,8 @@ def run_real_pipeline(
                         else None
                     ),
                     viewed.get("rank_ic") if isinstance(viewed, dict) else None,
-                    str(evaluation_path) if evaluation_models else None,
-                    sha256(evaluation_path),
+                    f"sha256:{evaluation_sha}" if evaluation_models else None,
+                    evaluation_sha,
                 ),
             )
         connection.execute(
@@ -320,9 +452,10 @@ def run_real_pipeline(
             INSERT INTO inference_runs(
                 id, job_id, snapshot_id, as_of_session, status, protocol,
                 artifact_path, artifact_sha256, scoreable, matrix_receipt_sha256,
-                config_sha256, code_sha256, created_at, finished_at
+                evaluation_receipt_sha256, config_sha256, code_sha256,
+                created_at, finished_at
             ) VALUES (?, ?, ?, ?, 'SUCCEEDED', 'STRICT_PIT_SMALL',
-                ?, ?, 0, ?, ?, ?, ?, ?)
+                ?, ?, 0, ?, ?, ?, ?, ?, ?)
             """,
             (
                 run_id,
@@ -332,6 +465,7 @@ def run_real_pipeline(
                 str(artifact_path),
                 sha256(artifact_path),
                 matrix_sha,
+                evaluation_sha,
                 str(result.get("config_sha256", "")),
                 str(result["inference_code_sha256"]),
                 now,
@@ -346,6 +480,28 @@ def run_real_pipeline(
                 """,
                 (run_id, version_id, base_model_id),
             )
+            metrics = evaluation_models[base_model_id]["metrics"]
+            for split_name, split_metrics in metrics.items():
+                support = evaluation_support[split_name]
+                connection.execute(
+                    """
+                    INSERT INTO run_model_evaluations(
+                        run_id, base_model_id, split, rank_ic, ic,
+                        top10_mean_return, rows, cross_sections, anchor_set_sha256
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        run_id,
+                        base_model_id,
+                        split_name,
+                        float(split_metrics["rank_ic"]),
+                        float(split_metrics["ic"]),
+                        float(split_metrics["top10_mean_return"]),
+                        int(split_metrics["rows"]),
+                        int(split_metrics["cross_sections"]),
+                        str(support["anchor_set_sha256"]),
+                    ),
+                )
         for model_id in models:
             ordered = sorted(
                 scores, key=lambda item: (-float(item["model_scores"][model_id]), str(item["code"]))
@@ -395,9 +551,9 @@ def run_real_pipeline(
                 ),
             )
         ensure_account(connection, settings.initial_cash)
-        record_manual_gaps(connection, resolved, snapshot_path / "trade_cal.csv", now)
+        record_manual_gaps(connection, resolved, calendar_open_days, now)
         settle_due_orders(connection, resolved, prices, execution)
-        create_frozen_intents(
+        paper_publication = create_frozen_intents(
             connection,
             run_id,
             resolved,
@@ -405,25 +561,43 @@ def run_real_pipeline(
             settings.top_k,
             due_session=str(forecast_sessions[0]),
         )
+        connection.execute(
+            """
+            UPDATE inference_runs
+            SET paper_publication_state = ?, paper_publication_run_id = ?
+            WHERE id = ?
+            """,
+            (
+                paper_publication["state"],
+                paper_publication["source_run_id"],
+                run_id,
+            ),
+        )
         write_portfolio_snapshot(
             connection, resolved, closes, valuation_policy="REAL_CLOSE_OR_BOOK_COST"
+        )
+        completed_message = (
+            "Run completed; paper intents were already frozen by "
+            f"{paper_publication['source_run_id']}"
+            if paper_publication["state"] == "SKIPPED_EXISTING_FROZEN_RUN"
+            else "Run completed"
         )
         changed = connection.execute(
             """
             UPDATE jobs SET status = 'SUCCEEDED', stage = 'SUCCEEDED', progress = 1,
-                message = 'Run completed', heartbeat_at = ?, finished_at = ?, run_id = ?
+                message = ?, heartbeat_at = ?, finished_at = ?, run_id = ?
             WHERE id = ? AND status = 'RUNNING'
             """,
-            (now, now, run_id, str(job["id"])),
+            (completed_message, now, now, run_id, str(job["id"])),
         ).rowcount
         if changed != 1:
             raise RuntimeError("job terminal state changed before atomic publication")
         connection.execute(
             """
             INSERT INTO job_events(job_id, created_at, status, stage, progress, message)
-            VALUES (?, ?, 'SUCCEEDED', 'SUCCEEDED', 1, 'Run completed')
+            VALUES (?, ?, 'SUCCEEDED', 'SUCCEEDED', 1, ?)
             """,
-            (str(job["id"]), now),
+            (str(job["id"]), now, completed_message),
         )
         connection.commit()
     return run_id

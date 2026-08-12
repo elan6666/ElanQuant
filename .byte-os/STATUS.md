@@ -2,42 +2,49 @@
 schema_version: 1
 mode: auto
 project_kind: greenfield
-stage: building
-current_workflow: byte-build
+stage: reviewing
+current_workflow: byte-review
 next_workflow: byte-review
 review_verdict: not_ship_external_gates
-iteration_count: 2
+iteration_count: 3
 harness_status: ready
 hard_blocked: false
-updated_at: 2026-08-13T01:40:00+08:00
+updated_at: 2026-08-13T05:38:00+08:00
 ---
 
 # Current State
 
-Foundation, durable backend, Chinese dashboard, strict contracts and deployment
-bootstrap are implemented. Extended CSI300 v2 is PASS through 2026-08-12. The
-owner narrowed this cycle to Small only: the formal official-style Small
-Tokenizer is PASS and the Small Predictor is training on both server GPUs. The
-Claude-inspired warm editorial dashboard is built, synced and browser-verified.
+Small r2 is a sealed, reproducible live release. The owner then authorized the
+Base three-cell supplement; its four-stage server training was launched under a
+durable user service without changing Small production. The third product
+iteration implements a six-cell evidence catalog, run/data/stock lineage,
+sample-aware paper accounting and a Claude-inspired warm editorial dashboard.
+Local static and focused gates pass; live deployment waits for renewed
+interactive SSH authentication and the immutable Base terminal artifacts.
 
 ## Goal
 
-Deliver an auditable A-share Kronos Small and strict-PIT research and
-simulated-trading web system with server training and on-demand inference,
-without real brokerage connectivity.
+Deliver an auditable A-share Kronos Small/Base comparison and strict-PIT
+research/simulated-trading web system with server training and on-demand
+inference, without real brokerage connectivity.
 
 ## Open blockers
 
-- None. Server port 22 and the authenticated control session are healthy.
+- Port 22 and the campus route are healthy, but the prior SSH ControlMaster
+  expired. A new interactive master is waiting for owner-entered password;
+  credentials must never enter source, logs or chat.
 
 ## Harness
 
-Server verification currently passes 40 pytest tests, Ruff, Pyright, and compileall.
-Frontend verification passes 7 Vitest tests, ESLint, TypeScript, and Vite build.
-GitHub `main` is published and a fresh-clone backend/frontend verification passes.
+Current local non-API evidence suite passes 42 tests, Ruff, compileall and
+`git diff --check`. Frontend passes 10 Vitest tests, ESLint, TypeScript/Vite
+build and npm audit with zero vulnerabilities. Full server pytest, live DB
+backup/migration, live browser QA and Base receipt audit remain external gates.
 
 ## Next
 
-Monitor `kronos-a-share-v2-20260813`, seal the Small three-cell receipt, run formal
-evaluation, publish the release, start the Worker, then complete live E2E and
-the third evidence-led iteration/final review.
+After interactive SSH resumes, inspect the existing Base training/follower and
+immutable outputs before touching either service. Validate or safely finish the
+Base candidate/catalog, then deploy the already-reviewed product wave with a
+single-process DB backup/migration, one same-session evidence refresh, live
+desktop/mobile QA, final independent review, commit and push.

@@ -2,9 +2,10 @@
 
 ## Project Purpose
 
-Build an auditable, research-only A-share Kronos Small system with strict
-PIT data, on-demand server inference, and a simulated trading account.
-Base is deferred from the current delivery cycle.
+Build an auditable, research-only A-share Kronos Small/Base comparison with
+strict PIT data, on-demand Small server inference, and a simulated trading
+account. Base is an admitted research candidate only and must never replace the
+Small live release without a separate evidence-backed owner decision.
 
 ## Start Here
 
@@ -62,6 +63,6 @@ Base is deferred from the current delivery cycle.
 
 ## Maintenance
 
-- Last reviewed: 2026-08-12
-- Next review: after the first integrated server inference
+- Last reviewed: 2026-08-13
+- Next review: after the Base candidate and six-cell catalog are sealed
 - Owner/DRI: root integrator

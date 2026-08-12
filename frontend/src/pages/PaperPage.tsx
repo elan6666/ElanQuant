@@ -1,10 +1,10 @@
 import { Badge } from '../components/Badge'
 import { EmptyState } from '../components/EmptyState'
 import { Metric } from '../components/Metric'
-import { formatMoney, formatPercent } from '../format'
-import type { PaperAccount } from '../types'
+import { formatMoney, formatPercent, paperDecisionLabel, paperDecisionReason } from '../format'
+import type { PaperAccount, PaperSummary } from '../types'
 
-export function PaperPage({ account }: { account: PaperAccount | null }) {
+export function PaperPage({ account, summary }: { account: PaperAccount | null; summary: PaperSummary | null }) {
   return (
     <>
       <header className="page-heading page-heading--split">
@@ -22,6 +22,21 @@ export function PaperPage({ account }: { account: PaperAccount | null }) {
             <Metric label="持仓市值" value={formatMoney(account.market_value)} detail={`${account.positions.length} 只持仓`} />
             <Metric label="累计收益" value={formatPercent(account.total_return)} detail={`初始资金 ${formatMoney(account.initial_cash)}`} tone={(account.total_return ?? 0) >= 0 ? 'positive' : 'negative'} />
           </section>
+
+          {summary ? (
+            <section className="content-section paper-tearsheet">
+              <div className="section-heading"><div><span className="eyebrow">Evidence-aware tear sheet</span><h2>样本足够才计算</h2></div><Badge tone={summary.evidence_state === 'available' ? 'success' : 'warning'}>{summary.evidence_state === 'available' ? '可计算' : '证据不足'}</Badge></div>
+              <div className="tear-grid">
+                <div><span>净值交易日</span><strong>{summary.sample_sessions}</strong><small>少于2日不计算回撤</small></div>
+                <div><span>最大回撤</span><strong>{summary.max_drawdown === null ? '—' : formatPercent(summary.max_drawdown)}</strong><small>{summary.max_drawdown === null ? 'INSUFFICIENT_EVIDENCE' : '基于已发布NAV'}</small></div>
+                <div><span>累计费用</span><strong>{formatMoney(summary.total_fees)}</strong><small>佣金 + 印花税</small></div>
+                <div><span>累计毛换手</span><strong>{summary.gross_turnover === null ? '—' : formatPercent(summary.gross_turnover)}</strong><small>成交额 / 初始资金</small></div>
+              </div>
+              <div className="order-count-strip"><span>已冻结 {summary.order_counts.pending}</span><span>已成交 {summary.order_counts.filled}</span><span>已拒绝 {summary.order_counts.rejected}</span></div>
+              {summary.latest_publication?.state === 'SKIPPED_EXISTING_FROZEN_RUN' ? <div className="gap-notice"><strong>同日重算未改账本</strong><span>模拟意图仍由 {summary.latest_publication.source_run_id} 冻结</span></div> : null}
+              {summary.warnings.map((warning) => <p className="ledger-warning" key={warning}>{warning}</p>)}
+            </section>
+          ) : null}
 
           {account.gaps.length > 0 ? <div className="gap-notice"><strong>手动运行缺口</strong>{account.gaps.map((gap) => <span key={gap}>{gap}</span>)}</div> : null}
 
@@ -50,11 +65,22 @@ export function PaperPage({ account }: { account: PaperAccount | null }) {
           <section className="content-section orders-section">
             <div className="section-heading"><div><span className="eyebrow">Intents & fills</span><h2>订单意图与模拟成交</h2></div><span className="count-label">{account.orders.length} RECORDS</span></div>
             {account.orders.length === 0 ? <EmptyState title="暂无订单记录" description="只有正式发布的排名才能生成冻结订单意图。" /> : (
-              <div className="table-scroll"><table className="orders-table"><thead><tr><th>信号日 / 执行日</th><th>股票</th><th>方向</th><th>数量</th><th>状态</th><th>价格 / 费用</th><th>说明</th></tr></thead><tbody>
-                {account.orders.map((order) => <tr key={order.id}><td><strong>{order.signal_session}</strong><small>{order.execution_session || '待下一交易日'}</small></td><td><strong>{order.name}</strong><small>{order.symbol}</small></td><td className={order.side === 'buy' ? 'positive' : 'negative'}>{order.side === 'buy' ? '买入' : '卖出'}</td><td>{order.quantity}</td><td><Badge tone={order.status === 'filled' ? 'success' : order.status === 'rejected' ? 'danger' : 'running'}>{order.status === 'filled' ? '已成交' : order.status === 'rejected' ? '已拒绝' : '已冻结'}</Badge></td><td><strong>{order.price === null ? '—' : `¥${order.price.toFixed(2)}`}</strong><small>{order.fees === null ? '—' : `费用 ¥${order.fees.toFixed(2)}`}</small></td><td>{order.reason || '—'}</td></tr>)}
+              <div className="table-scroll"><table className="orders-table"><thead><tr><th>信号日 / 执行日</th><th>股票</th><th>方向</th><th>数量</th><th>状态</th><th>价格 / 费用</th><th>说明 / 来源</th></tr></thead><tbody>
+                {account.orders.map((order) => <tr key={order.id}><td><strong>{order.signal_session}</strong><small>{order.execution_session || '待下一交易日'}</small></td><td><strong>{order.name}</strong><small>{order.symbol}</small></td><td className={order.side === 'buy' ? 'positive' : 'negative'}>{order.side === 'buy' ? '买入' : '卖出'}</td><td>{order.quantity}</td><td><Badge tone={order.status === 'filled' ? 'success' : order.status === 'rejected' ? 'danger' : 'running'}>{order.status === 'filled' ? '已成交' : order.status === 'rejected' ? '已拒绝' : '已冻结'}</Badge></td><td><strong>{order.price === null ? '—' : `¥${order.price.toFixed(2)}`}</strong><small>{order.fees === null ? '—' : `费用 ¥${order.fees.toFixed(2)}`}</small></td><td>{order.reason || '—'}<small>RUN {order.run_id?.slice(0, 8) || '—'}</small></td></tr>)}
               </tbody></table></div>
             )}
           </section>
+
+          {summary && summary.latest_decisions.length > 0 ? (
+            <section className="content-section decision-section">
+              <div className="section-heading"><div><span className="eyebrow">Top 3 decision receipt</span><h2>为什么下单，或为什么没下单</h2></div><span className="count-label">{summary.latest_decisions.length} DECISIONS</span></div>
+              <div className="decision-list">
+                {summary.latest_decisions.map((decision) => (
+                  <article key={`${decision.run_id}-${decision.symbol}`}><b>#{decision.rank}</b><div><strong>{decision.name}</strong><small>{decision.symbol} · 参考价 ¥{decision.sizing_price.toFixed(2)}</small></div><Badge tone={decision.decision === 'ORDER_FROZEN' ? 'success' : 'warning'}>{paperDecisionLabel(decision.decision)}</Badge><p>{paperDecisionReason(decision.decision, decision.reason)}</p></article>
+                ))}
+              </div>
+            </section>
+          ) : null}
         </>
       )}
     </>

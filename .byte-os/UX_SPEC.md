@@ -3,17 +3,22 @@
 ## Core journey
 
 `Connect VPN/SSH tunnel → open dashboard → inspect data/model status → press
-Update data and run inference → follow durable stages → inspect ranking and
-stock forecast → inspect frozen paper orders/account/history`.
+Update data and run inference → follow durable stages → inspect data/experiment
+evidence and ranking explanation → inspect frozen paper orders/account/history`.
 
 ## Pages
 
-- Overview: latest closed/data/inference dates, primary model, warnings, action.
+- Overview: latest closed/data/inference dates, data health, primary model,
+  warnings and action.
 - Jobs: stage timeline, events, retries, duplicate/coalesced identity.
-- Research: three Small cells, metrics, official/PIT labels, provenance.
-- Ranking: scores, forecast return, coverage, eligibility, explanations.
-- Stock detail: 90-day context, ten-day path distribution, model comparison.
-- Paper account: cash, positions, intents, fills/rejections, NAV and gaps.
+- Research: Small/Base six cells, 2025 validation vs 2026 `TEST_VIEWED`, sample
+  support, zero-shot delta, run lineage and diff.
+- Ranking: searchable/keyboard scores, ten-day signal, input completeness,
+  previous rank, three-track spread, eligibility and paper decision.
+- Stock detail: signal/model comparison and run evidence; do not draw a
+  forecast band until an auditable per-session distribution exists.
+- Paper account: cash, positions, intents, fills/rejections, NAV/gaps,
+  sample-aware metrics and explicit Top-3 no-order reasons.
 - Methods: plain-language full-stack, model, PIT, signal, execution explanation.
 
 ## States

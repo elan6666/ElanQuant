@@ -1,4 +1,4 @@
-# Research — 2026-08-12
+# Research — 2026-08-13
 
 ## Scope
 
@@ -52,8 +52,9 @@ VPN-disconnected on-demand inference product.
   [CSI300 methodology](https://oss-ch.csindex.com.cn/static/html/csindex/public/uploads/indices/detail/files/zh_CN/000300_Index_Methodology_cn.pdf)
 - Inputs bind availability time, raw prices, adjustment factors, tradability,
   ST/suspension/limit state, source/version/hash, and causal adjustment view.
-- This cycle admits Small only. Each fine-tune track fits its tokenizer and
-  predictor on training data. Architecture/loss/optimizer/scheduler stay
+- Small is the current online release; the owner subsequently authorized an
+  exact Base three-cell comparison on the same admitted data. Each fine-tune
+  track fits its tokenizer and predictor on training data. Architecture/loss/optimizer/scheduler stay
   official; audited data, inverse transform, signal, and execution boundaries
   remain explicitly labeled ElanQuant adaptations.
 
@@ -90,3 +91,65 @@ VPN-disconnected on-demand inference product.
 3. Make provenance, scoreability, viewed-test status, rejection, and cash
    visible in the UI.
 4. Keep real brokerage connectivity outside v0.
+
+## GitHub product benchmark — 2026-08-13
+
+Current official repositories were rechecked by GitHub API and primary docs.
+Stars are only a community signal, not proof of correctness.
+
+- [Microsoft Qlib](https://github.com/microsoft/qlib) (47.3k stars, MIT,
+  pushed 2026-07-23) makes experiment/run recorders, common-support evaluation,
+  backtest and portfolio reports first-class. Adapt: immutable experiment
+  lineage, split-aware metrics, support counts and run comparison. Avoid:
+  replacing ElanQuant's admitted data or strict receipts with Qlib defaults.
+- [VeighNa / vn.py](https://github.com/vnpy/vnpy) (44.4k stars, MIT,
+  pushed 2026-08-10) exposes orders, fills, positions, risk and event-driven
+  application boundaries. Adapt: explicit intent/fill/reject lifecycle and
+  A-share board-lot explanation. Avoid: broker gateways and automatic trading.
+- [MLflow](https://github.com/mlflow/mlflow) (27.5k stars, Apache-2.0,
+  pushed 2026-08-12) emphasizes parameters, metrics, artifacts, registry and
+  cross-run comparison. Adapt a small SQLite-backed lineage view; do not deploy
+  a second tracking server for this single-user product.
+- [Evidently](https://github.com/evidentlyai/evidently) (7.8k stars,
+  Apache-2.0, pushed 2026-08-05) treats data tests and immutable monitoring
+  snapshots as user-visible evidence. Adapt snapshot PASS/WARN/FAIL details,
+  coverage, exclusions, finalization and caveats without adding its runtime.
+- [QuantStats](https://github.com/ranaroussi/quantstats) (7.5k stars,
+  Apache-2.0, pushed 2026-07-20) separates return-series metrics, plots and
+  tear sheets and explicitly warns that period metrics are not trade metrics.
+  Adapt sample-aware portfolio summaries that remain null when evidence is too
+  short.
+- [vectorbt](https://github.com/polakowo/vectorbt) (8.7k stars, active
+  2026-08) provides portfolio/drawdown/trade analysis and fast scenario work.
+  Adapt the analysis vocabulary only; its Commons Clause means code embedding
+  deserves separate commercial-license review, and unconstrained parameter
+  search would invite overfitting.
+- [RQAlpha](https://github.com/ricequant/rqalpha) (6.7k stars, active
+  2026-08) models A-share accounts, orders, risk and analysis as explicit
+  modules. Adapt event names and execution receipts only; its non-standard
+  commercial terms and separate paid data rule out direct embedding.
+- [OpenBB](https://github.com/OpenBB-finance/OpenBB) (71.8k stars, active
+  2026-07) demonstrates provider-neutral response metadata and composable
+  research panels. Adapt source/as-of/availability/hash cards; avoid its AGPL
+  code and multi-provider platform scope.
+- [QuantConnect LEAN](https://github.com/QuantConnect/Lean) (21.2k stars,
+  Apache-2.0, pushed 2026-08-12) cleanly separates fees, slippage, fills and
+  order events. Adapt versioned execution assumptions, not its C# engine or
+  live-broker surface.
+
+## Product opportunities selected
+
+1. Small/Base six-cell experiment center with 2025 validation and 2026
+   `TEST_VIEWED` separated, including rows, cross-sections and zero-shot delta.
+2. Run history/diff with Top-3 and Top-10 overlap and identity changes.
+3. Data-health evidence: market finalization, 300/300 coverage, exclusion
+   counts, membership availability and disclosed provider limitations.
+4. Searchable/keyboard-accessible ranking with previous rank, three-track
+   spread and paper-decision explanation.
+5. Sample-aware simulated-account tear sheet and explicit board-lot/no-order
+   decisions. Same-session force reruns must never mutate the first frozen
+   paper publication.
+
+No first-hand user complaints or analytics were available in this research
+wave. The opportunities above are inferences from primary product behavior and
+the owner's stated learning/audit needs, not simulated user feedback.

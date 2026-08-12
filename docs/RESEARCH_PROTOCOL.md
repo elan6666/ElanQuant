@@ -1,12 +1,14 @@
 # ElanQuant 研究协议
 
-## Small 三格实验
+## Small/Base 六格实验
 
 | 模型规模 | 零样本 | 官方风格微调 | 严格 PIT 微调 |
 |---|---|---|---|
 | Small | 官方 Tokenizer + Small | A 股 Tokenizer + Small Predictor | 严格 A 股 Tokenizer + Small Predictor |
+| Base | 官方 Tokenizer + Base | A 股 Tokenizer + Base Predictor | 严格 A 股 Tokenizer + Base Predictor |
 
-本轮只训练 Small：官方风格和严格PIT各自训练 Tokenizer 与 Small Predictor。
+Small 与 Base 使用同一份准入数据、划分和官方训练协议；每个规模的官方风格和
+严格PIT各自训练 Tokenizer 与对应 Predictor。
 零样本格不训练，只固定官方
 权重作基线。官方风格轨保留作者架构、损失、优化器与随机数据集行为，但使用 ElanQuant
 扩展 A 股数据、`sample_count=10` 百分比信号和 Top-3 模拟策略，因此不是作者 qlib
@@ -63,6 +65,8 @@ Kronos DDP backward 均通过。它只改变跨卡传输路径，不改变数值
 
 每个模型使用作者 `KronosPredictor.predict_batch`，参数 `T=0.6`、`top_p=0.9`、
 `top_k=0`、`sample_count=10`。作者函数已把标准化预测逆变换回价格尺度。
+在线横截面固定 `online_batch_size=50`，与 Worker 一致；正式历史评估也使用
+`evaluation_batch_size=50` 加速，但不能改变附带在线排名的采样批次身份。
 
 单模型信号：
 
@@ -70,7 +74,8 @@ Kronos DDP backward 均通过。它只改变跨卡传输路径，不改变数值
 未来 10 个交易日预测 close 的平均值 / T 日 close - 1
 ```
 
-页面保留三个 Small 实验分数；主排名只取严格 PIT Small 信号。不会
+页面保留六个实验格的正式证据；主排名仍只取已准入的严格 PIT Small 信号，
+Base 完成不等于自动切换在线模型。不会
 因为 T+1 是否可买而在 T 日改排名。
 
 ## 评估
@@ -88,5 +93,9 @@ Kronos DDP backward 均通过。它只改变跨卡传输路径，不改变数值
 - 下一真实交易日用开盘价模拟；涨停买入、跌停卖出、停牌、缺价或资金不足会拒单。
 - 拒单保留现金，不递补下一名；错过执行日不补做历史成交。
 - 用户未点击的交易日记录为缺口，不能伪装成连续自动策略。
+- 一个信号日只能有一次冻结发布。`force` 重跑可生成新的研究 run，但账本记录
+  `SKIPPED_EXISTING_FROZEN_RUN`，不得把多个运行的 Top 3 合并、替换或补买。
+- Top 3 中持仓、已有待执行订单或现金不足一手，都必须生成显式决策回执；不能
+  用“没有订单”掩盖原因。
 - 当前 MVP 不宣称公司行动、滑点、最少持有期或完整 NAV 目标再平衡；实现这些能力前，
   页面和报告不得展示相应绩效承诺。

@@ -17,6 +17,7 @@ Environment=ELANQUANT_PROXY_CLIENT=/data/yilangliu/a_share_research/scripts/tush
 Environment=ELANQUANT_UPSTREAM_ROOT=/data/yilangliu/a_share_research/elanquant/upstream/Kronos
 Environment=ELANQUANT_MATRIX_RECEIPT=/data/yilangliu/a_share_research/elanquant/releases/current/training-matrix.json
 Environment=ELANQUANT_EVALUATION_RECEIPT=/data/yilangliu/a_share_research/elanquant/releases/current/formal-evaluation.json
+Environment=ELANQUANT_RESEARCH_CATALOG=/data/yilangliu/a_share_research/elanquant/releases/research-catalog.json
 ExecStart=/data/yilangliu/a_share_research/elanquant/app-venv/bin/elanquant-worker
 Restart=on-failure
 RestartSec=5

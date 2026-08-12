@@ -1,8 +1,16 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from './App'
 import type { ApiClient } from './types'
-import { incompleteJob, paperAccount, runningJob, snapshot, successRun } from './test/fixtures'
+import {
+  incompleteJob,
+  paperAccount,
+  paperSummary,
+  passedSmallCell,
+  runningJob,
+  snapshot,
+  successRun,
+} from './test/fixtures'
 
 const clientFor = (value: ReturnType<typeof snapshot>): ApiClient => ({
   getSnapshot: vi.fn().mockResolvedValue(value),
@@ -11,6 +19,10 @@ const clientFor = (value: ReturnType<typeof snapshot>): ApiClient => ({
 })
 
 describe('ElanQuant dashboard states', () => {
+  beforeEach(() => {
+    window.history.replaceState(null, '', '#/overview')
+  })
+
   it('renders a truthful empty first-run state and primary action', async () => {
     render(<App client={clientFor(snapshot())} />)
     expect(await screen.findByRole('button', { name: /更新数据并运行推理/ })).toBeEnabled()
@@ -37,10 +49,11 @@ describe('ElanQuant dashboard states', () => {
   it('renders success surfaces without treating online predictions as scored', async () => {
     render(<App client={clientFor(snapshot({ latest_run: successRun, paper: paperAccount }))} />)
     expect(await screen.findByText('在线预测 · 尚不可评分')).toBeInTheDocument()
+    expect(screen.getByText('严格PIT合规资格 · 非验证集最优声明')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '实验矩阵' }))
-    expect(screen.getByRole('heading', { name: 'Small 三格实验矩阵' })).toBeInTheDocument()
-    expect(screen.getAllByText('待运行')).toHaveLength(3)
+    expect(screen.getByRole('heading', { name: 'Small 与 Base 六格实验' })).toBeInTheDocument()
+    expect(screen.getAllByText('待运行')).toHaveLength(6)
 
     fireEvent.click(screen.getByRole('button', { name: '股票排名' }))
     expect(screen.getAllByText('浦发银行')).toHaveLength(2)
@@ -59,5 +72,30 @@ describe('ElanQuant dashboard states', () => {
     fireEvent.click(screen.getByRole('button', { name: '任务' }))
     fireEvent.click(await screen.findByRole('button', { name: '明确重试' }))
     await waitFor(() => expect(client.retryJob).toHaveBeenCalledWith(failed.id))
+  })
+
+  it('shows split-aware experiment and explicit paper decision evidence', async () => {
+    render(
+      <App
+        client={clientFor(
+          snapshot({
+            latest_run: successRun,
+            research_catalog: [passedSmallCell],
+            research_catalog_available: true,
+            paper: paperAccount,
+            paper_summary: paperSummary,
+          }),
+        )}
+      />,
+    )
+    await screen.findByText('在线预测 · 尚不可评分')
+    fireEvent.click(screen.getByRole('button', { name: '实验矩阵' }))
+    expect(screen.getByText('18,000 rows · 60 sections')).toBeInTheDocument()
+    expect(screen.getAllByText(/TEST_VIEWED \/ 2026/)).toHaveLength(6)
+
+    fireEvent.click(screen.getByRole('button', { name: '模拟账户' }))
+    expect(screen.getByText('证据不足')).toBeInTheDocument()
+    expect(screen.getByText('资金不足一手')).toBeInTheDocument()
+    expect(screen.getByText(/不足以买入 A 股最小的 100 股整手/)).toBeInTheDocument()
   })
 })

@@ -8,14 +8,15 @@ trading and a usable full-stack interface.
 
 ## Key Results
 
-1. Freeze three Small cells: zero-shot, official-style extended-data fine-tune,
-   and strict-PIT fine-tune, each with code/data/config/weight hashes. Defer Base.
+1. Freeze six cells across Small and Base: zero-shot, official-style
+   extended-data fine-tune, and strict-PIT fine-tune, each with
+   code/data/config/weight hashes and common-support split receipts.
 2. Materialize and audit the agreed extended daily OHLCVA dataset from
    2011-01-01 through the latest closed session, with 2025 validation and 2026
    viewed evaluation separated by label-aware boundaries.
 3. Complete the first workflow from `Update data and run inference` through a
-   durable background job, ranked stocks, forecast evidence, and a dated paper
-   order proposal.
+   durable background job, ranked stocks, run/data evidence, and a dated paper
+   order proposal that cannot be mutated by same-session force reruns.
 4. Pass local backend/frontend tests and builds plus server data, training, and
    inference smoke/full gates without storing restricted artifacts in Git.
 5. Complete three evidence-led iterations and a current ship review with clear

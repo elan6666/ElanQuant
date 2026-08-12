@@ -1,0 +1,16 @@
+protocol: official_style_a_share_base
+upstream_commit: 67b630e67f6a18c9e9be918d9b4337c960db1e9a
+tokenizer: NeoQuasar/Kronos-Tokenizer-base
+models:
+  - NeoQuasar/Kronos-base
+lookback: 90
+predict: 10
+epochs: 30
+batch_size_per_gpu: 50
+train_samples_per_epoch: 100000
+validation_samples_per_epoch: 20000
+seed: 100
+deviations:
+  - extended A-share dataset and target-bounded split
+  - inverse-transformed percentage signal with sample_count 10
+  - research comparison only; never auto-promote to the online Small release

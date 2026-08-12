@@ -1,7 +1,8 @@
 # ElanQuant Context
 
-ElanQuant is a research-only A-share Kronos Small and strict-PIT system. Base is
-deferred from the current delivery cycle.
+ElanQuant is a research-only A-share Kronos Small/Base and strict-PIT system.
+Small remains the only online/paper release; Base is an isolated three-cell
+research comparison and cannot be promoted implicitly.
 Read `.byte-os/STATUS.md`, `.byte-os/CODEBASE_MAP.md`, `.byte-os/HARNESS.md`,
 and the active plan before edits.
 
