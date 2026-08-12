@@ -204,6 +204,11 @@ def future_sessions(calendar: pd.DatetimeIndex, signal: pd.Timestamp) -> pd.Date
     return values
 
 
+def kronos_timestamp_series(values: pd.Index | pd.Series) -> pd.Series:
+    """Match the pinned official batch example and its `.dt` implementation."""
+    return pd.Series(pd.to_datetime(values), name="timestamps").reset_index(drop=True)
+
+
 def sample_cross_sections(
     anchors: list[tuple[str, int]],
     symbols: dict[str, pd.DataFrame],
@@ -465,8 +470,8 @@ def main() -> int:
                         )
                         model_history = history[FEATURES]
                         frames.append(model_history)
-                        x_times.append(model_history.index)
-                        y_times.append(future.index)
+                        x_times.append(kronos_timestamp_series(model_history.index))
+                        y_times.append(kronos_timestamp_series(future.index))
                         identities.append(
                             (code, model_history, outcome_history, outcome_future)
                         )
@@ -509,11 +514,11 @@ def main() -> int:
                     )
                     history = history[FEATURES]
                     frames.append(history)
-                    times.append(history.index)
+                    times.append(kronos_timestamp_series(history.index))
                 predictions = predictor.predict_batch(
                     frames,
                     times,
-                    [y_latest] * len(batch),
+                    [kronos_timestamp_series(y_latest) for _ in batch],
                     PREDICT,
                     T=0.6,
                     top_p=0.9,

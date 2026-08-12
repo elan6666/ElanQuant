@@ -85,6 +85,9 @@ readlink /data/yilangliu/a_share_research/elanquant/releases/current
 cat /data/yilangliu/a_share_research/elanquant/releases/current/manifest.json
 ```
 
+Follower 必须设置 `RESEARCH_DEPS=/data/yilangliu/a_share_research/elanquant/research-deps`；
+Kronos 的 `huggingface_hub` 等只读推理依赖由该隔离目录提供，不能临时写入上游仓库。
+
 每个 `terminal.json` 必须为 PASS，且包含数据、workspace、日志和 checkpoint 哈希。
 完成后必须先存在不可变的 `runs/admission/extended-v2.json`，再运行
 `compile_training_matrix.py`；后端只接受由数据准入和各阶段真实回执派生的 sealed

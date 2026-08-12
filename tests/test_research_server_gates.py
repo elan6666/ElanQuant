@@ -6,6 +6,7 @@ import pytest
 
 from scripts.server.build_extended_dataset import verify_raw_manifest
 from scripts.server.evaluate_and_infer import (
+    kronos_timestamp_series,
     materialize_evaluation_window,
     realized_mean_return,
     verify_manifest_files,
@@ -52,6 +53,14 @@ def test_missing_outcome_uses_same_last_close_carry_for_every_model_track() -> N
     realized, status = realized_mean_return(history, future)
     assert realized == pytest.approx(0.1)
     assert status == "MISSING_SESSION_LAST_CLOSE_CARRY"
+
+
+def test_kronos_timestamps_match_pinned_official_series_contract() -> None:
+    values = pd.date_range("2026-08-01", periods=3, freq="B")
+    converted = kronos_timestamp_series(values)
+    assert isinstance(converted, pd.Series)
+    assert converted.dt.day.tolist() == [3, 4, 5]
+    assert converted.name == "timestamps"
 
 
 def test_evaluation_outcome_is_track_independent_under_corporate_action() -> None:
