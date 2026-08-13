@@ -132,6 +132,12 @@ export function HistoricalBacktestPage({
             <div className="historical-model-cards" role="group" aria-label="历史回测模型版本">
               {modelCells.map((model) => {
                 const present = backtests.some((entry) => entry.model_cell_id === model.id)
+                const item = backtests.find(
+                  (entry) =>
+                    entry.model_cell_id === model.id &&
+                    entry.evaluation_split === activeSplit &&
+                    entry.strategy_variant_id === selectedStrategy,
+                )
                 return (
                   <button
                     type="button"
@@ -143,6 +149,7 @@ export function HistoricalBacktestPage({
                   >
                     <strong>{model.label}</strong>
                     <small>{model.detail}</small>
+                    <b>{item ? `${formatPercent(item.metrics.mean.total_return_with_cost)} 含费累计` : '未发布'}</b>
                   </button>
                 )
               })}
