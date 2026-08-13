@@ -16,10 +16,18 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from elanquant.contracts.historical_matrix import (
-    CATALOG_SCHEMA as HISTORICAL_MATRIX_CATALOG_SCHEMA,
     BACKTEST_SCHEMA as HISTORICAL_MATRIX_BACKTEST_SCHEMA,
+)
+from elanquant.contracts.historical_matrix import (
+    CATALOG_SCHEMA as HISTORICAL_MATRIX_CATALOG_SCHEMA,
+)
+from elanquant.contracts.historical_matrix import (
     backtest_id as historical_matrix_backtest_id,
+)
+from elanquant.contracts.historical_matrix import (
     validate_backtest_receipt as validate_matrix_backtest_receipt,
+)
+from elanquant.contracts.historical_matrix import (
     validate_catalog as validate_matrix_catalog,
 )
 from elanquant.contracts.historical_variants import (
