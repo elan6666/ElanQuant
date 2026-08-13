@@ -24,7 +24,11 @@ import numpy as np
 import pandas as pd
 from elanquant.contracts.historical_matrix import (
     MODEL_CELLS,
+)
+from elanquant.contracts.historical_matrix import (
     SIGNAL_SCHEMA as MATRIX_SIGNAL_SCHEMA,
+)
+from elanquant.contracts.historical_matrix import (
     validate_signal_receipt as validate_matrix_signal_receipt,
 )
 
