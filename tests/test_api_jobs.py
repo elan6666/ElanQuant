@@ -26,8 +26,19 @@ def sealed_catalog() -> dict[str, object]:
     }
     sources: dict[str, dict[str, object]] = {}
     experiments: list[dict[str, object]] = []
+    raw_identities: dict[str, dict[str, str]] = {}
+    normalized_protocol = {
+        "evaluation_mode": "FORMAL",
+        "evaluation_batch_size": 50,
+        "online_batch_size": 50,
+    }
+    protocol_sha = canonical_hash(normalized_protocol)
     for size, marker in (("small", "1"), ("base", "2")):
         evaluation_sha = marker * 64
+        raw_identities[size] = {
+            "evaluation_config_sha256": ("b" if size == "small" else "e") * 64,
+            "inference_code_sha256": ("c" if size == "small" else "f") * 64,
+        }
         sources[size] = {
             "matrix_sha256": ("3" if size == "small" else "4") * 64,
             "evaluation_sha256": evaluation_sha,
@@ -37,8 +48,8 @@ def sealed_catalog() -> dict[str, object]:
             "admission_sha256": "8" * 64,
             "split_contract_sha256": "9" * 64,
             "evaluation_data_sha256": "a" * 64,
-            "evaluation_config_sha256": "b" * 64,
-            "inference_code_sha256": "c" * 64,
+            **raw_identities[size],
+            "evaluation_protocol_sha256": protocol_sha,
             "as_of_session": "2026-08-12",
             "support": {
                 split: {
@@ -80,12 +91,41 @@ def sealed_catalog() -> dict[str, object]:
                     },
                 }
             )
+    compatibility: dict[str, object] = {
+        "schema_version": "elanquant_evaluation_compatibility_v1",
+        "status": "PASS",
+        "decision": "SEMANTICALLY_COMPARABLE",
+        "normalized_protocol": normalized_protocol,
+        "protocol_sha256": protocol_sha,
+        "source_identities": raw_identities,
+        "source_revisions": {
+            "small": "ec5ccffd1353da792d0dd5274b7a279918a0f1e2",
+            "base": "266bab286a03c07a8b186a443c64144bfa35c487",
+        },
+        "source_path": "scripts/server/evaluate_and_infer.py",
+        "source_diff_sha256": "7fff6d49340c5ac08b006cd72f858ba314535a7176da07d97704344648861308",
+        "allowed_differences": [
+            "MODEL_SIZE_PARAMETERIZATION",
+            "MODEL_CELL_ID_PREFIX",
+            "BATCH_CONFIG_KEY_RENAMED",
+            "ONLINE_BATCH_SIZE_EXPLICIT_50",
+            "PRIMARY_STRICT_MODEL_ID_AND_LABEL",
+        ],
+        "evaluation_receipts": {
+            "small": sources["small"]["evaluation_sha256"],
+            "base": sources["base"]["evaluation_sha256"],
+        },
+    }
+    compatibility["receipt_hash"] = canonical_hash(compatibility)
+    for source in sources.values():
+        source["compatibility_receipt_sha256"] = compatibility["receipt_hash"]
     payload: dict[str, object] = {
         "schema_version": "elanquant_research_catalog_v1",
         "status": "PASS",
         "generated_at": "2026-08-13T00:00:00+00:00",
         "experiments": experiments,
         "sources": sources,
+        "compatibility": compatibility,
     }
     payload["receipt_hash"] = canonical_hash(payload)
     return payload
@@ -167,6 +207,32 @@ def test_research_catalog_accepts_only_canonical_six_cell_receipt(tmp_path: Path
     )
     active.research_catalog.write_text(json.dumps(payload), encoding="utf-8")
     assert client.get("/api/v1/research/experiments").status_code == 503
+
+
+def test_research_catalog_rejects_compatibility_tampering(tmp_path: Path) -> None:
+    active = settings(tmp_path)
+    client = TestClient(create_app(active))
+    for field, value in (
+        ("source_diff_sha256", "0" * 64),
+        ("allowed_differences", ["UNREVIEWED_DIFFERENCE"]),
+    ):
+        payload = sealed_catalog()
+        compatibility = payload["compatibility"]
+        assert isinstance(compatibility, dict)
+        compatibility[field] = value
+        compatibility["receipt_hash"] = canonical_hash(
+            {key: item for key, item in compatibility.items() if key != "receipt_hash"}
+        )
+        sources = payload["sources"]
+        assert isinstance(sources, dict)
+        for source in sources.values():
+            assert isinstance(source, dict)
+            source["compatibility_receipt_sha256"] = compatibility["receipt_hash"]
+        payload["receipt_hash"] = canonical_hash(
+            {key: item for key, item in payload.items() if key != "receipt_hash"}
+        )
+        active.research_catalog.write_text(json.dumps(payload), encoding="utf-8")
+        assert client.get("/api/v1/research/experiments").status_code == 503
 
 
 def test_completed_run_matches_dashboard_contract(tmp_path: Path) -> None:

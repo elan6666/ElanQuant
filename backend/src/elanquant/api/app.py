@@ -67,6 +67,7 @@ def validate_research_catalog(payload: object) -> dict[str, object]:
     }
     experiments = payload.get("experiments")
     sources = payload.get("sources")
+    compatibility = payload.get("compatibility")
     if (
         payload.get("schema_version") != "elanquant_research_catalog_v1"
         or payload.get("status") != "PASS"
@@ -77,6 +78,7 @@ def validate_research_catalog(payload: object) -> dict[str, object]:
         or not all(isinstance(item, dict) for item in experiments)
         or not isinstance(sources, dict)
         or set(sources) != {"small", "base"}
+        or not isinstance(compatibility, dict)
     ):
         raise RuntimeError("catalog top-level receipt is invalid")
     if {str(item["id"]) for item in experiments} != set(expected_tracks):
@@ -134,8 +136,8 @@ def validate_research_catalog(payload: object) -> dict[str, object]:
         "admission_sha256",
         "split_contract_sha256",
         "evaluation_data_sha256",
-        "evaluation_config_sha256",
-        "inference_code_sha256",
+        "evaluation_protocol_sha256",
+        "compatibility_receipt_sha256",
         "as_of_session",
         "support",
     )
@@ -154,6 +156,8 @@ def validate_research_catalog(payload: object) -> dict[str, object]:
             "evaluation_data_sha256",
             "evaluation_config_sha256",
             "inference_code_sha256",
+            "evaluation_protocol_sha256",
+            "compatibility_receipt_sha256",
         ):
             if not valid_sha256(source.get(identity)):
                 raise RuntimeError(f"catalog source identity is invalid: {size}.{identity}")
@@ -193,6 +197,55 @@ def validate_research_catalog(payload: object) -> dict[str, object]:
             if signature != expected_signature:
                 raise RuntimeError(f"catalog source support is mismatched: {size}.{split}")
         source_payloads[size] = source
+    compatibility_content = dict(compatibility)
+    compatibility_hash = compatibility_content.pop("receipt_hash", None)
+    normalized_protocol = compatibility.get("normalized_protocol")
+    source_identities = compatibility.get("source_identities")
+    if (
+        compatibility.get("schema_version") != "elanquant_evaluation_compatibility_v1"
+        or compatibility.get("status") != "PASS"
+        or compatibility.get("decision") != "SEMANTICALLY_COMPARABLE"
+        or not valid_sha256(compatibility_hash)
+        or canonical_hash(compatibility_content) != compatibility_hash
+        or not isinstance(normalized_protocol, dict)
+        or compatibility.get("protocol_sha256") != canonical_hash(normalized_protocol)
+        or not isinstance(source_identities, dict)
+        or set(source_identities) != {"small", "base"}
+        or compatibility.get("source_revisions")
+        != {
+            "small": "ec5ccffd1353da792d0dd5274b7a279918a0f1e2",
+            "base": "266bab286a03c07a8b186a443c64144bfa35c487",
+        }
+        or compatibility.get("source_path") != "scripts/server/evaluate_and_infer.py"
+        or compatibility.get("source_diff_sha256")
+        != "7fff6d49340c5ac08b006cd72f858ba314535a7176da07d97704344648861308"
+        or compatibility.get("allowed_differences")
+        != [
+            "MODEL_SIZE_PARAMETERIZATION",
+            "MODEL_CELL_ID_PREFIX",
+            "BATCH_CONFIG_KEY_RENAMED",
+            "ONLINE_BATCH_SIZE_EXPLICIT_50",
+            "PRIMARY_STRICT_MODEL_ID_AND_LABEL",
+        ]
+    ):
+        raise RuntimeError("catalog compatibility receipt is invalid")
+    for size in ("small", "base"):
+        identities = source_identities.get(size)
+        source = source_payloads[size]
+        if not isinstance(identities, dict) or identities != {
+            "evaluation_config_sha256": source["evaluation_config_sha256"],
+            "inference_code_sha256": source["inference_code_sha256"],
+        }:
+            raise RuntimeError(f"catalog compatibility identity differs: {size}")
+        if source["evaluation_protocol_sha256"] != compatibility["protocol_sha256"]:
+            raise RuntimeError(f"catalog compatibility protocol differs: {size}")
+        if source["compatibility_receipt_sha256"] != compatibility_hash:
+            raise RuntimeError(f"catalog compatibility receipt differs: {size}")
+    if compatibility.get("evaluation_receipts") != {
+        "small": source_payloads["small"]["evaluation_sha256"],
+        "base": source_payloads["base"]["evaluation_sha256"],
+    }:
+        raise RuntimeError("catalog compatibility evaluations differ")
     for key in comparable_keys:
         if source_payloads["small"].get(key) != source_payloads["base"].get(key):
             raise RuntimeError(f"catalog Small/Base identity differs: {key}")

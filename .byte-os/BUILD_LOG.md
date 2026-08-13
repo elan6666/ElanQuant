@@ -153,3 +153,24 @@
   compileall PASS, shell syntax PASS and systemd unit verification PASS. Frontend: 12 Vitest PASS, ESLint,
   production build and zero-vulnerability npm audit PASS. Live 1440 and 390 px
   browser QA has no overflow or console warnings/errors.
+
+## 2026-08-13 — Base formal and six-cell delivery
+
+- Base formal evaluation finished after two hours without retraining. Independent
+  reconciliation passed 677/677 matrix/formal checks; the resulting six-cell
+  catalog passed 110/110 checks and the live GET returns exactly three Small and
+  three Base cells on identical 18,000-row/60-section validation and
+  10,500-row/35-section viewed-test support.
+- The first catalog attempt correctly stopped because Small used an older raw
+  config/code identity. Rather than edit immutable evidence or rerun, added a
+  fail-closed semantic compatibility receipt binding both original hashes,
+  exact Git revisions, a normalized batch/sampling protocol and an exact
+  reviewed source-diff SHA. Tampered diff, revision, identity and receipt paths
+  are rejected by producer, API consumer and tests.
+- Base validation RankIC is 0.03465 zero-shot, 0.02294 official FT and 0.01342
+  strict PIT. Base strict has the largest Top10 mean but negative Pearson IC;
+  no Base cell is promoted. `releases/current` and the live primary model remain
+  Small r2 / `small-strict-pit`.
+- Final server suite: 75 pytest PASS, Ruff PASS, Pyright 0 errors/warnings and
+  compileall PASS. Independent Base/catalog audit and final product/design
+  reviews are SHIP with no P0/P1.

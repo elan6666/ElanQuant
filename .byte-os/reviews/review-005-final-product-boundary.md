@@ -29,3 +29,13 @@ Verdict: **SHIP**.
   use mode 0600. API/Worker are active, bind only `127.0.0.1:8765`, reject an
   untrusted Host with 400 and return security headers.
 
+## Base/catalog follow-up
+
+- Base formal plus matrices passed 677/677 independent checks; the six-cell
+  catalog passed 110/110 and live API returns the exact six cells.
+- Raw Small/Base code/config identities remain visible. A canonical semantic
+  compatibility receipt binds the exact reviewed Git revisions, protocol and
+  source-diff SHA; producer/API/tests reject tampering.
+- `releases/current` and primary model remain Small r2 / `small-strict-pit`.
+- The completed transient evaluator's old failed state was reset after evidence
+  publication; no training or evaluation process remains.

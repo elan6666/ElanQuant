@@ -2,23 +2,22 @@
 schema_version: 1
 mode: auto
 project_kind: greenfield
-stage: reviewing
-current_workflow: byte-review
-next_workflow: byte-review
-review_verdict: not_ship_external_gates
+stage: delivered
+current_workflow: byte-deliver
+next_workflow: complete
+review_verdict: ship
 iteration_count: 3
 harness_status: ready
 hard_blocked: false
-updated_at: 2026-08-13T15:27:00+08:00
+updated_at: 2026-08-13T15:55:00+08:00
 ---
 
 # Current State
 
 Small r2 remains the sealed live release. Base four-stage training and the
-sealed three-cell matrix passed an independent 78/78 receipt audit; an earlier
-follower failed only because it used a nonexistent upstream path, so a new
-durable service is evaluating the existing matrix without retraining or
-promotion. The third product iteration is deployed: the live database was
+sealed three-cell matrix, formal evaluation and six-cell catalog have passed
+independent receipt audits without retraining or promotion. The third product
+iteration is deployed: the live database was
 backed up, migrated by one process, checked for integrity and restarted with the
 six-cell evidence catalog, run/data/stock lineage, sample-aware paper accounting
 and Claude-inspired warm editorial dashboard.
@@ -37,22 +36,20 @@ inference, without real brokerage connectivity.
 
 ## Open blockers
 
-- Base smoke/formal/catalog is still running. Until its immutable receipts pass,
-  the UI must not present Base as completed evidence.
-- The migrated historical paper ledger is truthfully marked
-  `LEGACY_MIXED_RUNS`; it must remain visible and must never be silently rewritten.
+None. The migrated historical paper ledger remains truthfully marked
+`LEGACY_MIXED_RUNS`; this is preserved provenance, not an unfinished gate.
 
 ## Harness
 
-Server passes 73 pytest tests, Ruff, compileall, shell syntax and systemd unit
+Server passes 75 pytest tests, Ruff, Pyright, compileall, shell syntax and systemd unit
 verification. Frontend passes 12 Vitest tests, ESLint, TypeScript/Vite build and
 npm audit with zero vulnerabilities. Live DB reports `integrity_check=ok` and
 zero foreign-key violations. Official release audit, same-session frozen-ledger
-comparison and deployed 1440/390 browser QA pass. Only the still-running Base
-formal/catalog audit and final delivery review remain.
+comparison and deployed 1440/390 browser QA pass. Independent design, product,
+Base formal and six-cell catalog reviews are SHIP with no P0/P1.
 
 ## Next
 
-Wait for the isolated Base evaluation service, validate its formal receipt and
-cross-size six-cell catalog without promoting it over Small. Then complete the
-final independent delivery review, delivery ledger and Git push.
+Use the manual Top3 button as before; inspect Base only as research evidence and
+the new Top50 historical method version on the dedicated page. No real broker,
+automatic schedule or Base promotion is enabled.

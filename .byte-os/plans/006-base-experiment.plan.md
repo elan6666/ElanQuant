@@ -1,9 +1,9 @@
 ---
 id: 006
 title: Official-aligned Base three-cell experiment
-status: in_progress
+status: complete
 wave: 4
-updated_at: 2026-08-13T05:10:00+08:00
+updated_at: 2026-08-13T15:55:00+08:00
 owner_role: Research Engineer
 depends_on: ['004']
 start_directory: scripts

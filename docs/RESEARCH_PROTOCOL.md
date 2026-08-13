@@ -86,6 +86,11 @@ Base 完成不等于自动切换在线模型。不会
 600 行快速结果只允许标记 `SMOKE`，不能做模型选择。2026 指标只做带 `TEST_VIEWED` 标签的
 描述性报告，不允许反向选择参数。
 
+Small formal 的旧回执用 `batch_size=50`，Base formal 将同一实际协议拆成
+`evaluation_batch_size=50` 与 `online_batch_size=50`。六格目录不得简单忽略两套原始
+代码/配置哈希；它必须保留原始身份，并通过固定提交、规范化协议哈希和源码 diff
+白名单生成 `elanquant_evaluation_compatibility_v1` 后才可发布。
+
 ## 新增：官方 Demo 方法对齐版历史回测
 
 原有在线 `Top3` 策略完整保留。本项目另外增加

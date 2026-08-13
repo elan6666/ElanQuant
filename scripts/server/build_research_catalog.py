@@ -18,6 +18,25 @@ TRACKS = {
 SPLITS = ("validation_2025", "test_viewed_2026")
 MATRIX_SCHEMA = "elanquant_training_matrix_v2"
 EVALUATION_SCHEMA = "elanquant_kronos_inference_v1"
+COMPATIBILITY_SCHEMA = "elanquant_evaluation_compatibility_v1"
+EVALUATION_PROTOCOL = {
+    "evaluation_mode": "FORMAL",
+    "evaluation_batch_size": 50,
+    "online_batch_size": 50,
+    "formal_sessions_per_month": 5,
+    "sampling": {"temperature": 0.6, "top_p": 0.9, "top_k": 0, "sample_count": 10},
+}
+ALLOWED_COMPATIBILITY_DIFFERENCES = [
+    "MODEL_SIZE_PARAMETERIZATION",
+    "MODEL_CELL_ID_PREFIX",
+    "BATCH_CONFIG_KEY_RENAMED",
+    "ONLINE_BATCH_SIZE_EXPLICIT_50",
+    "PRIMARY_STRICT_MODEL_ID_AND_LABEL",
+]
+SMALL_COMPATIBLE_SOURCE_REVISION = "ec5ccffd1353da792d0dd5274b7a279918a0f1e2"
+BASE_COMPATIBLE_SOURCE_REVISION = "266bab286a03c07a8b186a443c64144bfa35c487"
+EXPECTED_SOURCE_DIFF_SHA256 = "7fff6d49340c5ac08b006cd72f858ba314535a7176da07d97704344648861308"
+COMPATIBLE_SOURCE_PATH = "scripts/server/evaluate_and_infer.py"
 
 
 def sha256(path: Path) -> str:
@@ -265,12 +284,58 @@ def atomic_write(path: Path, payload: dict[str, object]) -> None:
             os.unlink(temporary)
 
 
+def validate_compatibility_receipt(
+    path: Path,
+    sources: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    receipt = read_json(path)
+    content = dict(receipt)
+    claimed = content.pop("receipt_hash", None)
+    if (
+        receipt.get("schema_version") != COMPATIBILITY_SCHEMA
+        or receipt.get("status") != "PASS"
+        or receipt.get("decision") != "SEMANTICALLY_COMPARABLE"
+        or canonical_hash(content) != sha_identity(claimed, "compatibility receipt hash")
+        or receipt.get("normalized_protocol") != EVALUATION_PROTOCOL
+        or receipt.get("allowed_differences") != ALLOWED_COMPATIBILITY_DIFFERENCES
+        or receipt.get("source_revisions")
+        != {
+            "small": SMALL_COMPATIBLE_SOURCE_REVISION,
+            "base": BASE_COMPATIBLE_SOURCE_REVISION,
+        }
+        or receipt.get("source_path") != COMPATIBLE_SOURCE_PATH
+        or receipt.get("source_diff_sha256") != EXPECTED_SOURCE_DIFF_SHA256
+    ):
+        raise RuntimeError("evaluation compatibility receipt is invalid")
+    source_identities = receipt.get("source_identities")
+    if not isinstance(source_identities, dict) or set(source_identities) != {"small", "base"}:
+        raise RuntimeError("evaluation compatibility source identities are incomplete")
+    for size in ("small", "base"):
+        identities = source_identities[size]
+        if not isinstance(identities, dict) or identities != {
+            "evaluation_config_sha256": sources[size]["evaluation_config_sha256"],
+            "inference_code_sha256": sources[size]["inference_code_sha256"],
+        }:
+            raise RuntimeError(f"evaluation compatibility identity mismatch: {size}")
+    for identity in ("source_diff_sha256", "protocol_sha256"):
+        sha_identity(receipt.get(identity), f"compatibility.{identity}")
+    if receipt.get("evaluation_receipts") != {
+        "small": sources["small"]["evaluation_sha256"],
+        "base": sources["base"]["evaluation_sha256"],
+    }:
+        raise RuntimeError("evaluation compatibility receipts are not bound")
+    if receipt["protocol_sha256"] != canonical_hash(EVALUATION_PROTOCOL):
+        raise RuntimeError("evaluation compatibility protocol hash is invalid")
+    return receipt
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--small-matrix", type=Path, required=True)
     parser.add_argument("--small-evaluation", type=Path, required=True)
     parser.add_argument("--base-matrix", type=Path, required=True)
     parser.add_argument("--base-evaluation", type=Path, required=True)
+    parser.add_argument("--compatibility-receipt", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     experiments: list[dict[str, object]] = []
@@ -281,6 +346,11 @@ def main() -> int:
         cells, identity = compile_cells(size, matrix, evaluation)
         experiments.extend(cells)
         sources[size] = identity
+    compatibility = validate_compatibility_receipt(args.compatibility_receipt, sources)
+    compatibility_sha = str(compatibility["receipt_hash"])
+    for source in sources.values():
+        source["evaluation_protocol_sha256"] = compatibility["protocol_sha256"]
+        source["compatibility_receipt_sha256"] = compatibility_sha
     comparable_keys = (
         "upstream_commit",
         "official_weights_receipt_sha256",
@@ -288,8 +358,8 @@ def main() -> int:
         "admission_sha256",
         "split_contract_sha256",
         "evaluation_data_sha256",
-        "evaluation_config_sha256",
-        "inference_code_sha256",
+        "evaluation_protocol_sha256",
+        "compatibility_receipt_sha256",
         "as_of_session",
         "support",
     )
@@ -302,6 +372,7 @@ def main() -> int:
         "generated_at": datetime.now(UTC).isoformat(),
         "experiments": experiments,
         "sources": sources,
+        "compatibility": compatibility,
     }
     payload["receipt_hash"] = canonical_hash(payload)
     atomic_write(args.out, payload)

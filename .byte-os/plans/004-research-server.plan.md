@@ -1,9 +1,9 @@
 ---
 id: 004
 title: Strict PIT data, Kronos training, evaluation and inference
-status: in_progress
+status: complete
 wave: 2
-updated_at: 2026-08-12T17:09:00Z
+updated_at: 2026-08-13T15:55:00+08:00
 owner_role: Research Engineer
 depends_on: ['001']
 start_directory: scripts

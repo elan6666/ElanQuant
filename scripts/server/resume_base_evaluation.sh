@@ -17,6 +17,7 @@ SMOKE=$EVAL_ROOT/smoke-evaluation.json
 FORMAL=$EVAL_ROOT/formal-evaluation.json
 SMALL_RELEASE=${ELANQUANT_SMALL_RELEASE:?}
 CATALOG=${ELANQUANT_RESEARCH_CATALOG:-$ELANQUANT_ROOT/releases/research-catalog.json}
+COMPATIBILITY=${ELANQUANT_EVALUATION_COMPATIBILITY:-$EVAL_ROOT/evaluation-compatibility.json}
 
 [[ -f "$MATRIX" ]] || {
   echo "missing sealed Base matrix: $MATRIX" >&2
@@ -86,11 +87,20 @@ export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
   --online-batch-size 50 \
   --out "$FORMAL"
 
+"$PYTHON_BIN" scripts/server/build_evaluation_compatibility_receipt.py \
+  --repo "$SOURCE" \
+  --small-evaluation "$SMALL_RELEASE/formal-evaluation.json" \
+  --base-evaluation "$FORMAL" \
+  --small-source-revision ec5ccffd1353da792d0dd5274b7a279918a0f1e2 \
+  --base-source-revision 266bab286a03c07a8b186a443c64144bfa35c487 \
+  --out "$COMPATIBILITY"
+
 "$PYTHON_BIN" scripts/server/build_research_catalog.py \
   --small-matrix "$SMALL_RELEASE/training-matrix.json" \
   --small-evaluation "$SMALL_RELEASE/formal-evaluation.json" \
   --base-matrix "$MATRIX" \
   --base-evaluation "$FORMAL" \
+  --compatibility-receipt "$COMPATIBILITY" \
   --out "$CATALOG"
 
 echo "Base candidate evaluation resumed and catalogued without promotion: $ELANQUANT_RUN_ID"

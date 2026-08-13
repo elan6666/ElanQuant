@@ -1,9 +1,9 @@
 ---
 id: 005
 title: Integration, quality, operations and delivery
-status: pending
+status: complete
 wave: 3
-updated_at: 2026-08-12T15:10:00Z
+updated_at: 2026-08-13T15:55:00+08:00
 owner_role: QA Engineer
 depends_on: ['002', '003', '004']
 start_directory: .

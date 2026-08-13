@@ -4,7 +4,17 @@ from pathlib import Path
 
 import pytest
 
-from scripts.server.build_research_catalog import canonical_hash, compile_cells, main
+from scripts.server.build_research_catalog import (
+    ALLOWED_COMPATIBILITY_DIFFERENCES,
+    BASE_COMPATIBLE_SOURCE_REVISION,
+    COMPATIBLE_SOURCE_PATH,
+    EVALUATION_PROTOCOL,
+    EXPECTED_SOURCE_DIFF_SHA256,
+    SMALL_COMPATIBLE_SOURCE_REVISION,
+    canonical_hash,
+    compile_cells,
+    main,
+)
 
 
 def write_receipts(tmp_path: Path, size: str) -> tuple[Path, Path]:
@@ -92,6 +102,49 @@ def write_receipts(tmp_path: Path, size: str) -> tuple[Path, Path]:
     return matrix, evaluation
 
 
+def write_compatibility(
+    tmp_path: Path,
+    small_evaluation: Path,
+    base_evaluation: Path,
+) -> Path:
+    evaluations = {
+        "small": json.loads(small_evaluation.read_text(encoding="utf-8")),
+        "base": json.loads(base_evaluation.read_text(encoding="utf-8")),
+    }
+    payload: dict[str, object] = {
+        "schema_version": "elanquant_evaluation_compatibility_v1",
+        "status": "PASS",
+        "decision": "SEMANTICALLY_COMPARABLE",
+        "normalized_protocol": EVALUATION_PROTOCOL,
+        "protocol_sha256": canonical_hash(EVALUATION_PROTOCOL),
+        "source_identities": {
+            size: {
+                "evaluation_config_sha256": receipt["config_sha256"],
+                "inference_code_sha256": receipt["inference_code_sha256"],
+            }
+            for size, receipt in evaluations.items()
+        },
+        "source_revisions": {
+            "small": SMALL_COMPATIBLE_SOURCE_REVISION,
+            "base": BASE_COMPATIBLE_SOURCE_REVISION,
+        },
+        "source_path": COMPATIBLE_SOURCE_PATH,
+        "source_diff_sha256": EXPECTED_SOURCE_DIFF_SHA256,
+        "allowed_differences": ALLOWED_COMPATIBILITY_DIFFERENCES,
+        "evaluation_receipts": {
+            size: hashlib.sha256(path.read_bytes()).hexdigest()
+            for size, path in (
+                ("small", small_evaluation),
+                ("base", base_evaluation),
+            )
+        },
+    }
+    payload["receipt_hash"] = canonical_hash(payload)
+    path = tmp_path / "compatibility.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
 def test_catalog_compiles_exact_three_cells_and_dual_split(tmp_path: Path) -> None:
     matrix, evaluation = write_receipts(tmp_path, "base")
     cells, identities = compile_cells("base", matrix, evaluation)
@@ -138,6 +191,7 @@ def test_catalog_rejects_small_base_support_mismatch(tmp_path: Path, monkeypatch
     payload = json.loads(base_evaluation.read_text(encoding="utf-8"))
     payload["evaluation_support"]["validation_2025"]["anchor_set_sha256"] = "c" * 64
     base_evaluation.write_text(json.dumps(payload), encoding="utf-8")
+    compatibility = write_compatibility(tmp_path, small_evaluation, base_evaluation)
     monkeypatch.setattr(
         "sys.argv",
         [
@@ -146,6 +200,7 @@ def test_catalog_rejects_small_base_support_mismatch(tmp_path: Path, monkeypatch
             "--small-evaluation", str(small_evaluation),
             "--base-matrix", str(base_matrix),
             "--base-evaluation", str(base_evaluation),
+            "--compatibility-receipt", str(compatibility),
             "--out", str(tmp_path / "catalog.json"),
         ],
     )
@@ -167,6 +222,7 @@ def test_catalog_rejects_cross_size_weight_or_as_of_mismatch(tmp_path: Path, mon
         base_matrix.read_bytes()
     ).hexdigest()
     base_evaluation.write_text(json.dumps(evaluation_payload), encoding="utf-8")
+    compatibility = write_compatibility(tmp_path, small_evaluation, base_evaluation)
     monkeypatch.setattr(
         "sys.argv",
         [
@@ -175,6 +231,7 @@ def test_catalog_rejects_cross_size_weight_or_as_of_mismatch(tmp_path: Path, mon
             "--small-evaluation", str(small_evaluation),
             "--base-matrix", str(base_matrix),
             "--base-evaluation", str(base_evaluation),
+            "--compatibility-receipt", str(compatibility),
             "--out", str(tmp_path / "catalog.json"),
         ],
     )
@@ -187,3 +244,35 @@ def test_catalog_rejects_cross_size_weight_or_as_of_mismatch(tmp_path: Path, mon
     evaluation.write_text(json.dumps(invalid), encoding="utf-8")
     with pytest.raises(RuntimeError, match="as-of"):
         compile_cells("small", small_matrix, evaluation)
+
+
+def test_catalog_accepts_reviewed_compatibility_and_rejects_diff_tamper(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    small_matrix, small_evaluation = write_receipts(tmp_path, "small")
+    base_matrix, base_evaluation = write_receipts(tmp_path, "base")
+    compatibility = write_compatibility(tmp_path, small_evaluation, base_evaluation)
+    output = tmp_path / "catalog.json"
+    argv = [
+        "build_research_catalog.py",
+        "--small-matrix", str(small_matrix),
+        "--small-evaluation", str(small_evaluation),
+        "--base-matrix", str(base_matrix),
+        "--base-evaluation", str(base_evaluation),
+        "--compatibility-receipt", str(compatibility),
+        "--out", str(output),
+    ]
+    monkeypatch.setattr("sys.argv", argv)
+    assert main() == 0
+    assert json.loads(output.read_text(encoding="utf-8"))["status"] == "PASS"
+
+    receipt = json.loads(compatibility.read_text(encoding="utf-8"))
+    receipt["source_diff_sha256"] = "0" * 64
+    receipt["receipt_hash"] = canonical_hash(
+        {key: value for key, value in receipt.items() if key != "receipt_hash"}
+    )
+    compatibility.write_text(json.dumps(receipt), encoding="utf-8")
+    monkeypatch.setattr("sys.argv", [*argv[:-1], str(tmp_path / "tampered.json")])
+    with pytest.raises(RuntimeError, match="compatibility receipt"):
+        main()
