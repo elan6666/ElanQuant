@@ -149,7 +149,9 @@ systemctl --user start elanquant-api elanquant-worker
 ```text
 2025标准化信号（Small official-ft, sample_count=5）
   -> Qlib Top50/Drop5/Hold5 连续回测
-  -> releases/historical-backtest-catalog.json
+2026已开封且修正 future-support conditioning 的样本外诊断
+  -> Qlib 同参数连续回测
+  -> releases/historical-backtest-catalog-v3.json
   -> GET /api/v1/research/backtests
 ```
 
@@ -162,11 +164,21 @@ Qlib版本，因此这是为了可审计而增加的基础设施决定。发布�
 API服务需设置：
 
 ```text
-ELANQUANT_HISTORICAL_BACKTEST_CATALOG=/data/yilangliu/a_share_research/elanquant/releases/historical-backtest-catalog.json
+ELANQUANT_HISTORICAL_BACKTEST_CATALOG=/data/yilangliu/a_share_research/elanquant/releases/historical-backtest-catalog-v3.json
 ```
 
 目录缺失时页面显示“服务器生成中”；目录、回执或逐日曲线任一哈希不一致时 API 返回
 503，不得回退到模拟数据。新轨只允许 GET，不添加 POST、重试或每日自动调度。
+
+2026 补跑不重训模型，不覆盖 2025 产物。它必须先生成不可变
+analysis lock，锁定已有 Small official-ft checkpoint、mean 主信号和完整策略参数，
+再以全新 run id 执行 `scripts/server/finalize_official_demo_final_test_2026.sh`。
+发布后目录必须精确包含 2025 checkpoint-selection validation 和已修正的
+2026 opened out-of-sample diagnostic
+两个 entry；`releases/current`、SQLite Top3 账本和旧 2025 回执的哈希必须保持不变。
+独立审计通过后，将最终 run 文件收紧为 0440、目录为 0550，catalog 为
+0440，然后再运行一次完整审计。中途失败的 r0–r3 只是 `ABORTED`
+审计证据，不进入 catalog，不得被人工当成可发布结果。
 
 ## 常见故障
 

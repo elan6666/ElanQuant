@@ -11,6 +11,8 @@ Status: **SHIP**
    standardized-space sample-5 signals and Qlib Top50/Drop5/Hold5.
 4. Data health, run comparison, stock evidence, sample-aware paper summary and
    Claude-inspired responsive Chinese dashboard.
+5. A corrected 2026 opened out-of-sample diagnostic with T-known candidate
+   eligibility and an unclipped dual-period historical chart.
 
 ## Safety boundary
 
@@ -22,7 +24,7 @@ Status: **SHIP**
 
 ## Final evidence
 
-- Server: 75 tests, Ruff, Pyright, compileall, shell and systemd checks pass.
+- Server: 80 tests, Ruff, Pyright, compileall, shell and systemd checks pass.
 - Frontend: 12 tests, ESLint, production build and npm audit pass.
 - SQLite: integrity `ok`, zero foreign-key violations.
 - Official-demo release: 67,349 signals, 233 sessions, immutable audit PASS,
@@ -41,3 +43,6 @@ Status: **SHIP**
 - Base zero-shot is validation RankIC winner among Base cells. Fine-tuned Base
   improves some Top10 metrics but does not justify promotion; viewed 2026
   evidence cannot be used for selection.
+- Corrected 2026 mean-primary diagnostic: -7.65% after cost versus +0.45%
+  SH000300, with -8.09% excess and -13.31% maximum drawdown. The previously
+  viewed window is not a blind final test and does not support an alpha claim.

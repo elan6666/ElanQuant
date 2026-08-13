@@ -28,9 +28,11 @@ trading understandable and auditable in one interface.
 - Split-aware experiments, run history/diff, data health, stock ranking/details,
   provenance and scoreability labels.
 - RMB100k Top-3 paper account with frozen T intent and T+1 fill/reject ledger.
-- A separate historical `official-demo-method-extended-pit-v1` research page:
-  Small official-ft, standardized-space signals, sample-count 5, Top-50,
-  Drop-5 and minimum hold 5. It is artifact-only and cannot create paper orders.
+- A separate historical official-demo-method research page: Small official-ft,
+  standardized-space signals, sample-count 5, Top-50, Drop-5 and minimum hold
+  5. It separates 2025 training validation from a corrected, already-opened
+  2026 out-of-sample diagnostic; both
+  are artifact-only and cannot create paper orders.
 - Same-origin Chinese owner dashboard over VPN/SSH tunnel.
 
 ## Non-goals
@@ -39,7 +41,8 @@ trading understandable and auditable in one interface.
 - Automatic daily schedule or automatic VPN login.
 - Intraday/high-frequency, leverage, shorting, options, futures, news/LLMs.
 - Editing official model internals or claiming a new architecture.
-- Calling viewed 2026 evidence an untouched final test.
+- Calling the opened 2026 result blind/final, or reusing it to tune/select a
+  later version. The next true final test requires a future untouched window.
 
 ## Requirements
 

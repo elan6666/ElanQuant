@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 import { Badge } from '../components/Badge'
 import { EmptyState } from '../components/EmptyState'
 import { formatMoney, formatPercent, shortHash } from '../format'
@@ -17,6 +19,10 @@ const signals: { id: OfficialDemoSignal; label: string; detail: string }[] = [
 const deviationTranslations: Record<string, string> = {
   "Uses the admitted extended validation_2025 split, not the author's fixed dates.":
     '使用准入后的扩展版 2025 验证集，而不是作者 Demo 的固定时间窗。',
+  'Uses the admitted opened test_viewed_2026 split for a frozen post-selection evaluation.':
+    '使用未参与训练或 checkpoint 选择的 2026 测试集；结果已开封，只能评估冻结版本。',
+  'Candidate eligibility uses only T-known membership/data with a complete prior 90-global-session context; forecast timestamps use the next ten global exchange sessions without reading future symbol rows.':
+    '候选资格只使用 T 日已知成分与数据，要求过去 90 个全市场交易日完整；未来时间戳固定为下一个 10 个全市场交易日，不读取未来个股行。',
   "Uses dynamic PIT CSI300 membership and provider data, not the author's Qlib bundle.":
     '使用动态 PIT 沪深300与本项目准入数据，而不是作者的 Qlib 数据包。',
   'Uses true provider amount instead of OHLC-average times volume.':
@@ -27,6 +33,8 @@ const deviationTranslations: Record<string, string> = {
     '新增 seed=100 与机器可读回执，保证同一证据可以复算。',
   'Provider factor=1 leaves corporate-action handling as a disclosed limitation.':
     '供应商复权因子固定为 1；公司行动处理仍是已披露的数据限制。',
+  'Corrected signal candidates do not depend on future symbol membership or future symbol-row availability.':
+    '已修正信号候选集，不再依赖未来成分资格或未来个股行是否存在。',
 }
 
 function translateDeviation(deviation: string) {
@@ -34,14 +42,22 @@ function translateDeviation(deviation: string) {
 }
 
 export function HistoricalBacktestPage({
-  backtest,
+  backtests,
   available,
-  series,
+  seriesById,
 }: {
-  backtest: HistoricalBacktest | null
+  backtests: HistoricalBacktest[]
   available: boolean
-  series: HistoricalBacktestPoint[]
+  seriesById: Record<string, HistoricalBacktestPoint[]>
 }) {
+  const [selectedSplit, setSelectedSplit] = useState<
+    'validation_2025' | 'test_viewed_2026'
+  >('test_viewed_2026')
+  const backtest =
+    backtests.find((entry) => entry.evaluation_split === selectedSplit) ??
+    backtests.find((entry) => entry.evaluation_split === 'validation_2025') ??
+    null
+  const series = backtest === null ? [] : (seriesById[backtest.id] ?? [])
   return (
     <>
       <header className="page-heading page-heading--split backtest-heading">
@@ -68,7 +84,7 @@ export function HistoricalBacktestPage({
         <div className="strategy-compare__head"><span>项目</span><strong>保留的 Top3</strong><strong>新增官方对齐版</strong></div>
         {[
           ['行情 / 预测长度', '日频 / 10日', '日频 / 10日'],
-          ['运行方式', '收盘后手动按钮', '2025连续历史回测'],
+          ['运行方式', '收盘后手动按钮', '封存分区连续回测'],
           ['预测采样', '10条', '5条（官方）'],
           ['股票信号', '反归一化百分比收益', '标准化空间差值'],
           ['股票池', '动态PIT沪深300', '动态PIT沪深300（数据偏差已披露）'],
@@ -87,7 +103,28 @@ export function HistoricalBacktestPage({
           description="Top3 仍可正常使用。只有标准化信号、Qlib回测和哈希回执全部通过后，本页才会展示结果。"
         />
       ) : (
-        <BacktestEvidence backtest={backtest} series={series} />
+        <>
+          <div className="backtest-split-tabs" role="group" aria-label="历史回测评估分区">
+            {([
+              ['test_viewed_2026', '2026 已开封样本外诊断（已修正）'],
+              ['validation_2025', '2025 训练验证 / checkpoint 选择'],
+            ] as const).map(([split, label]) => {
+              const present = backtests.some((entry) => entry.evaluation_split === split)
+              return (
+                <button
+                  type="button"
+                  aria-pressed={backtest.evaluation_split === split}
+                  disabled={!present}
+                  key={split}
+                  onClick={() => setSelectedSplit(split)}
+                >
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+          <BacktestEvidence backtest={backtest} series={series} />
+        </>
       )}
     </>
   )
@@ -101,16 +138,23 @@ function BacktestEvidence({
   series: HistoricalBacktestPoint[]
 }) {
   const primary = backtest.metrics.mean
+  const finalTest = backtest.evaluation_split === 'test_viewed_2026'
   return (
     <>
       <div className="official-boundary-banner">
-        <Badge tone="success">SEALED / VALIDATION 2025</Badge>
-        <strong>2026 TEST_VIEWED 未用于这条策略的选择</strong>
+        <Badge tone="success">
+          {finalTest ? 'CORRECTED / OOS 2026 / OPENED' : 'TRAINING VALIDATION / 2025'}
+        </Badge>
+        <strong>
+          {finalTest
+            ? '已修正未来成分/缺行条件；窗口已开封，只作样本外诊断，不是新的盲测'
+            : '这一段参与 validation loss 和 best checkpoint 选择，不是最终测试'}
+        </strong>
         <span>标准化分数不是预测收益率；本回测也不是在线账户。</span>
       </div>
 
       <section className="metric-grid backtest-metrics">
-        <div className="metric metric--positive"><span>策略累计收益（含费）</span><strong>{formatPercent(primary.total_return_with_cost)}</strong><small>官方算术累计曲线口径</small></div>
+        <div className={`metric ${primary.total_return_with_cost >= 0 ? 'metric--positive' : 'metric--negative'}`}><span>策略累计收益（含费）</span><strong>{formatPercent(primary.total_return_with_cost)}</strong><small>官方算术累计曲线口径</small></div>
         <div className="metric"><span>沪深300同期</span><strong>{formatPercent(primary.benchmark_return)}</strong><small>SH000300</small></div>
         <div className={`metric ${primary.excess_return_with_cost >= 0 ? 'metric--positive' : 'metric--negative'}`}><span>含费超额</span><strong>{formatPercent(primary.excess_return_with_cost)}</strong><small>策略 − 基准 − 成本</small></div>
         <div className="metric metric--negative"><span>最大回撤</span><strong>{formatPercent(primary.max_drawdown_with_cost)}</strong><small>mean 主信号</small></div>
@@ -118,7 +162,7 @@ function BacktestEvidence({
 
       <section className="content-section backtest-chart-section">
         <div className="section-heading">
-          <div><span className="eyebrow">Primary signal / mean</span><h2>算术累计收益曲线</h2></div>
+          <div><span className="eyebrow">Primary signal / mean</span><h2>{finalTest ? '2026 已开封样本外诊断曲线' : '2025 训练验证曲线'}</h2></div>
           <span className="count-label">{series.length} SESSIONS</span>
         </div>
         <BacktestChart points={series} />
@@ -160,6 +204,7 @@ function BacktestEvidence({
             <div><span>交易日 / 信号行</span><strong>{backtest.support.sessions} / {backtest.support.signal_rows.toLocaleString()}</strong></div>
             <div><span>Backtest receipt</span><code>{shortHash(backtest.receipt_sha256)}</code></div>
             <div><span>Signal receipt</span><code>{shortHash(backtest.signal_receipt_sha256)}</code></div>
+            {backtest.analysis_lock_sha256 ? <div><span>Analysis lock</span><code>{shortHash(backtest.analysis_lock_sha256)}</code></div> : null}
             <div><span>Backtest code</span><code>{shortHash(backtest.backtest_code_sha256)}</code></div>
           </div>
         </div>
@@ -186,7 +231,9 @@ function BacktestChart({ points }: { points: HistoricalBacktestPoint[] }) {
   }).join(' ')
   return (
     <div className="backtest-chart">
-      <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Top50策略与沪深300算术累计收益曲线">
+      <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-labelledby="backtest-chart-title backtest-chart-description">
+        <title id="backtest-chart-title">Top50策略与沪深300算术累计收益曲线</title>
+        <desc id="backtest-chart-description">展示封存区间内的含费Top50策略和沪深300每日收益算术累加。</desc>
         <line x1="0" x2="100" y1={94 - ((0 - min) / range) * 86} y2={94 - ((0 - min) / range) * 86} className="backtest-chart__zero" />
         <polyline points={polyline('strategy')} className="backtest-chart__strategy" vectorEffect="non-scaling-stroke" />
         <polyline points={polyline('benchmark')} className="backtest-chart__benchmark" vectorEffect="non-scaling-stroke" />

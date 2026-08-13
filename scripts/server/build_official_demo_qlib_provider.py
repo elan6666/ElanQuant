@@ -15,7 +15,12 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
-from elanquant.contracts.official_demo import canonical_hash, sha256_file
+from elanquant.contracts.official_demo import (
+    FINAL_TEST_STRATEGY_ID,
+    canonical_hash,
+    sha256_file,
+    validate_analysis_lock,
+)
 
 
 def tree_hash(root: Path) -> tuple[str, int]:
@@ -63,7 +68,16 @@ def main() -> int:
     parser.add_argument("--dumper", type=Path, required=True)
     parser.add_argument("--qlib-site-packages", type=Path, required=True)
     parser.add_argument("--out-dir", type=Path, required=True)
+    parser.add_argument(
+        "--evaluation-split",
+        choices=("validation_2025", "test_viewed_2026"),
+        default="validation_2025",
+    )
+    parser.add_argument("--analysis-lock", type=Path)
     args = parser.parse_args()
+    final_test = args.evaluation_split == "test_viewed_2026"
+    if final_test and args.analysis_lock is None:
+        raise RuntimeError("final-test provider requires an analysis lock")
     root = args.root.resolve()
     out_dir = args.out_dir.resolve()
     if out_dir.exists():
@@ -91,7 +105,18 @@ def main() -> int:
         raise RuntimeError("benchmark receipt is invalid")
     data = pickle.loads(args.dataset.read_bytes())
     if not isinstance(data, dict) or not data:
-        raise RuntimeError("official validation dataset is empty")
+        raise RuntimeError("official evaluation dataset is empty")
+    analysis_lock = None
+    if final_test:
+        analysis_lock = validate_analysis_lock(
+            json.loads(args.analysis_lock.read_text(encoding="utf-8"))
+        )
+        if (
+            analysis_lock["dataset_manifest_sha256"]
+            != sha256_file(args.dataset_manifest)
+            or analysis_lock["dataset_file_sha256"] != sha256_file(args.dataset)
+        ):
+            raise RuntimeError("analysis lock differs from provider inputs")
 
     csv_root = out_dir / "csv"
     provider_root = out_dir / "provider"
@@ -137,11 +162,13 @@ def main() -> int:
     provider_sha, provider_files = tree_hash(provider_root)
     csv_sha, csv_files = tree_hash(csv_root)
     receipt: dict[str, Any] = {
-        "schema_version": "elanquant_official_demo_qlib_provider_v1",
+        "schema_version": (
+            "elanquant_official_demo_qlib_provider_v2"
+            if final_test
+            else "elanquant_official_demo_qlib_provider_v1"
+        ),
         "status": "PASS",
         "generated_at": datetime.now(UTC).isoformat(),
-        "selection_split": "validation_2025",
-        "test_viewed_consumed": False,
         "dataset_manifest_sha256": sha256_file(args.dataset_manifest),
         "dataset_file_sha256": sha256_file(args.dataset),
         "benchmark_receipt_sha256": sha256_file(args.benchmark_receipt),
@@ -168,6 +195,24 @@ def main() -> int:
             ),
         ],
     }
+    if final_test:
+        receipt.update(
+            {
+                "id": FINAL_TEST_STRATEGY_ID,
+                "evaluation_split": "test_viewed_2026",
+                "test_data_access": "VIEWED",
+                "used_for_selection": False,
+                "selection_eligible": False,
+                "analysis_lock_sha256": sha256_file(args.analysis_lock),
+            }
+        )
+    else:
+        receipt.update(
+            {
+                "selection_split": "validation_2025",
+                "test_viewed_consumed": False,
+            }
+        )
     receipt["receipt_hash"] = canonical_hash(receipt)
     atomic_json(receipt, out_dir / "provider-receipt.json")
     print(

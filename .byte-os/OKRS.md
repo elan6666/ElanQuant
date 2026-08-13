@@ -21,6 +21,12 @@ trading and a usable full-stack interface.
    inference smoke/full gates without storing restricted artifacts in Git.
 5. Complete three evidence-led iterations and a current ship review with clear
    limitations and operating instructions.
+6. Correct the evaluation hierarchy: retain 2025 as training validation and
+   checkpoint-selection evidence; preserve the initially leaked 2026 artifact
+   as a diagnostic, publish a corrected opened out-of-sample diagnostic, and
+   reserve a future untouched window for the next true final test.
+7. Render every sealed historical curve point, including negative values and
+   the zero baseline, without SVG clipping on desktop or mobile.
 
 ## Baseline
 

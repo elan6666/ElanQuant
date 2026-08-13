@@ -1,10 +1,10 @@
 # Byte Auto Run
 
-- Goal: Deliver ElanQuant end to end with official-aligned Kronos Small,
-  strict PIT, extended A-share data, on-demand server inference, simulated
-  trading, review, three iterations, and handoff.
+- Goal: Repair the ElanQuant historical chart and correct evaluation semantics
+  so 2025 is training validation/checkpoint selection and 2026 is shown only as
+  a corrected opened out-of-sample diagnostic, with audited server evidence.
 - Started at: 2026-08-12T22:57:00+08:00
-- Current loop: 9
+- Current loop: complete
 - Completed stages: repository isolation; goal creation; VPN/SSH preflight;
   Byte start/research/harness/shape/plan; foundation; backend; frontend;
   strict-PIT research contracts; official weights hash gate; extended data v2;
@@ -15,15 +15,12 @@
   The isolated official-demo-method historical version, same-session frozen
   ledger proof, server full verification and deployed desktop/mobile QA are
   also complete.
-- Remaining plans: none after final commit and Git push.
-- Review verdict: SHIP. Independent design, product-boundary and Base/catalog
-  audits report no P0/P1.
-- Iteration count: 3/3.
-- Subagent mode: on; three exploration/implementation handoffs completed and
-  integrated by the main agent.
-- Hard blockers: none; the isolated Base evaluation is a normal long-running
-  external gate and the Small product remains available while it runs.
-- Exact resume action: use `/tmp/codex-yilangliu-elanquant-r4.sock`, inspect
-  `elanquant-evaluate-base-candidate-v1-20260813-r4`, and never overwrite or
-  recompile the sealed Base matrix.
+- Remaining plans: none.
+- Review verdict: SHIP for the current change.
+- Iteration count: 3/3 for the current change.
+- Subagent mode: on; research, design and architecture exploration are read-only
+  and disjoint, with integration owned by the main agent.
+- Hard blockers: none.
+- Exact resume action: none; start a new plan before consuming any future
+  evaluation window.
 - Parked future items: 0, excluded from Auto.

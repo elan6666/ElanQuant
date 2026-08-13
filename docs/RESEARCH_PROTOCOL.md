@@ -80,11 +80,25 @@ Base 完成不等于自动切换在线模型。不会
 
 ## 评估
 
-模型选择只看 2025 验证集。统一记录 Pearson IC、Spearman RankIC、Top-10
+训练会完整跑满30 epochs，不使用 patience 提前停止；但每个 epoch 都在
+2025 验证集上计算 loss，并保存当时 validation loss 最低的
+`best_model`。因此 2025 既参与 checkpoint 选择，又用于方法开发，只能称为
+“训练验证 / checkpoint-selection”，不是独立最终评估。
+
+模型与方法选择只看 2025 验证集。统一记录 Pearson IC、Spearman RankIC、Top-10
 未来十日实际 close 均值收益、样本量和横截面数量。正式评估每月冻结五个分散交易日
 并使用这些日期的完整共同支持横截面，同时记录 eligible/evaluated 覆盖、anchor hash；
-600 行快速结果只允许标记 `SMOKE`，不能做模型选择。2026 指标只做带 `TEST_VIEWED` 标签的
-描述性报告，不允许反向选择参数。
+600 行快速结果只允许标记 `SMOKE`，不能做模型选择。
+
+2026 没有参与训练、2025 validation loss 或 best-checkpoint 选择，但已在
+早期模型指标与策略回测中打开，所以永久标记 `TEST_VIEWED`，不得称为
+blind/untouched/final test。最初的策略回测还使 T 日候选资格依赖“个股未来是否仍有
+10 行”，构成 future-support conditioning；该产物只保留为审计诊断，不进入活动目录。
+
+修正版在 T 日只要求当时已知候选资格和过去 90 个全市场交易日的完整上下文；
+推理的未来时间戳固定为下一个 10 个全市场交易日，不读取个股未来成分或缺行状态。
+修正后的 2026 结果仍只能称为 opened out-of-sample diagnostic，不允许再用它选模、
+改信号或调参。下一个真正最终测试必须使用未来尚未查看的新窗口。
 
 Small formal 的旧回执用 `batch_size=50`，Base formal 将同一实际协议拆成
 `evaluation_batch_size=50` 与 `online_batch_size=50`。六格目录不得简单忽略两套原始
@@ -105,7 +119,8 @@ Drop-5、最少持有 5 日、日频延迟执行、次日开盘价、1亿元假�
 买入0.1%、卖出0.15%、最低费用5元和9.5%涨跌停阈值。
 
 它对齐的是官方方法，而不是伪装成相同数据实验：当前 checkpoint 与作者固定时间窗
-不同，因此只使用因果准入的 `validation_2025`，绝不读取 2026 TEST_VIEWED 指标做选择；
+不同。2025 `validation_2025` 用于 checkpoint/方法选择；2026 `test_viewed_2026`
+只作为冻结版本的已开封样本外诊断，绝不反向用于选模或调参，也不宣称是最终盲测。
 数据来自扩展动态 PIT 沪深300与本项目供应商，成交额使用供应商真值；作者没有固定
 pyqlib版本或推理seed，本项目为审计固定 pyqlib 0.9.7 与 seed 100。以上差异全部进入
 不可变回执。作者图中的曲线是每日收益算术累计，不标成在线账户 NAV。

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from './App'
 import type { ApiClient } from './types'
 import {
+  finalTestHistoricalBacktest,
   incompleteJob,
   historicalBacktest,
   paperAccount,
@@ -105,12 +106,18 @@ describe('ElanQuant dashboard states', () => {
       <App
         client={clientFor(
           snapshot({
-            historical_backtest: historicalBacktest,
+            historical_backtests: [historicalBacktest, finalTestHistoricalBacktest],
             historical_backtest_available: true,
-            historical_backtest_series: [
-              { session: '2025-01-02', strategy: 0, benchmark: 0, excess: 0, strategy_nav: 1, benchmark_nav: 1 },
-              { session: '2025-12-31', strategy: 0.12, benchmark: 0.08, excess: 0.04, strategy_nav: 1.12, benchmark_nav: 1.08 },
-            ],
+            historical_backtest_series: {
+              [historicalBacktest.id]: [
+                { session: '2025-01-02', strategy: 0, benchmark: 0, excess: 0, strategy_nav: 1, benchmark_nav: 1 },
+                { session: '2025-12-31', strategy: 0.12, benchmark: 0.08, excess: 0.04, strategy_nav: 1.12, benchmark_nav: 1.08 },
+              ],
+              [finalTestHistoricalBacktest.id]: [
+                { session: '2026-01-05', strategy: 0, benchmark: 0, excess: 0, strategy_nav: 1, benchmark_nav: 1 },
+                { session: '2026-07-29', strategy: 0.04, benchmark: 0.03, excess: 0.01, strategy_nav: 1.04, benchmark_nav: 1.03 },
+              ],
+            },
           }),
         )}
       />,
@@ -121,7 +128,9 @@ describe('ElanQuant dashboard states', () => {
     expect(screen.getByText('TOP50 / DROP5 / HOLD5')).toBeInTheDocument()
     expect(screen.getByText('5条（官方）')).toBeInTheDocument()
     expect(screen.getByText('明确禁止同次递补')).toBeInTheDocument()
-    expect(screen.getByText(/2026 TEST_VIEWED 未用于/)).toBeInTheDocument()
+    expect(screen.getByText(/已修正未来成分\/\u7f3a行条件/)).toBeInTheDocument()
     expect(screen.getByRole('img', { name: /Top50策略与沪深300/ })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /2025 训练验证/ }))
+    expect(screen.getByText(/validation loss 和 best checkpoint/)).toBeInTheDocument()
   })
 })

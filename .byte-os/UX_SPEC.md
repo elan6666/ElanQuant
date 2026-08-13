@@ -17,7 +17,9 @@ no action button.
 - Research: Small/Base six cells, 2025 validation vs 2026 `TEST_VIEWED`, sample
   support, zero-shot delta, run lineage and diff.
 - Historical Backtest: official-demo-method identity, visible separation from
-  Top3, fixed mean curve, four descriptive standardized signals,
+  Top3, corrected opened-2026 diagnostic default with an explicit 2025
+  training-validation tab,
+  fixed mean curves, four descriptive standardized signals,
   Top50/Drop5/Hold5 parameters, support, hashes and deviations. Missing evidence
   is a waiting state; tampered evidence is unavailable rather than approximated.
 - Ranking: searchable/keyboard scores, ten-day signal, input completeness,

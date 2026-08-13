@@ -2,8 +2,8 @@
 """Generate the pinned Kronos demo's four standardized-space signals.
 
 This is intentionally separate from ElanQuant's inverse-price Top-3 online
-signal. It consumes only the 2025 validation slice and the Small official-style
-fine-tuned cell, then publishes an immutable machine-readable receipt.
+signal. It consumes one explicitly selected sealed slice and the Small
+official-style fine-tuned cell, then publishes an immutable receipt.
 """
 
 from __future__ import annotations
@@ -22,7 +22,10 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+
 from elanquant.contracts.official_demo import (
+    FINAL_TEST_SIGNAL_SCHEMA,
+    FINAL_TEST_STRATEGY_ID,
     MODEL_CELL,
     PRIMARY_SIGNAL,
     SIGNAL_SCHEMA,
@@ -31,6 +34,7 @@ from elanquant.contracts.official_demo import (
     canonical_hash,
     sha256_file,
     standardized_close_signals,
+    validate_analysis_lock,
     validate_signal_receipt,
 )
 
@@ -121,15 +125,32 @@ def rng_hash(torch_module: Any) -> str:
 
 def candidate_windows(
     data: dict[str, pd.DataFrame], start: pd.Timestamp, end: pd.Timestamp
-) -> list[tuple[str, int]]:
-    candidates: list[tuple[str, int]] = []
+) -> list[tuple[str, tuple[pd.Timestamp, ...], tuple[pd.Timestamp, ...]]]:
+    """Build candidates from information available at the signal close.
+
+    Eligibility requires the symbol to have the complete preceding 90 global
+    exchange sessions through T.  The forecast stamps are the next ten global
+    sessions, but their symbol rows are never inspected.  This prevents future
+    membership or future missing rows from changing the T-day universe.
+    """
+
+    calendar = pd.DatetimeIndex(
+        sorted({pd.Timestamp(day) for frame in data.values() for day in frame.index})
+    )
+    candidates: list[tuple[str, tuple[pd.Timestamp, ...], tuple[pd.Timestamp, ...]]] = []
+    eligible_positions = [
+        position
+        for position in range(LOOKBACK - 1, len(calendar) - PREDICT)
+        if calendar[position] >= start and calendar[position + PREDICT] <= end
+    ]
     for code in sorted(data):
         frame = data[code].sort_index()
-        for offset in range(0, len(frame) - LOOKBACK - PREDICT + 1):
-            signal_session = pd.Timestamp(frame.index[offset + LOOKBACK - 1])
-            target_end = pd.Timestamp(frame.index[offset + LOOKBACK + PREDICT - 1])
-            if signal_session >= start and target_end <= end:
-                candidates.append((code, offset))
+        available = {pd.Timestamp(day) for day in frame.index}
+        for position in eligible_positions:
+            context_dates = tuple(calendar[position - LOOKBACK + 1 : position + 1])
+            if all(day in available for day in context_dates):
+                future_dates = tuple(calendar[position + 1 : position + PREDICT + 1])
+                candidates.append((code, context_dates, future_dates))
     return candidates
 
 
@@ -141,10 +162,22 @@ def main() -> int:
     parser.add_argument("--dataset-manifest", type=Path, required=True)
     parser.add_argument("--dataset", type=Path, required=True)
     parser.add_argument("--out-dir", type=Path, required=True)
+    parser.add_argument(
+        "--evaluation-split",
+        choices=("validation_2025", "test_viewed_2026"),
+        default="validation_2025",
+    )
+    parser.add_argument("--analysis-lock", type=Path)
     parser.add_argument("--start", default="2025-01-01")
     parser.add_argument("--end", default="2025-12-31")
     parser.add_argument("--device", default="cuda:0")
     args = parser.parse_args()
+
+    final_test = args.evaluation_split == "test_viewed_2026"
+    strategy_id = FINAL_TEST_STRATEGY_ID if final_test else STRATEGY_ID
+    receipt_schema = FINAL_TEST_SIGNAL_SCHEMA if final_test else SIGNAL_SCHEMA
+    if final_test and args.analysis_lock is None:
+        raise RuntimeError("final-test signal generation requires an analysis lock")
 
     root = args.root.resolve()
     upstream = args.upstream.resolve()
@@ -169,6 +202,20 @@ def main() -> int:
         or dataset_entry.get("sha256") != sha256_file(dataset_path)
     ):
         raise RuntimeError("validation dataset does not match its admitted manifest")
+    analysis_lock = None
+    if final_test:
+        analysis_lock = validate_analysis_lock(
+            json.loads(args.analysis_lock.read_text(encoding="utf-8"))
+        )
+        if (
+            analysis_lock["training_matrix_sha256"] != sha256_file(matrix_path)
+            or analysis_lock["dataset_manifest_sha256"] != manifest_sha256
+            or analysis_lock["dataset_file_sha256"] != sha256_file(dataset_path)
+            or analysis_lock["tokenizer_sha256"] != cell["tokenizer_sha256"]
+            or analysis_lock["predictor_sha256"] != cell["predictor_sha256"]
+            or analysis_lock["model_config_sha256"] != cell["config_sha256"]
+        ):
+            raise RuntimeError("analysis lock differs from final-test inputs")
     tokenizer_path = Path(str(cell["tokenizer_path"]))
     predictor_path = Path(str(cell["predictor_path"]))
     tokenizer_file = tokenizer_path / "model.safetensors"
@@ -185,7 +232,7 @@ def main() -> int:
 
     data = pickle.loads(dataset_path.read_bytes())
     if not isinstance(data, dict) or not data:
-        raise RuntimeError("official validation dataset is empty")
+        raise RuntimeError("official evaluation dataset is empty")
     start, end = pd.Timestamp(args.start), pd.Timestamp(args.end)
     candidates = candidate_windows(data, start, end)
     if not candidates:
@@ -207,14 +254,13 @@ def main() -> int:
             x_stamps: list[np.ndarray] = []
             y_stamps: list[np.ndarray] = []
             identities: list[tuple[str, str, float]] = []
-            for code, offset in batch:
+            for code, context_dates, future_dates in batch:
                 frame = data[code].sort_index()
-                context = frame.iloc[offset : offset + LOOKBACK]
-                future = frame.iloc[offset + LOOKBACK : offset + LOOKBACK + PREDICT]
+                context = frame.loc[list(context_dates)]
                 normalized = normalized_context(context)
                 contexts.append(normalized)
                 x_stamps.append(time_features(context.index))
-                y_stamps.append(time_features(future.index))
+                y_stamps.append(time_features(pd.DatetimeIndex(future_dates)))
                 identities.append(
                     (
                         code,
@@ -263,15 +309,13 @@ def main() -> int:
         for session, instrument in frame[["datetime", "instrument"]].itertuples(index=False)
     )
     receipt: dict[str, Any] = {
-        "schema_version": SIGNAL_SCHEMA,
+        "schema_version": receipt_schema,
         "status": "PASS",
-        "id": STRATEGY_ID,
+        "id": strategy_id,
         "track_kind": "OFFICIAL_DEMO_METHOD",
         "model_cell_id": MODEL_CELL,
         "model_size": "small",
         "model_track": "official_style",
-        "selection_split": "validation_2025",
-        "test_viewed_consumed": False,
         "primary_signal": PRIMARY_SIGNAL,
         "signals": list(SIGNALS),
         "generated_at": datetime.now(UTC).isoformat(),
@@ -327,12 +371,42 @@ def main() -> int:
             }
         },
         "deviations": [
-            "Extended validation_2025 split replaces the author's fixed demo dates.",
+            (
+                "Extended test_viewed_2026 split is an opened, frozen post-selection "
+                "evaluation."
+                if final_test
+                else "Extended validation_2025 split replaces the author's fixed demo dates."
+            ),
             "Dynamic provider membership and true amount replace the author's Qlib data semantics.",
+            (
+                "Candidate eligibility uses only T-known membership/data with a complete "
+                "prior 90-global-session context; forecast timestamps use the next ten "
+                "global exchange sessions without reading future symbol rows."
+                if final_test
+                else "Legacy validation candidates follow the author's per-symbol slices."
+            ),
             "Seed 100 is explicitly fixed because qlib_test.py does not seed inference.",
             "CSV is an auditable instrumentation extension to the author's predictions.pkl.",
         ],
     }
+    if final_test:
+        receipt.update(
+            {
+                "evaluation_split": "test_viewed_2026",
+                "result_role": "CORRECTED_OPENED_OOS_DIAGNOSTIC",
+                "selection_eligible": False,
+                "used_for_selection": False,
+                "test_data_access": "VIEWED",
+                "analysis_lock_sha256": sha256_file(args.analysis_lock),
+            }
+        )
+    else:
+        receipt.update(
+            {
+                "selection_split": "validation_2025",
+                "test_viewed_consumed": False,
+            }
+        )
     receipt["receipt_hash"] = canonical_hash(receipt)
     validate_signal_receipt(receipt)
     atomic_json(receipt, out_dir / "signal-receipt.json")

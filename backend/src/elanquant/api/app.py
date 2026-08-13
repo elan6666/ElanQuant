@@ -274,30 +274,32 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allowed_hosts=["127.0.0.1", "localhost", "[::1]", "testserver"],
     )
 
-    def load_historical_backtest() -> tuple[dict[str, Any], dict[str, Any]] | None:
+    def load_historical_backtests() -> dict[str, tuple[dict[str, Any], dict[str, Any]]]:
         catalog_path = active_settings.historical_backtest_catalog.resolve()
         if not catalog_path.is_file():
-            return None
+            return {}
         try:
             catalog = validate_backtest_catalog(
                 json.loads(catalog_path.read_text(encoding="utf-8"))
             )
-            entry = catalog["entries"][0]
             root = catalog_path.parent.parent.resolve()
-            receipt_path = (root / str(entry["receipt_path"])).resolve()
-            if root not in receipt_path.parents or not receipt_path.is_file():
-                raise RuntimeError("historical backtest receipt escaped its sealed root")
-            if sha256_file(receipt_path) != entry["receipt_sha256"]:
-                raise RuntimeError("historical backtest receipt hash mismatch")
-            receipt = validate_backtest_receipt(
-                json.loads(receipt_path.read_text(encoding="utf-8"))
-            )
-            if (
-                receipt["id"] != entry["id"]
-                or receipt["model_cell_id"] != entry["model_cell_id"]
-                or receipt["metrics"][receipt["primary_signal"]] != entry["summary"]
-            ):
-                raise RuntimeError("historical backtest catalog and receipt disagree")
+            loaded: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
+            for entry in catalog["entries"]:
+                receipt_path = (root / str(entry["receipt_path"])).resolve()
+                if root not in receipt_path.parents or not receipt_path.is_file():
+                    raise RuntimeError("historical backtest receipt escaped its sealed root")
+                if sha256_file(receipt_path) != entry["receipt_sha256"]:
+                    raise RuntimeError("historical backtest receipt hash mismatch")
+                receipt = validate_backtest_receipt(
+                    json.loads(receipt_path.read_text(encoding="utf-8"))
+                )
+                if (
+                    receipt["id"] != entry["id"]
+                    or receipt["model_cell_id"] != entry["model_cell_id"]
+                    or receipt["metrics"][receipt["primary_signal"]] != entry["summary"]
+                ):
+                    raise RuntimeError("historical backtest catalog and receipt disagree")
+                loaded[str(receipt["id"])] = (entry, receipt)
         except (
             KeyError,
             OSError,
@@ -310,19 +312,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 status_code=503,
                 detail="Historical backtest failed its sealed evidence gate",
             ) from error
-        return catalog, receipt
+        return loaded
 
     def public_backtest(receipt: dict[str, Any], receipt_sha256: str) -> dict[str, object]:
-        return {
+        result: dict[str, object] = {
             "id": receipt["id"],
             "state": "passed",
             "track_kind": receipt["track_kind"],
             "model_cell_id": receipt["model_cell_id"],
             "generated_at": receipt["generated_at"],
-            "selection_split": receipt["selection_split"],
             "selection_eligible": receipt["selection_eligible"],
-            "test_viewed_consumed": receipt["test_viewed_consumed"],
-            "test_status": receipt["test_status"],
             "primary_signal": receipt["primary_signal"],
             "receipt_sha256": receipt_sha256,
             "signal_receipt_sha256": receipt["signal_receipt_sha256"],
@@ -336,6 +335,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "curve_semantics": receipt["curve_semantics"],
             "deviations": receipt["deviations"],
         }
+        if receipt["id"] == "official-demo-method-extended-pit-v1":
+            result.update(
+                {
+                    "evaluation_split": "validation_2025",
+                    "result_role": "TRAINING_VALIDATION_CHECKPOINT_SELECTION",
+                    "used_for_selection": True,
+                    "test_data_access": "NOT_APPLICABLE",
+                }
+            )
+        else:
+            result.update(
+                {
+                    "evaluation_split": receipt["evaluation_split"],
+                    "result_role": receipt["result_role"],
+                    "used_for_selection": receipt["used_for_selection"],
+                    "test_data_access": receipt["test_data_access"],
+                    "analysis_lock_sha256": receipt["analysis_lock_sha256"],
+                }
+            )
+        return result
 
     @app.middleware("http")
     async def browser_boundary(request: Request, call_next):  # type: ignore[no-untyped-def]
@@ -596,26 +615,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/api/v1/research/backtests")
     def research_backtests() -> dict[str, object]:
-        loaded = load_historical_backtest()
-        if loaded is None:
+        loaded = load_historical_backtests()
+        if not loaded:
             return {"available": False, "generated_at": None, "backtests": []}
-        catalog, receipt = loaded
-        entry = catalog["entries"][0]
+        catalog = validate_backtest_catalog(
+            json.loads(
+                active_settings.historical_backtest_catalog.read_text(encoding="utf-8")
+            )
+        )
         return {
             "available": True,
             "generated_at": catalog["generated_at"],
-            "backtests": [public_backtest(receipt, str(entry["receipt_sha256"]))],
+            "backtests": [
+                public_backtest(receipt, str(entry["receipt_sha256"]))
+                for entry, receipt in loaded.values()
+            ],
         }
 
     @app.get("/api/v1/research/backtests/{backtest_id}")
     def research_backtest(backtest_id: str) -> dict[str, object]:
-        loaded = load_historical_backtest()
-        if loaded is None:
+        loaded = load_historical_backtests()
+        selected = loaded.get(backtest_id)
+        if selected is None:
             raise HTTPException(status_code=404, detail="Historical backtest not found")
-        catalog, receipt = loaded
-        entry = catalog["entries"][0]
-        if backtest_id != receipt["id"]:
-            raise HTTPException(status_code=404, detail="Historical backtest not found")
+        entry, receipt = selected
         return {"backtest": public_backtest(receipt, str(entry["receipt_sha256"]))}
 
     @app.get("/api/v1/research/backtests/{backtest_id}/series")
@@ -623,12 +646,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         backtest_id: str,
         signal: Annotated[str, Query()] = "mean",
     ) -> dict[str, object]:
-        loaded = load_historical_backtest()
-        if loaded is None:
+        loaded = load_historical_backtests()
+        selected = loaded.get(backtest_id)
+        if selected is None:
             raise HTTPException(status_code=404, detail="Historical backtest not found")
-        catalog, receipt = loaded
-        if backtest_id != receipt["id"]:
-            raise HTTPException(status_code=404, detail="Historical backtest not found")
+        _, receipt = selected
         if signal not in OFFICIAL_DEMO_SIGNALS:
             raise HTTPException(status_code=422, detail="Unsupported official demo signal")
         root = active_settings.historical_backtest_catalog.resolve().parent.parent
@@ -670,7 +692,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(
                 status_code=503, detail="Historical series failed its evidence gate"
             ) from error
-        if not points or len(points) > 1000:
+        if (
+            not points
+            or len(points) > 1000
+            or len(points) != receipt["support"]["sessions"]
+            or [point["session"] for point in points]
+            != sorted({str(point["session"]) for point in points})
+        ):
             raise HTTPException(status_code=503, detail="Historical series support is invalid")
         return {
             "backtest_id": receipt["id"],

@@ -642,6 +642,15 @@ const parseHistoricalBacktest = (value: unknown, path: string): HistoricalBackte
     if (value !== expected) throw new ApiContractError(`${literalPath} 不符合封存契约`)
     return expected
   }
+  const evaluationSplit = string(item.evaluation_split, `${path}.evaluation_split`)
+  if (evaluationSplit !== 'validation_2025' && evaluationSplit !== 'test_viewed_2026') {
+    throw new ApiContractError(`${path}.evaluation_split 不符合封存契约`)
+  }
+  const finalTest = evaluationSplit === 'test_viewed_2026'
+  const expectedRole = finalTest
+    ? 'CORRECTED_OPENED_OOS_DIAGNOSTIC'
+    : 'TRAINING_VALIDATION_CHECKPOINT_SELECTION'
+  const expectedAccess = finalTest ? 'VIEWED' : 'NOT_APPLICABLE'
   return {
     id: string(item.id, `${path}.id`),
     state: requireLiteral(item.state, 'passed', `${path}.state`),
@@ -652,17 +661,22 @@ const parseHistoricalBacktest = (value: unknown, path: string): HistoricalBackte
     ),
     model_cell_id: requireLiteral(item.model_cell_id, 'small-official-ft', `${path}.model_cell_id`),
     generated_at: string(item.generated_at, `${path}.generated_at`),
-    selection_split: requireLiteral(item.selection_split, 'validation_2025', `${path}.selection_split`),
-    selection_eligible: requireLiteral(item.selection_eligible, true, `${path}.selection_eligible`),
-    test_viewed_consumed: requireLiteral(
-      item.test_viewed_consumed,
-      false,
-      `${path}.test_viewed_consumed`,
+    evaluation_split: evaluationSplit,
+    result_role: requireLiteral(item.result_role, expectedRole, `${path}.result_role`),
+    selection_eligible: requireLiteral(
+      item.selection_eligible,
+      !finalTest,
+      `${path}.selection_eligible`,
     ),
-    test_status: requireLiteral(
-      item.test_status,
-      'NOT_ACCESSED_FOR_SELECTION',
-      `${path}.test_status`,
+    used_for_selection: requireLiteral(
+      item.used_for_selection,
+      !finalTest,
+      `${path}.used_for_selection`,
+    ),
+    test_data_access: requireLiteral(
+      item.test_data_access,
+      expectedAccess,
+      `${path}.test_data_access`,
     ),
     primary_signal: requireLiteral(item.primary_signal, 'mean', `${path}.primary_signal`),
     receipt_sha256: string(item.receipt_sha256, `${path}.receipt_sha256`),
@@ -672,6 +686,10 @@ const parseHistoricalBacktest = (value: unknown, path: string): HistoricalBackte
       `${path}.provider_receipt_sha256`,
     ),
     backtest_code_sha256: string(item.backtest_code_sha256, `${path}.backtest_code_sha256`),
+    analysis_lock_sha256: optionalString(
+      item.analysis_lock_sha256,
+      `${path}.analysis_lock_sha256`,
+    ),
     strategy: {
       topk: requireLiteral(strategy.topk, 50, `${path}.strategy.topk`),
       n_drop: requireLiteral(strategy.n_drop, 5, `${path}.strategy.n_drop`),
@@ -737,17 +755,23 @@ const parseHistoricalBacktest = (value: unknown, path: string): HistoricalBackte
 
 const parseHistoricalBacktestEnvelope = (
   value: unknown,
-): { available: boolean; backtest: HistoricalBacktest | null } => {
+): { available: boolean; backtests: HistoricalBacktest[] } => {
   const item = object(value, 'historical_backtests')
   const available = boolean(item.available, 'historical_backtests.available')
   const entries = array(item.backtests, 'historical_backtests.backtests')
-  if (!available && entries.length === 0) return { available: false, backtest: null }
-  if (!available || entries.length !== 1) {
+  if (!available && entries.length === 0) return { available: false, backtests: [] }
+  if (!available || ![1, 2].includes(entries.length)) {
     throw new ApiContractError('historical_backtests 可用状态与封存条目不一致')
+  }
+  const backtests = entries.map((entry, index) =>
+    parseHistoricalBacktest(entry, `historical_backtests.backtests[${index}]`),
+  )
+  if (new Set(backtests.map((entry) => entry.evaluation_split)).size !== backtests.length) {
+    throw new ApiContractError('historical_backtests 分区重复')
   }
   return {
     available: true,
-    backtest: parseHistoricalBacktest(entries[0], 'historical_backtests.backtests[0]'),
+    backtests,
   }
 }
 
@@ -853,8 +877,17 @@ export const createApiClient = (): ApiClient => ({
     const parsedRun = runRaw === null ? null : parseRun(runRaw)
     const historical =
       backtestsRaw === null
-        ? { available: false, backtest: null }
+        ? { available: false, backtests: [] }
         : parseHistoricalBacktestEnvelope(backtestsRaw)
+    const historicalSeriesPromise = Promise.all(
+      historical.backtests.map(async (backtest) => {
+        const raw = await optionalServiceJson(
+          `/api/v1/research/backtests/${encodeURIComponent(backtest.id)}/series?signal=mean`,
+          signal,
+        )
+        return [backtest.id, raw === null ? [] : parseHistoricalSeries(raw)] as const
+      }),
+    )
     const [scoresRaw, diffRaw, ordersRaw, navRaw, paperSummaryRaw, historicalSeriesRaw] = await Promise.all([
       parsedRun === null
         ? Promise.resolve(null)
@@ -865,12 +898,7 @@ export const createApiClient = (): ApiClient => ({
       paperRaw === null ? Promise.resolve(null) : optionalJson('/api/v1/paper/orders', signal),
       paperRaw === null ? Promise.resolve(null) : optionalJson('/api/v1/paper/nav', signal),
       paperRaw === null ? Promise.resolve(null) : optionalJson('/api/v1/paper/summary', signal),
-      historical.backtest === null
-        ? Promise.resolve(null)
-        : optionalServiceJson(
-            `/api/v1/research/backtests/${encodeURIComponent(historical.backtest.id)}/series?signal=mean`,
-            signal,
-          ),
+      historicalSeriesPromise,
     ])
 
     const embeddedRun = runRaw === null ? null : object(runRaw, 'latest_run')
@@ -892,10 +920,9 @@ export const createApiClient = (): ApiClient => ({
       latest_run: runRaw === null ? null : parseRun(runRaw, scores),
       research_catalog: researchCatalog,
       research_catalog_available: researchRaw !== null,
-      historical_backtest: historical.backtest,
+      historical_backtests: historical.backtests,
       historical_backtest_available: historical.available,
-      historical_backtest_series:
-        historicalSeriesRaw === null ? [] : parseHistoricalSeries(historicalSeriesRaw),
+      historical_backtest_series: Object.fromEntries(historicalSeriesRaw),
       runs,
       run_diff: diffRaw === null ? null : parseRunDiff(diffRaw),
       paper: paperRaw === null ? null : parsePaper(paperRaw, orders, nav),

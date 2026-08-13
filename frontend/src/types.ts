@@ -275,15 +275,19 @@ export interface HistoricalBacktest {
   track_kind: 'OFFICIAL_DEMO_METHOD_EXTENDED_PIT'
   model_cell_id: 'small-official-ft'
   generated_at: string
-  selection_split: 'validation_2025'
-  selection_eligible: true
-  test_viewed_consumed: false
-  test_status: 'NOT_ACCESSED_FOR_SELECTION'
+  evaluation_split: 'validation_2025' | 'test_viewed_2026'
+  result_role:
+    | 'TRAINING_VALIDATION_CHECKPOINT_SELECTION'
+    | 'CORRECTED_OPENED_OOS_DIAGNOSTIC'
+  selection_eligible: boolean
+  used_for_selection: boolean
+  test_data_access: 'NOT_APPLICABLE' | 'VIEWED'
   primary_signal: 'mean'
   receipt_sha256: string
   signal_receipt_sha256: string
   provider_receipt_sha256: string
   backtest_code_sha256: string
+  analysis_lock_sha256: string | null
   strategy: {
     topk: 50
     n_drop: 5
@@ -334,9 +338,9 @@ export interface DashboardSnapshot {
   latest_run: ResearchRun | null
   research_catalog: ExperimentCell[]
   research_catalog_available: boolean
-  historical_backtest: HistoricalBacktest | null
+  historical_backtests: HistoricalBacktest[]
   historical_backtest_available: boolean
-  historical_backtest_series: HistoricalBacktestPoint[]
+  historical_backtest_series: Record<string, HistoricalBacktestPoint[]>
   runs: RunSummary[]
   run_diff: RunDiff | null
   paper: PaperAccount | null

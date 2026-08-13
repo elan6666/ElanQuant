@@ -4,17 +4,21 @@ import csv
 import json
 from pathlib import Path
 
+from fastapi.testclient import TestClient
+
 from elanquant.api.app import create_app
 from elanquant.contracts.official_demo import (
     BACKTEST_SCHEMA,
     CATALOG_SCHEMA,
+    CATALOG_SCHEMA_V2,
     EXPECTED_EXECUTION,
     EXPECTED_STRATEGY,
+    FINAL_TEST_BACKTEST_SCHEMA,
+    FINAL_TEST_STRATEGY_ID,
     canonical_hash,
     sha256_file,
 )
 from elanquant.settings import Settings
-from fastapi.testclient import TestClient
 
 
 def settings(tmp_path: Path) -> Settings:
@@ -155,6 +159,112 @@ def publish_backtest(tmp_path: Path) -> tuple[Settings, Path]:
     return active, series_path
 
 
+def publish_dual_backtest(tmp_path: Path) -> tuple[Settings, Path]:
+    active, _ = publish_backtest(tmp_path)
+    root = tmp_path
+    validation_catalog = json.loads(
+        active.historical_backtest_catalog.read_text(encoding="utf-8")
+    )
+    validation_entry = validation_catalog["entries"][0]
+    validation_receipt_path = root / validation_entry["receipt_path"]
+    validation_receipt = json.loads(validation_receipt_path.read_text(encoding="utf-8"))
+    final_output = root / "runs" / "backtests" / "final" / "result"
+    final_output.mkdir(parents=True)
+    final_series = final_output / "daily-series.csv"
+    with final_series.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=[
+                "datetime",
+                "signal",
+                "additive_strategy_with_cost",
+                "additive_benchmark",
+                "additive_excess_with_cost",
+                "compounded_strategy_nav",
+                "compounded_benchmark_nav",
+            ],
+        )
+        writer.writeheader()
+        for signal in ("mean", "last", "max", "min"):
+            writer.writerow(
+                {
+                    "datetime": "2026-01-05",
+                    "signal": signal,
+                    "additive_strategy_with_cost": "0.02",
+                    "additive_benchmark": "0.01",
+                    "additive_excess_with_cost": "0.01",
+                    "compounded_strategy_nav": "1.02",
+                    "compounded_benchmark_nav": "1.01",
+                }
+            )
+    final_receipt = dict(validation_receipt)
+    for key in (
+        "receipt_hash",
+        "selection_split",
+        "selection_rule_predeclared",
+        "test_viewed_consumed",
+        "test_status",
+    ):
+        final_receipt.pop(key)
+    final_receipt.update(
+        {
+            "schema_version": FINAL_TEST_BACKTEST_SCHEMA,
+            "id": FINAL_TEST_STRATEGY_ID,
+            "evaluation_split": "test_viewed_2026",
+            "result_role": "CORRECTED_OPENED_OOS_DIAGNOSTIC",
+            "selection_eligible": False,
+            "used_for_selection": False,
+            "test_data_access": "VIEWED",
+            "strategy_locked_before_run": True,
+            "analysis_lock_sha256": "9" * 64,
+            "support": {
+                "sessions": 1,
+                "signal_rows": 300,
+                "signal_cross_sections": 1,
+                "candidate_min": 300,
+                "candidate_median": 300.0,
+                "candidate_max": 300,
+                "actual_start": "2026-01-05",
+                "actual_end": "2026-01-05",
+            },
+            "artifacts": {
+                "daily_series": {
+                    "path": final_series.relative_to(root).as_posix(),
+                    "sha256": sha256_file(final_series),
+                    "bytes": final_series.stat().st_size,
+                }
+            },
+        }
+    )
+    final_receipt = seal(final_receipt)
+    final_receipt_path = final_output / "backtest-receipt.json"
+    final_receipt_path.write_text(json.dumps(final_receipt), encoding="utf-8")
+    final_entry = {
+        "id": FINAL_TEST_STRATEGY_ID,
+        "state": "passed",
+        "model_cell_id": "small-official-ft",
+        "selection_eligible": False,
+        "primary_signal": "mean",
+        "evaluation_split": "test_viewed_2026",
+        "result_role": "CORRECTED_OPENED_OOS_DIAGNOSTIC",
+        "used_for_selection": False,
+        "test_data_access": "VIEWED",
+        "receipt_sha256": sha256_file(final_receipt_path),
+        "receipt_path": final_receipt_path.relative_to(root).as_posix(),
+        "summary": final_receipt["metrics"]["mean"],
+    }
+    catalog = seal(
+        {
+            "schema_version": CATALOG_SCHEMA_V2,
+            "status": "PASS",
+            "generated_at": "2026-08-13T18:00:00+00:00",
+            "entries": [validation_entry, final_entry],
+        }
+    )
+    active.historical_backtest_catalog.write_text(json.dumps(catalog), encoding="utf-8")
+    return active, final_series
+
+
 def test_backtest_api_is_get_only_and_keeps_paper_database_untouched(tmp_path: Path) -> None:
     active, _ = publish_backtest(tmp_path)
     client = TestClient(create_app(active))
@@ -188,3 +298,28 @@ def test_missing_backtest_catalog_is_an_explicit_empty_state(tmp_path: Path) -> 
         "generated_at": None,
         "backtests": [],
     }
+
+
+def test_dual_catalog_exposes_validation_and_opened_final_test_without_mutation(
+    tmp_path: Path,
+) -> None:
+    active, _ = publish_dual_backtest(tmp_path)
+    client = TestClient(create_app(active))
+    before = active.database_path.read_bytes()
+    listed = client.get("/api/v1/research/backtests")
+    assert listed.status_code == 200
+    entries = listed.json()["backtests"]
+    assert {entry["evaluation_split"] for entry in entries} == {
+        "validation_2025",
+        "test_viewed_2026",
+    }
+    final = next(entry for entry in entries if entry["evaluation_split"] == "test_viewed_2026")
+    assert final["selection_eligible"] is False
+    assert final["used_for_selection"] is False
+    assert final["test_data_access"] == "VIEWED"
+    series = client.get(
+        f"/api/v1/research/backtests/{FINAL_TEST_STRATEGY_ID}/series?signal=mean"
+    )
+    assert series.status_code == 200
+    assert series.json()["points"][0]["session"] == "2026-01-05"
+    assert active.database_path.read_bytes() == before

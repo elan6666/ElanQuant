@@ -239,8 +239,8 @@ describe('API runtime contract', () => {
 
     const snapshot = await createApiClient().getSnapshot()
     expect(snapshot.historical_backtest_available).toBe(true)
-    expect(snapshot.historical_backtest?.strategy).toMatchObject({ topk: 50, n_drop: 5, hold_thresh: 5 })
-    expect(snapshot.historical_backtest_series[0]?.strategy).toBe(0.01)
+    expect(snapshot.historical_backtests[0]?.strategy).toMatchObject({ topk: 50, n_drop: 5, hold_thresh: 5 })
+    expect(snapshot.historical_backtest_series[historicalBacktest.id]?.[0]?.strategy).toBe(0.01)
     expect(snapshot.paper).toBeNull()
   })
 })

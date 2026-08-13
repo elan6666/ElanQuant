@@ -174,3 +174,24 @@
 - Final server suite: 75 pytest PASS, Ruff PASS, Pyright 0 errors/warnings and
   compileall PASS. Independent Base/catalog audit and final product/design
   reviews are SHIP with no P0/P1.
+
+## 2026-08-13 — Corrected opened 2026 diagnostic and chart repair
+
+- Corrected the historical SVG layout with a bounded grid plot area and a
+  separate footer, eliminating the clipped curve at desktop and mobile widths.
+- Recorded that 2025 validation loss selected the best checkpoint after all 30
+  epochs; the product no longer presents that period as independent test data.
+- Rejected the first 2026 strategy artifact after review found that eligibility
+  depended on future symbol rows. Preserved it for audit, removed it from the
+  active catalog, and added golden tests for T-known eligibility.
+- Produced the corrected r5 diagnostic with prior-90-global-session context and
+  next-ten-global-exchange timestamps: 39,072 signal rows across 137 sessions.
+  The predeclared mean signal returned -7.65% after cost versus +0.45% for
+  SH000300, with -8.09% excess and -13.31% maximum drawdown.
+- Published catalog v3 without changing the Small r2 release or any Top3 paper
+  table. The active page labels 2026 as opened, non-selection diagnostic and
+  reserves a future untouched window for the next true final test.
+- Final gates: server 80 pytest PASS, Ruff PASS, Pyright 0 and compileall PASS;
+  frontend 12 Vitest PASS, ESLint, production build and npm audit PASS. Live
+  API/security checks and deployed visual QA pass; independent design review is
+  SHIP with no P0/P1/P2.

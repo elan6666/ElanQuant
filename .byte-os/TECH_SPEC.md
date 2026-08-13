@@ -44,8 +44,11 @@ immutable artifacts referenced by hash.
   ten-day mean-return formula with T=.6, top-p=.9, N=10.
 - The independent official-demo-method track uses the pinned low-level upstream
   inference path, per-instance 90-session normalization, N=5 and four
-  standardized close differences. Qlib TopkDropout 50/5/hold5 runs only on the
-  admitted 2025 validation split and stores no SQLite state.
+  standardized close differences. Qlib TopkDropout 50/5/hold5 exposes 2025 as
+  training-validation evidence and a corrected, opened 2026 out-of-sample
+  diagnostic. T-day candidates require only prior 90 global sessions; forecast
+  timestamps are the next ten global exchange sessions and never inspect future
+  symbol rows. Neither track stores SQLite state or participates in selection.
 
 ## Security and operations
 

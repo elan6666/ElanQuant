@@ -20,10 +20,13 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+
 from elanquant.contracts.official_demo import (
     BACKTEST_SCHEMA,
     EXPECTED_EXECUTION,
     EXPECTED_STRATEGY,
+    FINAL_TEST_BACKTEST_SCHEMA,
+    FINAL_TEST_STRATEGY_ID,
     MODEL_CELL,
     PRIMARY_SIGNAL,
     SIGNALS,
@@ -32,6 +35,7 @@ from elanquant.contracts.official_demo import (
     require_positive_int,
     require_sha,
     sha256_file,
+    validate_analysis_lock,
     validate_backtest_receipt,
     validate_signal_receipt,
 )
@@ -91,6 +95,7 @@ def main() -> int:
     parser.add_argument("--provider-receipt", type=Path, required=True)
     parser.add_argument("--qlib-site-packages", type=Path, required=True)
     parser.add_argument("--out-dir", type=Path, required=True)
+    parser.add_argument("--analysis-lock", type=Path)
     args = parser.parse_args()
     root = args.root.resolve()
     out_dir = args.out_dir.resolve()
@@ -101,6 +106,15 @@ def main() -> int:
     signal_receipt = validate_signal_receipt(
         json.loads(args.signal_receipt.read_text(encoding="utf-8"))
     )
+    final_test = signal_receipt["id"] == FINAL_TEST_STRATEGY_ID
+    if final_test and args.analysis_lock is None:
+        raise RuntimeError("final-test backtest requires an analysis lock")
+    if final_test:
+        validate_analysis_lock(
+            json.loads(args.analysis_lock.read_text(encoding="utf-8"))
+        )
+        if signal_receipt["analysis_lock_sha256"] != sha256_file(args.analysis_lock):
+            raise RuntimeError("signal receipt differs from the final-test analysis lock")
     signal_artifact = signal_receipt["artifacts"]["signals"]
     signal_path = root / str(signal_artifact["path"])
     if sha256_file(signal_path) != signal_artifact["sha256"]:
@@ -110,13 +124,31 @@ def main() -> int:
     provider_claimed = provider_content.pop("receipt_hash", None)
     if (
         provider_receipt.get("schema_version")
-        != "elanquant_official_demo_qlib_provider_v1"
+        != (
+            "elanquant_official_demo_qlib_provider_v2"
+            if final_test
+            else "elanquant_official_demo_qlib_provider_v1"
+        )
         or provider_receipt.get("status") != "PASS"
-        or provider_receipt.get("selection_split") != "validation_2025"
-        or provider_receipt.get("test_viewed_consumed") is not False
         or canonical_hash(provider_content) != provider_claimed
     ):
         raise RuntimeError("Qlib provider receipt is invalid")
+    if final_test:
+        if (
+            provider_receipt.get("id") != FINAL_TEST_STRATEGY_ID
+            or provider_receipt.get("evaluation_split") != "test_viewed_2026"
+            or provider_receipt.get("test_data_access") != "VIEWED"
+            or provider_receipt.get("used_for_selection") is not False
+            or provider_receipt.get("selection_eligible") is not False
+            or provider_receipt.get("analysis_lock_sha256")
+            != sha256_file(args.analysis_lock)
+        ):
+            raise RuntimeError("final-test provider firewall is invalid")
+    elif (
+        provider_receipt.get("selection_split") != "validation_2025"
+        or provider_receipt.get("test_viewed_consumed") is not False
+    ):
+        raise RuntimeError("validation provider firewall is invalid")
     for identity in (
         "dataset_manifest_sha256",
         "dataset_file_sha256",
@@ -150,8 +182,9 @@ def main() -> int:
     signals = pd.read_csv(signal_path, parse_dates=["datetime"])
     if set(signals.columns) != {"datetime", "instrument", *SIGNALS}:
         raise RuntimeError("standardized signal columns are not exact")
-    if signals["datetime"].dt.year.ne(2025).any():
-        raise RuntimeError("selection firewall rejected a non-2025 signal")
+    expected_year = 2026 if final_test else 2025
+    if signals["datetime"].dt.year.ne(expected_year).any():
+        raise RuntimeError("evaluation firewall rejected an unexpected signal year")
     start = str(signals["datetime"].min().date())
     # delay_execution needs one provider session after the configured end. The
     # final validation signal already has a ten-session target fully inside
@@ -249,17 +282,12 @@ def main() -> int:
     qlib_root = Path(qlib.__file__).resolve().parent
     metadata_path, record_path = dist_root / "METADATA", dist_root / "RECORD"
     receipt: dict[str, Any] = {
-        "schema_version": BACKTEST_SCHEMA,
+        "schema_version": FINAL_TEST_BACKTEST_SCHEMA if final_test else BACKTEST_SCHEMA,
         "status": "PASS",
-        "id": STRATEGY_ID,
+        "id": FINAL_TEST_STRATEGY_ID if final_test else STRATEGY_ID,
         "track_kind": "OFFICIAL_DEMO_METHOD_EXTENDED_PIT",
         "model_cell_id": MODEL_CELL,
         "generated_at": datetime.now(UTC).isoformat(),
-        "selection_split": "validation_2025",
-        "selection_rule_predeclared": True,
-        "test_viewed_consumed": False,
-        "test_status": "NOT_ACCESSED_FOR_SELECTION",
-        "selection_eligible": True,
         "primary_signal": PRIMARY_SIGNAL,
         "signal_receipt_sha256": sha256_file(args.signal_receipt),
         "provider_receipt_sha256": sha256_file(args.provider_receipt),
@@ -301,14 +329,52 @@ def main() -> int:
             }
         },
         "deviations": [
-            "Uses the admitted extended validation_2025 split, not the author's fixed dates.",
+            (
+                "Uses the admitted opened test_viewed_2026 split for a frozen "
+                "post-selection evaluation."
+                if final_test
+                else (
+                    "Uses the admitted extended validation_2025 split, not the "
+                    "author's fixed dates."
+                )
+            ),
             "Uses dynamic PIT CSI300 membership and provider data, not the author's Qlib bundle.",
             "Uses true provider amount instead of OHLC-average times volume.",
             "Pins pyqlib 0.9.7 because the Kronos repository does not pin a Qlib version.",
             "Adds seed 100 and machine-readable receipts for reproducibility.",
             "Provider factor=1 leaves corporate-action handling as a disclosed limitation.",
+            *(
+                [
+                    "Corrected signal candidates do not depend on future symbol membership "
+                    "or future symbol-row availability."
+                ]
+                if final_test
+                else []
+            ),
         ],
     }
+    if final_test:
+        receipt.update(
+            {
+                "evaluation_split": "test_viewed_2026",
+                "result_role": "CORRECTED_OPENED_OOS_DIAGNOSTIC",
+                "selection_eligible": False,
+                "used_for_selection": False,
+                "test_data_access": "VIEWED",
+                "strategy_locked_before_run": True,
+                "analysis_lock_sha256": sha256_file(args.analysis_lock),
+            }
+        )
+    else:
+        receipt.update(
+            {
+                "selection_split": "validation_2025",
+                "selection_rule_predeclared": True,
+                "test_viewed_consumed": False,
+                "test_status": "NOT_ACCESSED_FOR_SELECTION",
+                "selection_eligible": True,
+            }
+        )
     receipt["receipt_hash"] = canonical_hash(receipt)
     validate_backtest_receipt(receipt)
     atomic_json(receipt, out_dir / "backtest-receipt.json")

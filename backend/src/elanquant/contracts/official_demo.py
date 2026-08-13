@@ -12,9 +12,33 @@ SIGNALS = ("mean", "last", "max", "min")
 PRIMARY_SIGNAL = "mean"
 MODEL_CELL = "small-official-ft"
 STRATEGY_ID = "official-demo-method-extended-pit-v1"
+FINAL_TEST_STRATEGY_ID = "official-demo-method-corrected-opened-2026-v1"
 SIGNAL_SCHEMA = "elanquant_kronos_standardized_signal_v1"
+FINAL_TEST_SIGNAL_SCHEMA = "elanquant_kronos_standardized_signal_v2"
 BACKTEST_SCHEMA = "elanquant_qlib_topkdrop_v1"
+FINAL_TEST_BACKTEST_SCHEMA = "elanquant_qlib_topkdrop_v2"
 CATALOG_SCHEMA = "elanquant_historical_backtest_catalog_v1"
+CATALOG_SCHEMA_V2 = "elanquant_historical_backtest_catalog_v2"
+ANALYSIS_LOCK_SCHEMA = "elanquant_official_demo_analysis_lock_v1"
+
+SPLIT_CONTRACTS: dict[str, dict[str, object]] = {
+    STRATEGY_ID: {
+        "split": "validation_2025",
+        "year": 2025,
+        "role": "TRAINING_VALIDATION_CHECKPOINT_SELECTION",
+        "selection_eligible": True,
+        "used_for_selection": True,
+        "test_data_access": "NOT_APPLICABLE",
+    },
+    FINAL_TEST_STRATEGY_ID: {
+        "split": "test_viewed_2026",
+        "year": 2026,
+        "role": "CORRECTED_OPENED_OOS_DIAGNOSTIC",
+        "selection_eligible": False,
+        "used_for_selection": False,
+        "test_data_access": "VIEWED",
+    },
+}
 
 EXPECTED_STRATEGY: dict[str, object] = {
     "topk": 50,
@@ -115,20 +139,108 @@ def standardized_close_signals(
     }
 
 
+def split_contract(payload: Mapping[str, Any]) -> dict[str, object]:
+    strategy_id = payload.get("id")
+    contract = SPLIT_CONTRACTS.get(str(strategy_id))
+    if contract is None:
+        raise RuntimeError("official demo split identity is not allowlisted")
+    return contract
+
+
+def validate_analysis_lock(payload: object) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise RuntimeError("analysis lock is not an object")
+    verify_canonical_receipt(payload, ANALYSIS_LOCK_SCHEMA)
+    if (
+        payload.get("id") != FINAL_TEST_STRATEGY_ID
+        or payload.get("model_cell_id") != MODEL_CELL
+        or payload.get("primary_signal") != PRIMARY_SIGNAL
+        or payload.get("evaluation_split") != "test_viewed_2026"
+        or payload.get("used_for_selection") is not False
+        or payload.get("test_data_access") != "VIEWED"
+        or payload.get("viewed_before_track_freeze") is not True
+        or payload.get("maturity_rule")
+        != (
+            "t_known_universe_with_complete_prior_90_global_sessions_and_"
+            "ten_future_global_exchange_timestamps_without_future_symbol_filter"
+        )
+        or payload.get("strategy") != EXPECTED_STRATEGY
+        or payload.get("execution") != EXPECTED_EXECUTION
+        or payload.get("expected_support")
+        != {
+            "rows": 39072,
+            "cross_sections": 137,
+            "signal_start": "2026-01-05",
+            "signal_end": "2026-07-29",
+            "target_end": "2026-08-12",
+            "candidate_min": 278,
+            "candidate_median": 283.0,
+            "candidate_max": 297,
+            "anchor_set_sha256": (
+                "35d43fd0e4cf216753ee8fa95c78474a18b37492e5f3bb0b190c6526f300d7a7"
+            ),
+        }
+        or payload.get("inference")
+        != {
+            "T": 0.6,
+            "top_p": 0.9,
+            "top_k": 0,
+            "sample_count": 5,
+            "batch_size": 1000,
+            "effective_series_batch": 200,
+            "seed": 100,
+        }
+    ):
+        raise RuntimeError("analysis lock identity or frozen protocol is invalid")
+    if not isinstance(payload.get("locked_at"), str) or not payload["locked_at"]:
+        raise RuntimeError("analysis lock timestamp is absent")
+    for identity in (
+        "validation_backtest_receipt_sha256",
+        "training_matrix_sha256",
+        "tokenizer_sha256",
+        "predictor_sha256",
+        "model_config_sha256",
+        "dataset_manifest_sha256",
+        "dataset_file_sha256",
+    ):
+        require_sha(payload.get(identity), f"analysis_lock.{identity}")
+    return payload
+
+
 def validate_signal_receipt(payload: object) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise RuntimeError("signal receipt is not an object")
-    verify_canonical_receipt(payload, SIGNAL_SCHEMA)
+    contract = split_contract(payload)
+    schema = SIGNAL_SCHEMA if payload.get("id") == STRATEGY_ID else FINAL_TEST_SIGNAL_SCHEMA
+    verify_canonical_receipt(payload, schema)
     if (
-        payload.get("id") != STRATEGY_ID
-        or payload.get("track_kind") != "OFFICIAL_DEMO_METHOD"
+        payload.get("track_kind") != "OFFICIAL_DEMO_METHOD"
         or payload.get("model_cell_id") != MODEL_CELL
-        or payload.get("selection_split") != "validation_2025"
-        or payload.get("test_viewed_consumed") is not False
         or payload.get("primary_signal") != PRIMARY_SIGNAL
         or payload.get("signals") != list(SIGNALS)
     ):
         raise RuntimeError("signal receipt identity or selection firewall is invalid")
+    if payload.get("id") == STRATEGY_ID:
+        if (
+            payload.get("selection_split") != contract["split"]
+            or payload.get("test_viewed_consumed") is not False
+        ):
+            raise RuntimeError("signal receipt identity or selection firewall is invalid")
+    elif (
+        payload.get("evaluation_split") != contract["split"]
+        or payload.get("result_role") != contract["role"]
+        or payload.get("selection_eligible") is not False
+        or payload.get("used_for_selection") is not False
+        or payload.get("test_data_access") != "VIEWED"
+    ):
+        raise RuntimeError("final-test signal firewall is invalid")
+    if payload.get("id") == FINAL_TEST_STRATEGY_ID:
+        require_sha(payload.get("analysis_lock_sha256"), "signal.analysis_lock_sha256")
+        if (
+            payload.get("signal_start") != "2026-01-05"
+            or payload.get("signal_end") != "2026-07-29"
+        ):
+            raise RuntimeError("final-test signal date support differs from the frozen lock")
     inference = payload.get("inference")
     normalization = payload.get("normalization")
     support = payload.get("support")
@@ -166,6 +278,16 @@ def validate_signal_receipt(payload: object) -> dict[str, Any]:
     require_positive_int(support.get("rows"), "signal.support.rows")
     require_positive_int(support.get("cross_sections"), "signal.support.cross_sections")
     require_sha(support.get("anchor_set_sha256"), "signal.support.anchor_set_sha256")
+    if payload.get("id") == FINAL_TEST_STRATEGY_ID:
+        expected = {
+            "rows": 39072,
+            "cross_sections": 137,
+            "anchor_set_sha256": (
+                "35d43fd0e4cf216753ee8fa95c78474a18b37492e5f3bb0b190c6526f300d7a7"
+            ),
+        }
+        if any(support.get(key) != value for key, value in expected.items()):
+            raise RuntimeError("final-test signal support differs from the frozen lock")
     for identity in (
         "upstream_commit",
         "training_matrix_sha256",
@@ -199,19 +321,35 @@ def validate_signal_receipt(payload: object) -> dict[str, Any]:
 def validate_backtest_receipt(payload: object) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise RuntimeError("backtest receipt is not an object")
-    verify_canonical_receipt(payload, BACKTEST_SCHEMA)
+    contract = split_contract(payload)
+    schema = BACKTEST_SCHEMA if payload.get("id") == STRATEGY_ID else FINAL_TEST_BACKTEST_SCHEMA
+    verify_canonical_receipt(payload, schema)
     if (
-        payload.get("id") != STRATEGY_ID
-        or payload.get("track_kind") != "OFFICIAL_DEMO_METHOD_EXTENDED_PIT"
+        payload.get("track_kind") != "OFFICIAL_DEMO_METHOD_EXTENDED_PIT"
         or payload.get("model_cell_id") != MODEL_CELL
-        or payload.get("selection_split") != "validation_2025"
-        or payload.get("selection_rule_predeclared") is not True
-        or payload.get("test_viewed_consumed") is not False
-        or payload.get("test_status") != "NOT_ACCESSED_FOR_SELECTION"
-        or payload.get("selection_eligible") is not True
         or payload.get("primary_signal") != PRIMARY_SIGNAL
     ):
         raise RuntimeError("backtest selection firewall or identity is invalid")
+    if payload.get("id") == STRATEGY_ID:
+        if (
+            payload.get("selection_split") != contract["split"]
+            or payload.get("selection_rule_predeclared") is not True
+            or payload.get("test_viewed_consumed") is not False
+            or payload.get("test_status") != "NOT_ACCESSED_FOR_SELECTION"
+            or payload.get("selection_eligible") is not True
+        ):
+            raise RuntimeError("backtest selection firewall or identity is invalid")
+    elif (
+        payload.get("evaluation_split") != contract["split"]
+        or payload.get("result_role") != contract["role"]
+        or payload.get("selection_eligible") is not False
+        or payload.get("used_for_selection") is not False
+        or payload.get("test_data_access") != "VIEWED"
+        or payload.get("strategy_locked_before_run") is not True
+    ):
+        raise RuntimeError("final-test backtest firewall is invalid")
+    if payload.get("id") == FINAL_TEST_STRATEGY_ID:
+        require_sha(payload.get("analysis_lock_sha256"), "backtest.analysis_lock_sha256")
     if payload.get("strategy") != EXPECTED_STRATEGY:
         raise RuntimeError("backtest strategy differs from pinned TopkDropout demo")
     if payload.get("execution") != EXPECTED_EXECUTION:
@@ -271,7 +409,14 @@ def validate_backtest_receipt(payload: object) -> dict[str, Any]:
         actual_end = date.fromisoformat(str(support.get("actual_end")))
     except ValueError as error:
         raise RuntimeError("backtest actual date support is invalid") from error
-    if actual_start.year != 2025 or actual_end.year != 2025 or actual_start > actual_end:
+    expected_year = contract["year"]
+    if not isinstance(expected_year, int):
+        raise RuntimeError("backtest split year is invalid")
+    if (
+        actual_start.year != expected_year
+        or actual_end.year != expected_year
+        or actual_start > actual_end
+    ):
         raise RuntimeError("backtest selection firewall rejected its actual dates")
     if not isinstance(payload.get("generated_at"), str) or not payload["generated_at"]:
         raise RuntimeError("backtest generation timestamp is absent")
@@ -302,35 +447,55 @@ def validate_backtest_receipt(payload: object) -> dict[str, Any]:
 def validate_backtest_catalog(payload: object) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise RuntimeError("backtest catalog is not an object")
-    verify_canonical_receipt(payload, CATALOG_SCHEMA)
+    schema = payload.get("schema_version")
+    if schema not in {CATALOG_SCHEMA, CATALOG_SCHEMA_V2}:
+        raise RuntimeError("backtest catalog schema is not allowlisted")
+    verify_canonical_receipt(payload, str(schema))
     entries = payload.get("entries")
-    if not isinstance(entries, list) or len(entries) != 1 or not isinstance(entries[0], dict):
-        raise RuntimeError("backtest catalog must contain the single canonical demo track")
-    entry = entries[0]
+    expected_ids = {STRATEGY_ID} if schema == CATALOG_SCHEMA else set(SPLIT_CONTRACTS)
     if (
-        entry.get("id") != STRATEGY_ID
-        or entry.get("state") != "passed"
-        or entry.get("model_cell_id") != MODEL_CELL
-        or entry.get("selection_eligible") is not True
-        or entry.get("primary_signal") != PRIMARY_SIGNAL
-        or entry.get("selection_split") != "validation_2025"
-        or entry.get("test_viewed_consumed") is not False
+        not isinstance(entries, list)
+        or len(entries) != len(expected_ids)
+        or not all(isinstance(entry, dict) for entry in entries)
+        or {entry.get("id") for entry in entries} != expected_ids
     ):
-        raise RuntimeError("backtest catalog entry is invalid")
-    require_sha(entry.get("receipt_sha256"), "catalog.entry.receipt_sha256")
-    path = entry.get("receipt_path")
-    if not isinstance(path, str) or Path(path).is_absolute() or ".." in Path(path).parts:
-        raise RuntimeError("backtest receipt path is not allowlisted")
-    summary = entry.get("summary")
-    if not isinstance(summary, dict):
-        raise RuntimeError("backtest catalog summary is absent")
-    for metric in (
-        "total_return_with_cost",
-        "benchmark_return",
-        "excess_return_with_cost",
-        "annualized_return_with_cost",
-        "information_ratio_with_cost",
-        "max_drawdown_with_cost",
-    ):
-        require_finite(summary.get(metric), f"catalog.entry.summary.{metric}")
+        raise RuntimeError("backtest catalog has an invalid exact entry set")
+    for entry in entries:
+        contract = split_contract(entry)
+        if (
+            entry.get("state") != "passed"
+            or entry.get("model_cell_id") != MODEL_CELL
+            or entry.get("selection_eligible") is not contract["selection_eligible"]
+            or entry.get("primary_signal") != PRIMARY_SIGNAL
+        ):
+            raise RuntimeError("backtest catalog entry is invalid")
+        if entry.get("id") == STRATEGY_ID:
+            if (
+                entry.get("selection_split") != contract["split"]
+                or entry.get("test_viewed_consumed") is not False
+            ):
+                raise RuntimeError("validation catalog entry is invalid")
+        elif (
+            entry.get("evaluation_split") != contract["split"]
+            or entry.get("result_role") != contract["role"]
+            or entry.get("used_for_selection") is not False
+            or entry.get("test_data_access") != "VIEWED"
+        ):
+            raise RuntimeError("final-test catalog entry is invalid")
+        require_sha(entry.get("receipt_sha256"), "catalog.entry.receipt_sha256")
+        path = entry.get("receipt_path")
+        if not isinstance(path, str) or Path(path).is_absolute() or ".." in Path(path).parts:
+            raise RuntimeError("backtest receipt path is not allowlisted")
+        summary = entry.get("summary")
+        if not isinstance(summary, dict):
+            raise RuntimeError("backtest catalog summary is absent")
+        for metric in (
+            "total_return_with_cost",
+            "benchmark_return",
+            "excess_return_with_cost",
+            "annualized_return_with_cost",
+            "information_ratio_with_cost",
+            "max_drawdown_with_cost",
+        ):
+            require_finite(summary.get(metric), f"catalog.entry.summary.{metric}")
     return payload

@@ -4,14 +4,21 @@ import json
 from pathlib import Path
 
 import pytest
+
 from elanquant.contracts.official_demo import (
+    ANALYSIS_LOCK_SCHEMA,
     BACKTEST_SCHEMA,
     CATALOG_SCHEMA,
+    CATALOG_SCHEMA_V2,
     EXPECTED_EXECUTION,
     EXPECTED_STRATEGY,
+    FINAL_TEST_BACKTEST_SCHEMA,
+    FINAL_TEST_SIGNAL_SCHEMA,
+    FINAL_TEST_STRATEGY_ID,
     SIGNAL_SCHEMA,
     canonical_hash,
     standardized_close_signals,
+    validate_analysis_lock,
     validate_backtest_catalog,
     validate_backtest_receipt,
     validate_signal_receipt,
@@ -156,6 +163,127 @@ def backtest_receipt() -> dict[str, object]:
     )
 
 
+def analysis_lock() -> dict[str, object]:
+    return seal(
+        {
+            "schema_version": ANALYSIS_LOCK_SCHEMA,
+            "status": "PASS",
+            "id": FINAL_TEST_STRATEGY_ID,
+            "locked_at": "2026-08-13T10:00:00+00:00",
+            "model_cell_id": "small-official-ft",
+            "primary_signal": "mean",
+            "evaluation_split": "test_viewed_2026",
+            "test_data_access": "VIEWED",
+            "used_for_selection": False,
+            "viewed_before_track_freeze": True,
+            "validation_backtest_receipt_sha256": "1" * 64,
+            "training_matrix_sha256": "2" * 64,
+            "tokenizer_sha256": "3" * 64,
+            "predictor_sha256": "4" * 64,
+            "model_config_sha256": "5" * 64,
+            "dataset_manifest_sha256": "6" * 64,
+            "dataset_file_sha256": "7" * 64,
+            "maturity_rule": (
+                "t_known_universe_with_complete_prior_90_global_sessions_and_"
+                "ten_future_global_exchange_timestamps_without_future_symbol_filter"
+            ),
+            "expected_support": {
+                "rows": 39072,
+                "cross_sections": 137,
+                "signal_start": "2026-01-05",
+                "signal_end": "2026-07-29",
+                "target_end": "2026-08-12",
+                "candidate_min": 278,
+                "candidate_median": 283.0,
+                "candidate_max": 297,
+                "anchor_set_sha256": (
+                    "35d43fd0e4cf216753ee8fa95c78474a18b37492e5f3bb0b190c6526f300d7a7"
+                ),
+            },
+            "inference": {
+                "T": 0.6,
+                "top_p": 0.9,
+                "top_k": 0,
+                "sample_count": 5,
+                "batch_size": 1000,
+                "effective_series_batch": 200,
+                "seed": 100,
+            },
+            "strategy": dict(EXPECTED_STRATEGY),
+            "execution": dict(EXPECTED_EXECUTION),
+        }
+    )
+
+
+def final_signal_receipt() -> dict[str, object]:
+    receipt = signal_receipt()
+    receipt.pop("receipt_hash")
+    receipt.pop("selection_split")
+    receipt.pop("test_viewed_consumed")
+    receipt.update(
+        {
+            "schema_version": FINAL_TEST_SIGNAL_SCHEMA,
+            "id": FINAL_TEST_STRATEGY_ID,
+            "evaluation_split": "test_viewed_2026",
+            "result_role": "CORRECTED_OPENED_OOS_DIAGNOSTIC",
+            "selection_eligible": False,
+            "used_for_selection": False,
+            "test_data_access": "VIEWED",
+            "analysis_lock_sha256": "0" * 64,
+            "signal_start": "2026-01-05",
+            "signal_end": "2026-07-29",
+            "support": {
+                "rows": 39072,
+                "cross_sections": 137,
+                "anchor_set_sha256": (
+                    "35d43fd0e4cf216753ee8fa95c78474a18b37492e5f3bb0b190c6526f300d7a7"
+                ),
+            },
+        }
+    )
+    return seal(receipt)
+
+
+def final_backtest_receipt() -> dict[str, object]:
+    receipt = backtest_receipt()
+    receipt.pop("receipt_hash")
+    for key in (
+        "selection_split",
+        "selection_rule_predeclared",
+        "test_viewed_consumed",
+        "test_status",
+    ):
+        receipt.pop(key)
+    support = receipt["support"]
+    assert isinstance(support, dict)
+    support.update(
+        {
+            "sessions": 137,
+            "signal_rows": 39072,
+            "signal_cross_sections": 137,
+            "candidate_min": 278,
+            "candidate_median": 283.0,
+            "candidate_max": 297,
+            "actual_start": "2026-01-05",
+            "actual_end": "2026-07-29",
+        }
+    )
+    receipt.update(
+        {
+            "schema_version": FINAL_TEST_BACKTEST_SCHEMA,
+            "id": FINAL_TEST_STRATEGY_ID,
+            "evaluation_split": "test_viewed_2026",
+            "result_role": "CORRECTED_OPENED_OOS_DIAGNOSTIC",
+            "selection_eligible": False,
+            "used_for_selection": False,
+            "test_data_access": "VIEWED",
+            "strategy_locked_before_run": True,
+            "analysis_lock_sha256": "0" * 64,
+        }
+    )
+    return seal(receipt)
+
+
 def test_standardized_close_signals_match_pinned_demo_formulas() -> None:
     values = [float(value) for value in range(1, 11)]
     signals = standardized_close_signals(values, 2.0)
@@ -195,6 +323,69 @@ def test_backtest_receipt_enforces_top50_drop5_hold5_and_selection_firewall() ->
     with pytest.raises(RuntimeError, match="firewall"):
         validate_backtest_receipt(receipt)
 
+
+def test_final_test_receipts_are_opened_read_only_and_never_selection_eligible() -> None:
+    validate_analysis_lock(analysis_lock())
+    validate_signal_receipt(final_signal_receipt())
+    receipt = final_backtest_receipt()
+    validate_backtest_receipt(receipt)
+    receipt["selection_eligible"] = True
+    receipt["receipt_hash"] = canonical_hash(
+        {key: value for key, value in receipt.items() if key != "receipt_hash"}
+    )
+    with pytest.raises(RuntimeError, match="final-test"):
+        validate_backtest_receipt(receipt)
+
+
+def test_v2_catalog_requires_exact_validation_and_final_test_entries() -> None:
+    validation = backtest_receipt()
+    final = final_backtest_receipt()
+    entries = []
+    for receipt, path in (
+        (validation, "runs/backtests/validation/backtest-receipt.json"),
+        (final, "runs/backtests/final/backtest-receipt.json"),
+    ):
+        entry = {
+            "id": receipt["id"],
+            "state": "passed",
+            "model_cell_id": "small-official-ft",
+            "selection_eligible": receipt["selection_eligible"],
+            "primary_signal": "mean",
+            "receipt_sha256": "a" * 64,
+            "receipt_path": path,
+            "summary": receipt["metrics"]["mean"],
+        }
+        if receipt["id"] == FINAL_TEST_STRATEGY_ID:
+            entry.update(
+                {
+                    "evaluation_split": "test_viewed_2026",
+                    "result_role": "CORRECTED_OPENED_OOS_DIAGNOSTIC",
+                    "used_for_selection": False,
+                    "test_data_access": "VIEWED",
+                }
+            )
+        else:
+            entry.update(
+                {
+                    "selection_split": "validation_2025",
+                    "test_viewed_consumed": False,
+                }
+            )
+        entries.append(entry)
+    catalog = seal(
+        {
+            "schema_version": CATALOG_SCHEMA_V2,
+            "status": "PASS",
+            "entries": entries,
+        }
+    )
+    validate_backtest_catalog(catalog)
+    entries.pop()
+    catalog["receipt_hash"] = canonical_hash(
+        {key: value for key, value in catalog.items() if key != "receipt_hash"}
+    )
+    with pytest.raises(RuntimeError, match="exact entry set"):
+        validate_backtest_catalog(catalog)
 
 def test_catalog_rejects_path_traversal_and_nonfinite_metrics() -> None:
     receipt = backtest_receipt()

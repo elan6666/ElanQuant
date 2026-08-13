@@ -591,11 +591,11 @@ h1, h2, h3 { font-family: "Iowan Old Style", "Baskerville", "Songti SC", "STSong
 .official-boundary-banner > span { margin-left: auto; color: #6e675f; font-size: 10px; }
 .backtest-metrics { margin-top: 22px; }
 .backtest-chart-section { overflow: hidden; }
-.backtest-chart { height: 310px; display: flex; flex-direction: column; }
-.backtest-chart svg { flex: 1; width: 100%; overflow: visible; background: repeating-linear-gradient(to top, transparent 0, transparent 24%, rgba(47,43,40,.06) 25%); border: 1px solid var(--line); }
+.backtest-chart { height: 310px; display: grid; grid-template-rows: minmax(0, 1fr) auto; }
+.backtest-chart svg { display: block; width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; background: repeating-linear-gradient(to top, transparent 0, transparent 24%, rgba(47,43,40,.06) 25%); border: 1px solid var(--line); }
 .backtest-chart polyline { fill: none; stroke-width: 2; }
 .backtest-chart__strategy { stroke: var(--red); }
-.backtest-chart__benchmark { stroke: var(--cyan); }
+.backtest-chart__benchmark { stroke: var(--cyan); stroke-dasharray: 1.8 1.2; }
 .backtest-chart__zero { stroke: #b7aea4; stroke-width: .4; stroke-dasharray: 2 2; }
 .backtest-chart > div { padding-top: 9px; display: flex; justify-content: space-between; color: #7a7068; font-size: 9px; }
 .backtest-chart > div strong { color: var(--red); font: 12px Menlo, monospace; }
@@ -604,6 +604,10 @@ h1, h2, h3 { font-family: "Iowan Old Style", "Baskerville", "Songti SC", "STSong
 .chart-legend__strategy::before { background: var(--red); }
 .chart-legend__benchmark::before { background: var(--cyan); }
 .chart-legend small { margin-left: auto; color: #82776e; }
+.backtest-split-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 18px; padding: 6px; border: 1px solid var(--line); border-radius: 14px; background: rgba(255,253,248,.72); }
+.backtest-split-tabs button { min-height: 44px; border: 0; border-radius: 10px; background: transparent; color: #615850; font: 600 11px/1.35 Inter, sans-serif; cursor: pointer; }
+.backtest-split-tabs button[aria-pressed="true"] { background: var(--ink); color: #fffaf4; box-shadow: 0 7px 18px rgba(45,39,35,.14); }
+.backtest-split-tabs button:disabled { cursor: not-allowed; opacity: .42; }
 .official-signal-grid { margin-top: 28px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
 .official-signal-card { min-width: 0; padding: 22px; background: #fffdf8; }
 .official-signal-card.is-primary { background: #f1efe5; box-shadow: inset 0 4px 0 var(--red); }
@@ -650,6 +654,7 @@ h1, h2, h3 { font-family: "Iowan Old Style", "Baskerville", "Songti SC", "STSong
   .strategy-compare > div { min-width: 580px; }
   .official-boundary-banner > span, .chart-legend small { width: 100%; margin-left: 0; }
   .backtest-chart { height: 250px; }
+  .backtest-split-tabs { grid-template-columns: 1fr; }
   .decision-list article { grid-template-columns: 34px 1fr auto; }
   .decision-list article p { grid-column: 2 / -1; }
   .metric-context, .viewed-strip { align-items: flex-start; flex-direction: column; }
