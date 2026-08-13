@@ -294,6 +294,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "cross_sections": raw["cross_sections"],
                 "anchor_set_sha256": raw["anchor_set_sha256"],
             }
+        expected_evaluation_splits = {"validation_2025", "test_viewed_2026"}
+        formal_evidence_complete = bool(run.get("evaluation_receipt_sha256")) and len(
+            model_rows
+        ) == 3 and all(
+            set(
+                evaluations_by_model.get(
+                    str(model["base_model_id"] or model["id"]), {}
+                )
+            )
+            == expected_evaluation_splits
+            for model in model_rows
+        )
+        if not formal_evidence_complete and not str(run["protocol"]).startswith("PLACEHOLDER"):
+            warnings.append(
+                "该历史运行缺少逐运行的双分区正式评估回执；实验指标已阻止展示。"
+            )
         track_by_variant = {
             "zero_shot": "zero_shot",
             "official_ft": "official_style",
@@ -310,18 +326,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "track": track or "zero_shot",
                     "state": (
                         "passed"
-                        if track is not None
+                        if formal_evidence_complete
+                        and track is not None
                         and model["status"] == "PASS"
                         and model["evaluation_receipt_sha256"]
                         else "blocked"
                     ),
-                    "rank_ic": model["validation_rank_ic"],
-                    "pearson_ic": model["validation_ic"],
-                    "top10_mean_return": model["validation_top10_mean_return"],
+                    "rank_ic": model["validation_rank_ic"] if formal_evidence_complete else None,
+                    "pearson_ic": model["validation_ic"] if formal_evidence_complete else None,
+                    "top10_mean_return": (
+                        model["validation_top10_mean_return"]
+                        if formal_evidence_complete
+                        else None
+                    ),
                     "model_hash": model["checkpoint_sha256"],
-                    "receipt": model["evaluation_receipt"],
-                    "evaluations": evaluations_by_model.get(
-                        str(model["base_model_id"] or model["id"]), {}
+                    "receipt": (
+                        model["evaluation_receipt"] if formal_evidence_complete else None
+                    ),
+                    "evaluations": (
+                        evaluations_by_model.get(
+                            str(model["base_model_id"] or model["id"]), {}
+                        )
+                        if formal_evidence_complete
+                        else {}
                     ),
                     "note": (
                         f"未知模型变体 {variant}；已阻止展示为正式实验。"
@@ -345,7 +372,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "protocol": run["protocol"],
             "model_versions": [model["id"] for model in model_rows],
             "scoreable": bool(run.get("scoreable")),
-            "viewed_test": any(model["viewed_test_rank_ic"] is not None for model in models),
+            "viewed_test": formal_evidence_complete,
             "provenance": {
                 "data_hash": snapshot_dict.get("manifest_sha256", ""),
                 "model_hash": model_hash,

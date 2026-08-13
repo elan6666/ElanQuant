@@ -1,4 +1,5 @@
 import json
+import sqlite3
 from pathlib import Path
 
 from elanquant.api.app import canonical_hash, create_app
@@ -235,3 +236,22 @@ def test_completed_run_matches_dashboard_contract(tmp_path: Path) -> None:
     summary = client.get("/api/v1/paper/summary").json()
     assert summary["sample_sessions"] == 2
     assert summary["evidence_state"] == "available"
+
+    with sqlite3.connect(active.database_path) as connection:
+        connection.execute(
+            "DELETE FROM run_model_evaluations WHERE run_id = ?", (next_run["id"],)
+        )
+        connection.execute(
+            """
+            UPDATE inference_runs
+            SET evaluation_receipt_sha256 = NULL, protocol = 'STRICT_PIT_SMALL'
+            WHERE id = ?
+            """,
+            (next_run["id"],),
+        )
+    legacy_payload = client.get("/api/v1/runs/latest").json()
+    assert legacy_payload["viewed_test"] is False
+    assert {cell["state"] for cell in legacy_payload["experiment_matrix"]} == {"blocked"}
+    assert all(cell["rank_ic"] is None for cell in legacy_payload["experiment_matrix"])
+    assert all(cell["evaluations"] == {} for cell in legacy_payload["experiment_matrix"])
+    assert any("双分区正式评估回执" in warning for warning in legacy_payload["warnings"])
