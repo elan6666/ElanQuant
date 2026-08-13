@@ -28,13 +28,6 @@ from elanquant.contracts.historical_variants import (
     HOLDINGS_SCHEMA,
     validate_holdings_records,
 )
-from elanquant.contracts.official_demo import (
-    EXPECTED_EXECUTION,
-    PRIMARY_SIGNAL,
-    SIGNALS,
-    canonical_hash,
-    sha256_file,
-)
 from run_historical_top3_variant import (
     atomic_json,
     finite,
@@ -42,6 +35,14 @@ from run_historical_top3_variant import (
     position_series,
     risk_value,
     tree_hash,
+)
+
+from elanquant.contracts.official_demo import (
+    EXPECTED_EXECUTION,
+    PRIMARY_SIGNAL,
+    SIGNALS,
+    canonical_hash,
+    sha256_file,
 )
 
 

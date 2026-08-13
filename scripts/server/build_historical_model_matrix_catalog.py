@@ -19,6 +19,7 @@ from elanquant.contracts.historical_matrix import (
     validate_backtest_receipt,
     validate_catalog,
 )
+
 from elanquant.contracts.official_demo import PRIMARY_SIGNAL, canonical_hash, sha256_file
 
 
