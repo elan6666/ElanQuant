@@ -367,7 +367,7 @@ h1, h2, h3 { font-family: "Iowan Old Style", "Baskerville", "Songti SC", "STSong
   box-shadow: 0 7px 18px rgba(193, 95, 60, .2);
 }
 .brand strong { color: var(--ink); }
-.brand span { color: #8a8075; letter-spacing: .08em; }
+.brand span { color: #6e675f; letter-spacing: .08em; }
 .nav__item { color: #6e675f; border-radius: 11px; }
 .nav__item span { color: #6e675f; }
 .nav__item:hover { color: var(--ink); background: rgba(255,255,255,.5); transform: none; }
