@@ -136,6 +136,25 @@ pyqlib版本或推理seed，本项目为审计固定 pyqlib 0.9.7 与 seed 100�
 数量、权重和市值，并用独立 canonical receipt 与 SHA-256 绑定。Qlib TopkDropout 的
 `topk` 是目标数量；最少持有、可交易性和成交限制会使实际持仓短期高于或低于目标。
 
+### 六模型历史回测矩阵
+
+历史回测不再只展示 `small-official-ft`。活动矩阵要求以下三维笛卡尔积全部存在后才
+原子发布，缺少任何一格时 API 整体拒绝加载：
+
+- 模型：Small/Base × zero-shot/official-ft/strict-pit，共 6 格；
+- 评估期：`validation_2025` 与已查看的 `test_viewed_2026`；
+- 组合：Top50/Drop5/Hold5 与历史 Qlib Top3/Drop1/Hold5。
+
+因此活动目录恰有 24 个回测单元。每个模型必须从自身 tokenizer/predictor checkpoint
+重新生成 `sample_count=5` 的标准化空间 mean/last/max/min 信号；禁止把
+`small-official-ft` 的信号或收益复制给其他模型。两个组合只在同一模型、同一分区、
+同一信号 artifact 内比较，均保存逐日收益、成本、换手、实际持仓数量与持仓明细。
+
+这是在结果已部分打开后补做的模型/组合对照，所有 24 格统一
+`selection_eligible=false`、`promotion_eligible=false`。尤其 2026 永久保持
+`VIEWED`，页面可以比较但不得自动挑选收益最高模型、信号或组合并切换在线主模型。
+在线排名和模拟账户仍只使用其独立准入的 `small-strict-pit` Top3 流程。
+
 ## 模拟执行
 
 - T 日收盘后冻结 Top 3、权重、数量和已知价格。
