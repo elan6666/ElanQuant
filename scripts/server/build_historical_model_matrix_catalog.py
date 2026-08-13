@@ -81,6 +81,7 @@ def main() -> int:
                                 "source_provider_receipt_sha256"
                             ],
                         },
+                        "support": receipt["support"],
                         "holdings": {
                             "artifact_path": receipt["artifacts"]["holdings"]["path"],
                             "artifact_sha256": receipt["artifacts"]["holdings"]["sha256"],

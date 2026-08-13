@@ -87,6 +87,11 @@ def catalog() -> dict[str, object]:
                         "online_paper_equivalent": False,
                         "receipt_path": f"runs/{model}/{split}/{variant}/receipt.json",
                         "receipt_sha256": SHA,
+                        "source": {
+                            "signal_receipt_sha256": SHA,
+                            "provider_receipt_sha256": SHA,
+                        },
+                        "support": {"sessions": 1, "signal_rows": 300},
                     }
                 )
     return sealed(

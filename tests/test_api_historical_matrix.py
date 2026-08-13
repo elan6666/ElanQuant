@@ -5,7 +5,6 @@ import hashlib
 import json
 from pathlib import Path
 
-from elanquant.api.app import create_app
 from elanquant.contracts.historical_matrix import (
     BACKTEST_SCHEMA,
     CATALOG_SCHEMA,
@@ -15,9 +14,11 @@ from elanquant.contracts.historical_matrix import (
     VARIANTS,
     backtest_id,
 )
+from fastapi.testclient import TestClient
+
+from elanquant.api.app import create_app
 from elanquant.contracts.official_demo import EXPECTED_EXECUTION, SIGNALS, canonical_hash
 from elanquant.settings import Settings
-from fastapi.testclient import TestClient
 
 SHA = "a" * 64
 
@@ -194,6 +195,11 @@ def publish(tmp_path: Path) -> Settings:
                         "receipt_path": receipt_path.relative_to(tmp_path).as_posix(),
                         "receipt_sha256": receipt_sha,
                         "summary": metrics["mean"],
+                        "source": {
+                            "signal_receipt_sha256": SHA,
+                            "provider_receipt_sha256": SHA,
+                        },
+                        "support": receipt["support"],
                         "holdings": {
                             "artifact_path": artifacts["holdings"]["path"],
                             "artifact_sha256": artifacts["holdings"]["sha256"],

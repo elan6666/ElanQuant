@@ -160,6 +160,7 @@ def validate_matrix_lock(payload: object) -> dict[str, Any]:
     if not isinstance(sources, list) or len(sources) != len(MODEL_CELLS) * len(SPLITS):
         raise RuntimeError("historical matrix lock sources are not exact")
     pairs: set[tuple[str, str]] = set()
+    split_identity: dict[str, tuple[object, object, object, object]] = {}
     for source in sources:
         if not isinstance(source, dict):
             raise RuntimeError("historical matrix lock source is invalid")
@@ -176,6 +177,29 @@ def validate_matrix_lock(payload: object) -> dict[str, Any]:
             require_sha(source.get(field), f"matrix_lock.source.{field}")
         _relative(source.get("signal_receipt_path"), "matrix_lock.source.signal_path")
         _relative(source.get("provider_receipt_path"), "matrix_lock.source.provider_path")
+        support = source.get("support")
+        model_identity = source.get("model")
+        if not isinstance(support, dict) or not isinstance(model_identity, dict):
+            raise RuntimeError("historical matrix lock support or model identity is absent")
+        require_sha(support.get("anchor_set_sha256"), "matrix_lock.source.support.anchor")
+        for field in (
+            "training_matrix_sha256",
+            "tokenizer_sha256",
+            "predictor_sha256",
+            "model_config_sha256",
+            "dataset_manifest_sha256",
+            "dataset_file_sha256",
+        ):
+            require_sha(model_identity.get(field), f"matrix_lock.source.model.{field}")
+        comparable = (
+            support,
+            model_identity["dataset_manifest_sha256"],
+            model_identity["dataset_file_sha256"],
+            source["provider_tree_sha256"],
+        )
+        prior = split_identity.setdefault(pair[1], comparable)
+        if comparable != prior:
+            raise RuntimeError(f"historical matrix split support differs: {pair[1]}")
     return payload
 
 
@@ -252,6 +276,7 @@ def validate_catalog(payload: object) -> dict[str, Any]:
     if not isinstance(entries, list) or len(entries) != len(expected):
         raise RuntimeError("historical matrix catalog size is invalid")
     observed: set[tuple[str, str, str]] = set()
+    split_support: dict[str, tuple[object, object]] = {}
     for entry in entries:
         if not isinstance(entry, dict):
             raise RuntimeError("historical matrix catalog entry is invalid")
@@ -274,6 +299,22 @@ def validate_catalog(payload: object) -> dict[str, Any]:
             raise RuntimeError("historical matrix catalog firewall is invalid")
         require_sha(entry.get("receipt_sha256"), "matrix_catalog.receipt_sha256")
         _relative(entry.get("receipt_path"), "matrix_catalog.receipt_path")
+        source = entry.get("source")
+        support = entry.get("support")
+        if not isinstance(source, dict) or not isinstance(support, dict):
+            raise RuntimeError("historical matrix catalog source or support is absent")
+        require_sha(
+            source.get("signal_receipt_sha256"),
+            "matrix_catalog.source.signal_receipt_sha256",
+        )
+        require_sha(
+            source.get("provider_receipt_sha256"),
+            "matrix_catalog.source.provider_receipt_sha256",
+        )
+        comparable = (support, source["provider_receipt_sha256"])
+        prior = split_support.setdefault(key[1], comparable)
+        if comparable != prior:
+            raise RuntimeError(f"historical matrix catalog split support differs: {key[1]}")
     if observed != expected:
         raise RuntimeError("historical matrix catalog matrix is incomplete")
     return payload
