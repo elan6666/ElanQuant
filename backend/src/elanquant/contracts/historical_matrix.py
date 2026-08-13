@@ -146,12 +146,16 @@ def validate_matrix_lock(payload: object) -> dict[str, Any]:
         raise RuntimeError("historical matrix lock protocol is invalid")
     for field in (
         "runner_sha256",
+        "helper_sha256",
         "contract_sha256",
         "qlib_metadata_sha256",
         "qlib_record_sha256",
         "qlib_source_tree_sha256",
     ):
         require_sha(payload.get(field), f"matrix_lock.{field}")
+    _relative(payload.get("runner_path"), "matrix_lock.runner_path")
+    _relative(payload.get("helper_path"), "matrix_lock.helper_path")
+    _relative(payload.get("contract_path"), "matrix_lock.contract_path")
     sources = payload.get("sources")
     if not isinstance(sources, list) or len(sources) != len(MODEL_CELLS) * len(SPLITS):
         raise RuntimeError("historical matrix lock sources are not exact")

@@ -13,6 +13,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import run_historical_top3_variant as helper_module
 from elanquant.contracts.historical_matrix import (
     BACKTEST_SCHEMA,
     MODEL_CELLS,
@@ -28,14 +29,6 @@ from elanquant.contracts.historical_variants import (
     HOLDINGS_SCHEMA,
     validate_holdings_records,
 )
-from run_historical_top3_variant import (
-    atomic_json,
-    finite,
-    holdings_records,
-    position_series,
-    risk_value,
-    tree_hash,
-)
 
 from elanquant.contracts.official_demo import (
     EXPECTED_EXECUTION,
@@ -44,6 +37,13 @@ from elanquant.contracts.official_demo import (
     canonical_hash,
     sha256_file,
 )
+
+atomic_json = helper_module.atomic_json
+finite = helper_module.finite
+holdings_records = helper_module.holdings_records
+position_series = helper_module.position_series
+risk_value = helper_module.risk_value
+tree_hash = helper_module.tree_hash
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -69,6 +69,8 @@ def main() -> int:
     lock = validate_matrix_lock(read_json(args.matrix_lock))
     if sha256_file(Path(__file__).resolve()) != lock["runner_sha256"]:
         raise RuntimeError("matrix runner differs from the pre-result lock")
+    if sha256_file(Path(str(helper_module.__file__)).resolve()) != lock["helper_sha256"]:
+        raise RuntimeError("matrix helper differs from the pre-result lock")
     source = next(
         item
         for item in lock["sources"]

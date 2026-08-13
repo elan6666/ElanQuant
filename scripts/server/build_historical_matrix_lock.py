@@ -75,6 +75,7 @@ def main() -> int:
     parser.add_argument("--validation-provider-receipt", type=Path, required=True)
     parser.add_argument("--opened-provider-receipt", type=Path, required=True)
     parser.add_argument("--runner", type=Path, required=True)
+    parser.add_argument("--helper", type=Path, required=True)
     parser.add_argument("--contract", type=Path, required=True)
     parser.add_argument("--qlib-site-packages", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
@@ -141,6 +142,8 @@ def main() -> int:
         "promotion_eligible": False,
         "runner_path": args.runner.resolve().relative_to(root).as_posix(),
         "runner_sha256": sha256_file(args.runner),
+        "helper_path": args.helper.resolve().relative_to(root).as_posix(),
+        "helper_sha256": sha256_file(args.helper),
         "contract_path": args.contract.resolve().relative_to(root).as_posix(),
         "contract_sha256": sha256_file(args.contract),
         "qlib_version": importlib.metadata.version("pyqlib"),

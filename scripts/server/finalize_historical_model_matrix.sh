@@ -42,6 +42,7 @@ done
   --validation-provider-receipt "$VALIDATION_PROVIDER" \
   --opened-provider-receipt "$OPENED_PROVIDER" \
   --runner "$SOURCE/scripts/server/run_historical_model_matrix_backtest.py" \
+  --helper "$SOURCE/scripts/server/run_historical_top3_variant.py" \
   --contract "$SOURCE/backend/src/elanquant/contracts/historical_matrix.py" \
   --qlib-site-packages "$QLIB_SITE" \
   --out "$LOCK"
