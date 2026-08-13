@@ -36,7 +36,7 @@ def write_csv(path: Path, *, holdings: bool) -> None:
                 "weight": "0.5",
                 "value": "1000",
             }
-            for signal in SIGNALS
+            for signal in sorted(SIGNALS)
         ]
     else:
         fields = [
@@ -203,6 +203,7 @@ def publish(tmp_path: Path) -> Settings:
     catalog = {
         "schema_version": CATALOG_SCHEMA,
         "status": "PASS",
+        "generated_at": "2026-08-14T00:00:00+00:00",
         "entries": entries,
     }
     catalog["receipt_hash"] = canonical_hash(catalog)
@@ -225,7 +226,7 @@ def test_api_serves_exact_matrix_series_and_holdings(tmp_path: Path) -> None:
     identifier = backtest_id("base-strict-pit", "test_viewed_2026", "historical_top3")
     detail = client.get(f"/api/v1/research/backtests/{identifier}")
     assert detail.status_code == 200
-    assert detail.json()["model_cell_id"] == "base-strict-pit"
+    assert detail.json()["backtest"]["model_cell_id"] == "base-strict-pit"
     series = client.get(f"/api/v1/research/backtests/{identifier}/series?signal=mean")
     assert series.status_code == 200
     holdings = client.get(f"/api/v1/research/backtests/{identifier}/holdings")
