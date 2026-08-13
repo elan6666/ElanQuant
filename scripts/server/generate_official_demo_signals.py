@@ -22,7 +22,15 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-
+from elanquant.contracts.historical_matrix import (
+    MODEL_CELLS,
+)
+from elanquant.contracts.historical_matrix import (
+    SIGNAL_SCHEMA as MATRIX_SIGNAL_SCHEMA,
+)
+from elanquant.contracts.historical_matrix import (
+    validate_signal_receipt as validate_matrix_signal_receipt,
+)
 from elanquant.contracts.official_demo import (
     FINAL_TEST_SIGNAL_SCHEMA,
     FINAL_TEST_STRATEGY_ID,
@@ -77,7 +85,7 @@ def verify_upstream(upstream: Path) -> None:
         raise RuntimeError("Kronos upstream is not the pinned clean source")
 
 
-def load_matrix(path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+def load_matrix(path: Path, model_cell: str) -> tuple[dict[str, Any], dict[str, Any]]:
     matrix = json.loads(path.read_text(encoding="utf-8"))
     content = dict(matrix)
     claimed = content.pop("receipt_hash", None)
@@ -87,9 +95,10 @@ def load_matrix(path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
         or canonical_hash(content) != claimed
     ):
         raise RuntimeError("training matrix is not sealed PASS")
-    cells = [cell for cell in matrix.get("cells", []) if cell.get("id") == MODEL_CELL]
-    if len(cells) != 1 or cells[0].get("track") != "official_style":
-        raise RuntimeError("Small official-style model cell is absent")
+    cells = [cell for cell in matrix.get("cells", []) if cell.get("id") == model_cell]
+    expected_track = MODEL_CELLS[model_cell][1]
+    if len(cells) != 1 or cells[0].get("track") != expected_track:
+        raise RuntimeError(f"sealed model cell is absent: {model_cell}")
     return matrix, cells[0]
 
 
@@ -154,6 +163,46 @@ def candidate_windows(
     return candidates
 
 
+def referenced_windows(
+    data: dict[str, pd.DataFrame],
+    reference: pd.DataFrame,
+    split: str,
+) -> list[tuple[str, tuple[pd.Timestamp, ...], tuple[pd.Timestamp, ...]]]:
+    """Rebuild the exact sealed anchor set without inspecting target values."""
+
+    calendar = pd.DatetimeIndex(
+        sorted({pd.Timestamp(day) for frame in data.values() for day in frame.index})
+    )
+    calendar_position = {day: index for index, day in enumerate(calendar)}
+    result: list[tuple[str, tuple[pd.Timestamp, ...], tuple[pd.Timestamp, ...]]] = []
+    for row in reference[["datetime", "instrument"]].itertuples(index=False):
+        session, code = pd.Timestamp(row.datetime), str(row.instrument)
+        frame = data[code].sort_index()
+        if split == "validation_2025":
+            position = frame.index.get_indexer([session])[0]
+            if position < LOOKBACK - 1 or position + PREDICT >= len(frame):
+                raise RuntimeError(
+                    f"reference anchor is outside its symbol slice: {code}/{session}"
+                )
+            context_dates = tuple(
+                pd.DatetimeIndex(frame.index[position - LOOKBACK + 1 : position + 1])
+            )
+            future_dates = tuple(
+                pd.DatetimeIndex(frame.index[position + 1 : position + PREDICT + 1])
+            )
+        else:
+            position = calendar_position.get(session, -1)
+            if position < LOOKBACK - 1 or position + PREDICT >= len(calendar):
+                raise RuntimeError(f"reference anchor is outside the exchange calendar: {session}")
+            context_dates = tuple(calendar[position - LOOKBACK + 1 : position + 1])
+            future_dates = tuple(calendar[position + 1 : position + PREDICT + 1])
+            available = {pd.Timestamp(day) for day in frame.index}
+            if not all(day in available for day in context_dates):
+                raise RuntimeError(f"reference anchor lacks causal context: {code}/{session}")
+        result.append((code, context_dates, future_dates))
+    return result
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, required=True)
@@ -162,6 +211,8 @@ def main() -> int:
     parser.add_argument("--dataset-manifest", type=Path, required=True)
     parser.add_argument("--dataset", type=Path, required=True)
     parser.add_argument("--out-dir", type=Path, required=True)
+    parser.add_argument("--model-cell", choices=tuple(MODEL_CELLS), default=MODEL_CELL)
+    parser.add_argument("--reference-signal-receipt", type=Path)
     parser.add_argument(
         "--evaluation-split",
         choices=("validation_2025", "test_viewed_2026"),
@@ -174,9 +225,10 @@ def main() -> int:
     args = parser.parse_args()
 
     final_test = args.evaluation_split == "test_viewed_2026"
+    matrix_mode = args.model_cell != MODEL_CELL or args.reference_signal_receipt is not None
     strategy_id = FINAL_TEST_STRATEGY_ID if final_test else STRATEGY_ID
     receipt_schema = FINAL_TEST_SIGNAL_SCHEMA if final_test else SIGNAL_SCHEMA
-    if final_test and args.analysis_lock is None:
+    if final_test and not matrix_mode and args.analysis_lock is None:
         raise RuntimeError("final-test signal generation requires an analysis lock")
 
     root = args.root.resolve()
@@ -189,7 +241,9 @@ def main() -> int:
     if root not in out_dir.parents:
         raise RuntimeError("official demo output must remain under the ElanQuant root")
     verify_upstream(upstream)
-    matrix, cell = load_matrix(matrix_path)
+    if matrix_mode and args.reference_signal_receipt is None:
+        raise RuntimeError("historical matrix signal generation requires a reference receipt")
+    matrix, cell = load_matrix(matrix_path, args.model_cell)
     manifest_sha256 = sha256_file(args.dataset_manifest)
     generator_code_sha256 = sha256_file(Path(__file__).resolve())
     manifest = json.loads(args.dataset_manifest.read_text(encoding="utf-8"))
@@ -203,7 +257,8 @@ def main() -> int:
     ):
         raise RuntimeError("validation dataset does not match its admitted manifest")
     analysis_lock = None
-    if final_test:
+    if final_test and not matrix_mode:
+        assert args.analysis_lock is not None
         analysis_lock = validate_analysis_lock(
             json.loads(args.analysis_lock.read_text(encoding="utf-8"))
         )
@@ -234,7 +289,19 @@ def main() -> int:
     if not isinstance(data, dict) or not data:
         raise RuntimeError("official evaluation dataset is empty")
     start, end = pd.Timestamp(args.start), pd.Timestamp(args.end)
-    candidates = candidate_windows(data, start, end)
+    reference_receipt = None
+    if args.reference_signal_receipt is not None:
+        reference_receipt = json.loads(args.reference_signal_receipt.read_text(encoding="utf-8"))
+        reference_artifact = reference_receipt.get("artifacts", {}).get("signals")
+        if not isinstance(reference_artifact, dict):
+            raise RuntimeError("reference signal artifact is absent")
+        reference_path = (root / str(reference_artifact["path"])).resolve()
+        if sha256_file(reference_path) != reference_artifact.get("sha256"):
+            raise RuntimeError("reference signal artifact changed")
+        reference = pd.read_csv(reference_path, parse_dates=["datetime"])
+        candidates = referenced_windows(data, reference, args.evaluation_split)
+    else:
+        candidates = candidate_windows(data, start, end)
     if not candidates:
         raise RuntimeError("no official demo validation windows are available")
 
@@ -309,13 +376,17 @@ def main() -> int:
         for session, instrument in frame[["datetime", "instrument"]].itertuples(index=False)
     )
     receipt: dict[str, Any] = {
-        "schema_version": receipt_schema,
+        "schema_version": MATRIX_SIGNAL_SCHEMA if matrix_mode else receipt_schema,
         "status": "PASS",
-        "id": strategy_id,
-        "track_kind": "OFFICIAL_DEMO_METHOD",
-        "model_cell_id": MODEL_CELL,
-        "model_size": "small",
-        "model_track": "official_style",
+        "id": (
+            f"historical-signal-{args.model_cell}-{args.evaluation_split}-v1"
+            if matrix_mode
+            else strategy_id
+        ),
+        "track_kind": "HISTORICAL_MODEL_COMPARISON" if matrix_mode else "OFFICIAL_DEMO_METHOD",
+        "model_cell_id": args.model_cell,
+        "model_size": MODEL_CELLS[args.model_cell][0],
+        "model_track": MODEL_CELLS[args.model_cell][1],
         "primary_signal": PRIMARY_SIGNAL,
         "signals": list(SIGNALS),
         "generated_at": datetime.now(UTC).isoformat(),
@@ -389,7 +460,25 @@ def main() -> int:
             "CSV is an auditable instrumentation extension to the author's predictions.pkl.",
         ],
     }
-    if final_test:
+    if matrix_mode:
+        assert args.reference_signal_receipt is not None
+        receipt.update(
+            {
+                "evaluation_split": args.evaluation_split,
+                "result_role": (
+                    "POST_HOC_OPENED_MODEL_DIAGNOSTIC"
+                    if final_test
+                    else "POST_HOC_MODEL_COMPARISON_VALIDATION"
+                ),
+                "selection_eligible": False,
+                "used_for_selection": False,
+                "test_data_access": "VIEWED" if final_test else "NOT_APPLICABLE",
+                "reference_signal_receipt_sha256": sha256_file(
+                    args.reference_signal_receipt
+                ),
+            }
+        )
+    if final_test and not matrix_mode:
         receipt.update(
             {
                 "evaluation_split": "test_viewed_2026",
@@ -400,7 +489,7 @@ def main() -> int:
                 "analysis_lock_sha256": sha256_file(args.analysis_lock),
             }
         )
-    else:
+    elif not matrix_mode:
         receipt.update(
             {
                 "selection_split": "validation_2025",
@@ -408,7 +497,10 @@ def main() -> int:
             }
         )
     receipt["receipt_hash"] = canonical_hash(receipt)
-    validate_signal_receipt(receipt)
+    if matrix_mode:
+        validate_matrix_signal_receipt(receipt)
+    else:
+        validate_signal_receipt(receipt)
     atomic_json(receipt, out_dir / "signal-receipt.json")
     print(json.dumps({"status": "PASS", "rows": len(frame), "out": str(out_dir)}))
     return 0
