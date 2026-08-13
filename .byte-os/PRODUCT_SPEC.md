@@ -29,10 +29,10 @@ trading understandable and auditable in one interface.
   provenance and scoreability labels.
 - RMB100k Top-3 paper account with frozen T intent and T+1 fill/reject ledger.
 - A separate historical official-demo-method research page: Small official-ft,
-  standardized-space signals, sample-count 5, Top-50, Drop-5 and minimum hold
-  5. It separates 2025 training validation from a corrected, already-opened
-  2026 out-of-sample diagnostic; both
-  are artifact-only and cannot create paper orders.
+  standardized-space signals and sample-count 5. It compares the official
+  Top50/Drop5/Hold5 baseline with a post-hoc Qlib Top3/Drop1/Hold5 portfolio
+  sensitivity variant on 2025 and corrected opened 2026. All four cells are
+  artifact-only and cannot create paper orders.
 - Same-origin Chinese owner dashboard over VPN/SSH tunnel.
 
 ## Non-goals
@@ -56,6 +56,9 @@ trading understandable and auditable in one interface.
 - Model training is separate from the daily button.
 - Top3 online paper trading and the official-demo historical version never share
   orders, positions, NAV, strategy identity or mutation endpoints.
+- Historical Top3 is a Qlib target-cardinality variant, not a replay of the
+  online Top3 account; all Top3 historical receipts are non-selection and
+  non-promotion.
 
 ## Acceptance criteria
 

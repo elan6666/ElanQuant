@@ -29,8 +29,9 @@ data_snapshots（这天的数据是否完整）
 新增的“历史回测”页提供第二条学习链：
 
 ```text
-标准化信号回执 → Qlib Top50/Drop5/Hold5 → 历史回测目录
-  → FastAPI 只读 GET → React 曲线与参数解释
+标准化信号回执 → Qlib Top50/Drop5/Hold5 + Top3/Drop1/Hold5
+  → 历史回测与逐日持仓回执 → FastAPI 只读 GET
+  → React 曲线、参数和交易日持仓查看器
 ```
 
 它故意不进 SQLite，也没有 POST 接口。把它和 Top3 对照阅读，可以直观看懂

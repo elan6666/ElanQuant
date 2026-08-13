@@ -78,3 +78,12 @@ Because the admitted extended 2025 validation split, dynamic PIT membership,
 provider data, pinned pyqlib version and deterministic seed differ from the
 author environment, the product calls it method-aligned rather than an exact
 data reproduction and lists every deviation in its receipt and UI.
+
+## 2026-08-13 — Historical Top3 is a post-hoc Qlib sensitivity variant
+
+Add `Top3/Drop1/Hold5` beside the existing Top50/Drop5/Hold5 historical
+baseline. Drop1 is the smallest effective Qlib replacement rate and Hold5 keeps
+the official holding constraint. The variant reuses exact sealed signals and
+providers, is permanently non-selection/non-promotion, and is not equivalent to
+the online Top3 paper account. Qlib trading constraints may make actual holdings
+temporarily differ from the nominal target of three.

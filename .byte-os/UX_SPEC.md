@@ -16,12 +16,12 @@ no action button.
 - Jobs: stage timeline, events, retries, duplicate/coalesced identity.
 - Research: Small/Base six cells, 2025 validation vs 2026 `TEST_VIEWED`, sample
   support, zero-shot delta, run lineage and diff.
-- Historical Backtest: official-demo-method identity, visible separation from
-  Top3, corrected opened-2026 diagnostic default with an explicit 2025
-  training-validation tab,
-  fixed mean curves, four descriptive standardized signals,
-  Top50/Drop5/Hold5 parameters, support, hashes and deviations. Missing evidence
-  is a waiting state; tampered evidence is unavailable rather than approximated.
+- Historical Backtest: explicit separation from the online Top3 account,
+  corrected opened-2026 default with an explicit 2025 validation switch, and
+  two strategy cards for official Top50 and historical Qlib Top3. A three-line
+  mean chart compares both strategies with SH000300; the selected card controls
+  parameters, four-signal metrics, hashes and deviations. Missing evidence is a
+  waiting state; tampered evidence is unavailable rather than approximated.
 - Ranking: searchable/keyboard scores, ten-day signal, input completeness,
   previous rank, three-track spread, eligibility and paper decision.
 - Stock detail: signal/model comparison and run evidence; do not draw a

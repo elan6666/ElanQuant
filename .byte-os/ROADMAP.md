@@ -4,7 +4,8 @@
 
 Foundation/harness; official Small/Base research; strict contracts; backend/job
 worker; experiment/run/data-health evidence UI; immutable paper ledger; server
-data/training/inference; verification; three iterations; delivery.
+data/training/inference; sealed Top50/Top3 historical sensitivity matrix;
+verification; three iterations; delivery.
 
 ## v1 — After real forward evidence
 

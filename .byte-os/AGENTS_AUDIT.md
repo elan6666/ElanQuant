@@ -12,6 +12,6 @@
   and read-only review boundaries recorded.
 - Proposed updates: reconcile commands after scaffolding; consider module
   context only if server research scripts gain special invariants.
-- Last reviewed: 2026-08-12
-- Next review: after integrated server inference
+- Last reviewed: 2026-08-13
+- Next review: before the next untouched evaluation window
 - Owner/DRI: root integrator

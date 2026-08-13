@@ -1,11 +1,13 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from './App'
-import type { ApiClient } from './types'
+import type { ApiClient, HistoricalHoldingsSnapshot } from './types'
 import {
   finalTestHistoricalBacktest,
+  finalTestHistoricalTop3Backtest,
   incompleteJob,
   historicalBacktest,
+  historicalTop3Backtest,
   paperAccount,
   paperSummary,
   passedSmallCell,
@@ -16,6 +18,7 @@ import {
 
 const clientFor = (value: ReturnType<typeof snapshot>): ApiClient => ({
   getSnapshot: vi.fn().mockResolvedValue(value),
+  getHistoricalHoldings: vi.fn().mockResolvedValue(null),
   submitUpdateInfer: vi.fn().mockResolvedValue({ job_id: 'job-new', coalesced: false }),
   retryJob: vi.fn().mockResolvedValue({ job_id: 'job-retry', coalesced: false }),
 })
@@ -101,12 +104,12 @@ describe('ElanQuant dashboard states', () => {
     expect(screen.getByText(/不足以买入 A 股最小的 100 股整手/)).toBeInTheDocument()
   })
 
-  it('adds the official-aligned backtest without replacing the Top3 product', async () => {
+  it('compares the exact historical 2x2 matrix without conflating online Top3', async () => {
     render(
       <App
         client={clientFor(
           snapshot({
-            historical_backtests: [historicalBacktest, finalTestHistoricalBacktest],
+            historical_backtests: [historicalBacktest, historicalTop3Backtest, finalTestHistoricalBacktest, finalTestHistoricalTop3Backtest],
             historical_backtest_available: true,
             historical_backtest_series: {
               [historicalBacktest.id]: [
@@ -117,20 +120,87 @@ describe('ElanQuant dashboard states', () => {
                 { session: '2026-01-05', strategy: 0, benchmark: 0, excess: 0, strategy_nav: 1, benchmark_nav: 1 },
                 { session: '2026-07-29', strategy: 0.04, benchmark: 0.03, excess: 0.01, strategy_nav: 1.04, benchmark_nav: 1.03 },
               ],
+              [historicalTop3Backtest.id]: [
+                { session: '2025-01-02', strategy: 0, benchmark: 0, excess: 0, strategy_nav: 1, benchmark_nav: 1 },
+                { session: '2025-12-31', strategy: 0.1, benchmark: 0.08, excess: 0.02, strategy_nav: 1.1, benchmark_nav: 1.08 },
+              ],
+              [finalTestHistoricalTop3Backtest.id]: [
+                { session: '2026-01-05', strategy: 0, benchmark: 0, excess: 0, strategy_nav: 1, benchmark_nav: 1, turnover: 0.02, position_count: 2 },
+                { session: '2026-07-29', strategy: 0.06, benchmark: 0.03, excess: 0.03, strategy_nav: 1.06, benchmark_nav: 1.03, turnover: 0.04, position_count: 4 },
+              ],
             },
           }),
         )}
       />,
     )
     fireEvent.click(await screen.findByRole('button', { name: '历史回测' }))
-    expect(screen.getByRole('heading', { name: /官方对齐版.*历史回测/ })).toBeInTheDocument()
-    expect(screen.getByText('Top3 在线模拟')).toBeInTheDocument()
-    expect(screen.getByText('TOP50 / DROP5 / HOLD5')).toBeInTheDocument()
-    expect(screen.getByText('5条（官方）')).toBeInTheDocument()
-    expect(screen.getByText('明确禁止同次递补')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /历史组合.*对照回测/ })).toBeInTheDocument()
+    expect(screen.getByText('在线 Top3 模拟账户')).toBeInTheDocument()
+    expect(screen.getByText(/历史 Top3 不等同在线 Top3/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /官方对齐 Top50/ })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByText(/已修正未来成分\/\u7f3a行条件/)).toBeInTheDocument()
-    expect(screen.getByRole('img', { name: /Top50策略与沪深300/ })).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: /官方对齐Top50、历史Qlib Top3与沪深300/ })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /历史 Qlib Top3/ }))
+    expect(screen.getByText(/2026 窗口已开封.*不用于选模/)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '历史 Top3 组合参数' })).toBeInTheDocument()
+    expect(screen.getByText('2 – 4 只，中位数 3')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /2025 训练验证/ }))
-    expect(screen.getByText(/validation loss 和 best checkpoint/)).toBeInTheDocument()
+    expect(screen.getByText(/2025 已在查看后构建.*不用于选模/)).toBeInTheDocument()
+  })
+
+  it('loads sealed holdings by keyboard-accessible session and keeps legacy empty state honest', async () => {
+    const client = clientFor(snapshot({
+      historical_backtests: [finalTestHistoricalBacktest, finalTestHistoricalTop3Backtest],
+      historical_backtest_available: true,
+      historical_backtest_series: {
+        [finalTestHistoricalBacktest.id]: [
+          { session: '2026-07-28', strategy: 0.03, benchmark: 0.02, excess: 0.01, strategy_nav: 1.03, benchmark_nav: 1.02 },
+          { session: '2026-07-29', strategy: 0.04, benchmark: 0.03, excess: 0.01, strategy_nav: 1.04, benchmark_nav: 1.03 },
+        ],
+        [finalTestHistoricalTop3Backtest.id]: [
+          { session: '2026-07-28', strategy: 0.05, benchmark: 0.02, excess: 0.03, strategy_nav: 1.05, benchmark_nav: 1.02 },
+          { session: '2026-07-29', strategy: 0.06, benchmark: 0.03, excess: 0.03, strategy_nav: 1.06, benchmark_nav: 1.03 },
+        ],
+      },
+    }))
+    client.getHistoricalHoldings = vi.fn(async (backtestId: string, session?: string) => {
+      if (backtestId === finalTestHistoricalBacktest.id) return null
+      const selected = session ?? '2026-07-29'
+      return {
+        backtest_id: finalTestHistoricalTop3Backtest.id,
+        available: true,
+        signal: 'mean',
+        empty: false,
+        sessions: ['2026-07-28', '2026-07-29'],
+        default_session: '2026-07-29',
+        selected_session: selected,
+        source: { artifact_sha256: 'a'.repeat(64), receipt_sha256: 'b'.repeat(64), backtest_receipt_sha256: 'c'.repeat(64) },
+        holdings: selected === '2026-07-29'
+          ? [
+              { instrument: 'SH600000', amount: 1_000, weight: 0.6, value: 12_500 },
+              { instrument: 'SZ000001', amount: 800, weight: 0.4, value: 8_100 },
+            ]
+          : [{ instrument: 'SH600000', amount: 900, weight: 1, value: 11_000 }],
+      } satisfies HistoricalHoldingsSnapshot
+    })
+
+    render(<App client={client} />)
+    fireEvent.click(await screen.findByRole('button', { name: '历史回测' }))
+    expect(await screen.findByText('该回测没有封存持仓工件')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /历史 Qlib Top3/ }))
+    const sessionSelect = await screen.findByRole('combobox', { name: '持仓交易日' })
+    expect(screen.getByRole('rowheader', { name: 'SH600000' })).toBeInTheDocument()
+    expect(screen.getByText('2 只')).toBeInTheDocument()
+    expect(screen.getByText('3 只')).toBeInTheDocument()
+    expect(screen.getByText(/实际持仓数与目标不同/)).toBeInTheDocument()
+
+    fireEvent.change(sessionSelect, { target: { value: '2026-07-28' } })
+    await waitFor(() => expect(screen.getByText('900')).toBeInTheDocument())
+    expect(client.getHistoricalHoldings).toHaveBeenCalledWith(
+      finalTestHistoricalTop3Backtest.id,
+      '2026-07-28',
+      expect.any(AbortSignal),
+    )
   })
 })

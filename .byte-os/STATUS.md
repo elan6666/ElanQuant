@@ -9,10 +9,17 @@ review_verdict: ship
 iteration_count: 3
 harness_status: ready
 hard_blocked: false
-updated_at: 2026-08-13T19:20:00+08:00
+updated_at: 2026-08-13T20:40:00+08:00
 ---
 
 # Current State
+
+Plan 010 is complete: both sealed Top50 historical tracks now sit beside an
+isolated Qlib historical Top3/Drop1/Hold5 portfolio-sensitivity variant for
+2025 and corrected opened 2026. The exact four cells include hash-bound daily
+holdings and a read-only session viewer. They reuse existing signal/provider
+bytes, never run inference, never write SQLite, and never claim equivalence
+with the online Top3 paper account.
 
 Plan 009 is complete. The historical SVG no longer clips its curve, 2025 is
 truthfully identified as training validation and best-checkpoint selection, and
@@ -37,19 +44,20 @@ unchanged while publishing current run evidence.
 
 ## Goal
 
-Deliver an auditable A-share Kronos Small/Base comparison and strict-PIT
-research/simulated-trading web system with server training and on-demand
-inference, without real brokerage connectivity.
+Deliver an auditable Top50-versus-historical-Top3 comparison across the existing
+2025/2026 historical evidence, with immutable server receipts, a clear read-only
+UI and no change to online Top3 or real brokerage boundaries.
 
 ## Open blockers
 
-None. Research execution is server-only and must not overwrite the immutable
-2025 artifact or use the opened 2026 result for subsequent selection.
+None. Top3/Drop1/Hold5 is frozen as a post-hoc sensitivity variant. Research
+execution is server-only and must not overwrite existing artifacts or use the
+opened result for selection.
 
 ## Harness
 
-Server passes 80 pytest tests, Ruff, Pyright, compileall, shell syntax and systemd unit
-verification. Frontend passes 12 Vitest tests, ESLint, TypeScript/Vite build and
+Server passes 97 pytest tests, Ruff, Pyright, compileall, shell syntax and systemd unit
+verification. Frontend passes 17 Vitest tests, ESLint, TypeScript/Vite build and
 npm audit with zero vulnerabilities. Live DB reports `integrity_check=ok` and
 zero foreign-key violations. Official release audit, same-session frozen-ledger
 comparison and deployed 1440/390 browser QA pass. Independent design, product,
@@ -57,5 +65,5 @@ Base formal and six-cell catalog reviews are SHIP with no P0/P1.
 
 ## Next
 
-No active delivery work. Any next strategy iteration must preregister its method
-and use a future, previously unseen evaluation window.
+No required work remains. Future untouched data is reserved for a genuinely
+new evaluation rather than tuning against the opened 2026 window.

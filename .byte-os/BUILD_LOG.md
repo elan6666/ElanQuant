@@ -1,5 +1,17 @@
 # Build Log
 
+## 2026-08-13 — Historical Top3 sensitivity and holdings
+
+- Added a fully isolated Qlib Top3/Drop1/Hold5 post-hoc portfolio sensitivity
+  track beside the official Top50 baseline for 2025 validation and opened 2026.
+- Sealed an exact four-cell catalog and daily per-instrument holdings for every
+  cell. Top50 replay matches old receipts below 4e-15 maximum absolute error.
+- Added bounded hash-checked holdings GET and a responsive session viewer.
+- Mean Top3 returned -28.52% in 2025 and -17.47% in opened 2026; neither result
+  is selectable or promotable.
+- Final gates: 97 server tests, Ruff, Pyright and compileall PASS; 17 frontend
+  tests, ESLint, build and browser QA PASS. Paper/current release unchanged.
+
 ## 2026-08-12 — Foundation and implementation waves
 
 - Initialized independent `elan6666/ElanQuant` checkout and Byte OS artifacts.

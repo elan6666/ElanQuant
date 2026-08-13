@@ -1,7 +1,7 @@
 ---
 id: 009
 title: Corrected opened 2026 diagnostic and historical chart repair
-status: completed
+status: complete
 owner: root integrator
 implementation_allowed: true
 depends_on: [008]

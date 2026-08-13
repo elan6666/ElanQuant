@@ -151,8 +151,11 @@ systemctl --user start elanquant-api elanquant-worker
   -> Qlib Top50/Drop5/Hold5 连续回测
 2026已开封且修正 future-support conditioning 的样本外诊断
   -> Qlib 同参数连续回测
-  -> releases/historical-backtest-catalog-v3.json
+同一两组封存信号 -> Qlib Top3/Drop1/Hold5 事后敏感性回测
+  -> 四格逐日持仓 sidecar
+  -> releases/historical-backtest-catalog-v5.json
   -> GET /api/v1/research/backtests
+  -> GET /api/v1/research/backtests/{id}/holdings?session=YYYY-MM-DD
 ```
 
 信号生成和回测必须使用各自新的 transient systemd unit，输出目录存在时拒绝覆盖。
@@ -164,11 +167,17 @@ Qlib版本，因此这是为了可审计而增加的基础设施决定。发布�
 API服务需设置：
 
 ```text
-ELANQUANT_HISTORICAL_BACKTEST_CATALOG=/data/yilangliu/a_share_research/elanquant/releases/historical-backtest-catalog-v3.json
+ELANQUANT_HISTORICAL_BACKTEST_CATALOG=/data/yilangliu/a_share_research/elanquant/releases/historical-backtest-catalog-v5.json
 ```
 
 目录缺失时页面显示“服务器生成中”；目录、回执或逐日曲线任一哈希不一致时 API 返回
 503，不得回退到模拟数据。新轨只允许 GET，不添加 POST、重试或每日自动调度。
+
+Top3 历史组合与四格持仓由
+`scripts/server/finalize_historical_top3_variant.sh` 一次性生成。脚本先写参数锁，再顺序
+重放 2025/2026 的 Top50 与 Top3；Top50 指标若不等于旧封存回执，或任一持仓文件、
+sidecar、paper boundary、`releases/current` 校验失败，catalog v5 不得发布。最终 run
+文件权限为 0440、目录为 0550。
 
 2026 补跑不重训模型，不覆盖 2025 产物。它必须先生成不可变
 analysis lock，锁定已有 Small official-ft checkpoint、mean 主信号和完整策略参数，

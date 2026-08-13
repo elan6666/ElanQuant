@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 
 import { Badge } from '../components/Badge'
 import { EmptyState } from '../components/EmptyState'
@@ -6,6 +6,8 @@ import { formatMoney, formatPercent, shortHash } from '../format'
 import type {
   HistoricalBacktest,
   HistoricalBacktestPoint,
+  HistoricalHoldingsSnapshot,
+  HistoricalStrategyVariant,
   OfficialDemoSignal,
 } from '../types'
 
@@ -45,56 +47,59 @@ export function HistoricalBacktestPage({
   backtests,
   available,
   seriesById,
+  onLoadHoldings,
 }: {
   backtests: HistoricalBacktest[]
   available: boolean
   seriesById: Record<string, HistoricalBacktestPoint[]>
+  onLoadHoldings: (
+    backtestId: string,
+    session?: string,
+    signal?: AbortSignal,
+  ) => Promise<HistoricalHoldingsSnapshot | null>
 }) {
   const [selectedSplit, setSelectedSplit] = useState<
     'validation_2025' | 'test_viewed_2026'
   >('test_viewed_2026')
+  const [selectedStrategy, setSelectedStrategy] = useState<HistoricalStrategyVariant>(
+    'official_top50',
+  )
+  const activeSplit = backtests.some((entry) => entry.evaluation_split === selectedSplit)
+    ? selectedSplit
+    : 'validation_2025'
+  const splitBacktests = backtests.filter((entry) => entry.evaluation_split === activeSplit)
   const backtest =
-    backtests.find((entry) => entry.evaluation_split === selectedSplit) ??
-    backtests.find((entry) => entry.evaluation_split === 'validation_2025') ??
+    splitBacktests.find((entry) => entry.strategy_variant_id === selectedStrategy) ??
+    splitBacktests.find((entry) => entry.strategy_variant_id === 'official_top50') ??
     null
-  const series = backtest === null ? [] : (seriesById[backtest.id] ?? [])
+  const officialBacktest = splitBacktests.find(
+    (entry) => entry.strategy_variant_id === 'official_top50',
+  )
+  const top3Backtest = splitBacktests.find(
+    (entry) => entry.strategy_variant_id === 'historical_top3',
+  )
+  const officialSeries = officialBacktest ? (seriesById[officialBacktest.id] ?? []) : []
+  const top3Series = top3Backtest ? (seriesById[top3Backtest.id] ?? []) : []
   return (
     <>
       <header className="page-heading page-heading--split backtest-heading">
         <div>
           <span className="eyebrow">04 / Official-demo method</span>
-          <h1>官方对齐版 <span className="title-phrase">历史回测</span></h1>
-          <p>新增一条独立研究版本：标准化空间信号、Top‑50、Drop‑5、最少持有5日。原来的 Top3 在线排名与模拟账户完整保留。</p>
+          <h1>历史组合 <span className="title-phrase">对照回测</span></h1>
+          <p>同一封存信号下查看官方对齐 Top50 与历史 Top3 组合变体。切换只改变明细，不用结果选模或改动在线账户。</p>
         </div>
         <div className="identity-card identity-card--backtest">
           <span>轨道身份</span>
-          <strong>TOP50 / DROP5 / HOLD5</strong>
-          <small>历史研究 · 1亿元假设账户 · 不生成在线订单</small>
+          <strong>2 SPLITS × 2 PORTFOLIOS</strong>
+          <small>历史 Qlib 模拟 · 只读回执 · 不生成在线订单</small>
         </div>
       </header>
 
       <section className="track-separation" aria-label="双轨隔离说明">
-        <div><span>保留</span><strong>Top3 在线模拟</strong><small>手动按钮 · T日冻结 · T+1执行/拒绝</small></div>
-        <b aria-hidden="true">＋</b>
-        <div><span>新增</span><strong>官方 Demo 对齐版</strong><small>连续历史回测 · Top50 / Drop5 / Hold5</small></div>
-        <p>两条轨道不共享订单、持仓、净值或策略名称；本页所有数字都来自只读封存回执。</p>
-      </section>
-
-      <section className="strategy-compare" aria-label="Top3与官方对齐版对比">
-        <div className="strategy-compare__head"><span>项目</span><strong>保留的 Top3</strong><strong>新增官方对齐版</strong></div>
-        {[
-          ['行情 / 预测长度', '日频 / 10日', '日频 / 10日'],
-          ['运行方式', '收盘后手动按钮', '封存分区连续回测'],
-          ['预测采样', '10条', '5条（官方）'],
-          ['股票信号', '反归一化百分比收益', '标准化空间差值'],
-          ['股票池', '动态PIT沪深300', '动态PIT沪深300（数据偏差已披露）'],
-          ['主策略', 'Top3进入 / 退出', 'Top50 / Drop5'],
-          ['最少持有', '暂不承诺', '5个交易日'],
-          ['执行语义', 'T冻结、T+1执行/拒绝、不递补', 'Qlib延迟至次日开盘'],
-          ['拒单处理', '明确禁止同次递补', '由固定Qlib策略与交易所模型处理'],
-        ].map(([label, top3, official]) => (
-          <div key={label}><span>{label}</span><b>{top3}</b><b>{official}</b></div>
-        ))}
+        <div><span>在线产品</span><strong>在线 Top3 模拟账户</strong><small>手动按钮 · T日冻结 · T+1执行/拒绝</small></div>
+        <b aria-hidden="true">≠</b>
+        <div><span>历史研究</span><strong>Qlib Top3 组合变体</strong><small>开封后探索性敏感性分析 · Top3 / Drop1 / Hold5</small></div>
+        <p>历史 Top3 不等同在线 Top3，不共享订单、持仓、净值或执行逻辑；本页数字只来自只读封存回执。</p>
       </section>
 
       {!available || !backtest ? (
@@ -123,7 +128,45 @@ export function HistoricalBacktestPage({
               )
             })}
           </div>
-          <BacktestEvidence backtest={backtest} series={series} />
+          <section className="historical-strategy-picker" aria-labelledby="historical-strategy-heading">
+            <div className="section-heading">
+              <div><span className="eyebrow">Portfolio sensitivity</span><h2 id="historical-strategy-heading">查看组合明细</h2></div>
+              <small>默认展示官方对齐 Top50</small>
+            </div>
+            <div className="historical-strategy-cards" role="group" aria-label="历史组合明细">
+              {([
+                ['official_top50', '官方对齐 Top50', 'Top50 / Drop5 / Hold5', '封存方法基线'],
+                ['historical_top3', '历史 Qlib Top3', 'Top3 / Drop1 / Hold5', '开封后探索性敏感性分析'],
+              ] as const).map(([variant, label, params, note]) => {
+                const item = splitBacktests.find((entry) => entry.strategy_variant_id === variant)
+                const active = backtest.strategy_variant_id === variant
+                return (
+                  <button
+                    type="button"
+                    className={active ? 'historical-strategy-card is-active' : 'historical-strategy-card'}
+                    aria-pressed={active}
+                    disabled={!item}
+                    key={variant}
+                    onClick={() => setSelectedStrategy(variant)}
+                  >
+                    <span>{variant === 'official_top50' ? '官方方法' : '组合变体'}</span>
+                    <strong>{label}</strong>
+                    <small>{params}</small>
+                    <em>{note}</em>
+                    {item ? <b>{formatPercent(item.metrics.mean.total_return_with_cost)} 累计收益</b> : <b>未发布</b>}
+                  </button>
+                )
+              })}
+            </div>
+            <p className="historical-strategy-disclosure">历史 Top3 不用于选模，不用于改动已冻结参数，也不等同在线 Top3 模拟账户。</p>
+          </section>
+          <BacktestEvidence
+            key={backtest.id}
+            backtest={backtest}
+            officialSeries={officialSeries}
+            top3Series={top3Series}
+            onLoadHoldings={onLoadHoldings}
+          />
         </>
       )}
     </>
@@ -132,25 +175,54 @@ export function HistoricalBacktestPage({
 
 function BacktestEvidence({
   backtest,
-  series,
+  officialSeries,
+  top3Series,
+  onLoadHoldings,
 }: {
   backtest: HistoricalBacktest
-  series: HistoricalBacktestPoint[]
+  officialSeries: HistoricalBacktestPoint[]
+  top3Series: HistoricalBacktestPoint[]
+  onLoadHoldings: (
+    backtestId: string,
+    session?: string,
+    signal?: AbortSignal,
+  ) => Promise<HistoricalHoldingsSnapshot | null>
 }) {
   const primary = backtest.metrics.mean
   const finalTest = backtest.evaluation_split === 'test_viewed_2026'
+  const historicalTop3 = backtest.strategy_variant_id === 'historical_top3'
+  const selectedSeries = historicalTop3 ? top3Series : officialSeries
+  const positionCounts = selectedSeries
+    .map((point) => point.position_count)
+    .filter((value): value is number => value !== null && value !== undefined)
+    .sort((left, right) => left - right)
+  const positionCountMidpoint = Math.floor(positionCounts.length / 2)
+  const positionCountMedian = positionCounts.length % 2
+    ? positionCounts[positionCountMidpoint]
+    : ((positionCounts[positionCountMidpoint - 1] ?? 0) + (positionCounts[positionCountMidpoint] ?? 0)) / 2
+  const positionCountSummary = positionCounts.length
+    ? `${positionCounts[0]} – ${positionCounts.at(-1)} 只，中位数 ${positionCountMedian}`
+    : '会因可交易性与涨跌停偏离 3 只；逐日数值尚未公开'
   return (
     <>
       <div className="official-boundary-banner">
         <Badge tone="success">
-          {finalTest ? 'CORRECTED / OOS 2026 / OPENED' : 'TRAINING VALIDATION / 2025'}
+          {historicalTop3
+            ? 'POST-HOC / NON-SELECTION'
+            : finalTest
+              ? 'CORRECTED / OOS 2026 / OPENED'
+              : 'TRAINING VALIDATION / 2025'}
         </Badge>
         <strong>
-          {finalTest
-            ? '已修正未来成分/缺行条件；窗口已开封，只作样本外诊断，不是新的盲测'
-            : '这一段参与 validation loss 和 best checkpoint 选择，不是最终测试'}
+          {historicalTop3
+            ? finalTest
+              ? '2026 窗口已开封；这是组合层的事后诊断，不用于选模'
+              : '2025 已在查看后构建；这是事后敏感性分析，不用于选模'
+            : finalTest
+              ? '已修正未来成分/缺行条件；窗口已开封，只作样本外诊断，不是新的盲测'
+              : '这一段参与 validation loss 和 best checkpoint 选择，不是最终测试'}
         </strong>
-        <span>标准化分数不是预测收益率；本回测也不是在线账户。</span>
+        <span>标准化分数不是预测收益率；历史 Qlib Top3 不等同在线 Top3 账户。</span>
       </div>
 
       <section className="metric-grid backtest-metrics">
@@ -163,11 +235,18 @@ function BacktestEvidence({
       <section className="content-section backtest-chart-section">
         <div className="section-heading">
           <div><span className="eyebrow">Primary signal / mean</span><h2>{finalTest ? '2026 已开封样本外诊断曲线' : '2025 训练验证曲线'}</h2></div>
-          <span className="count-label">{series.length} SESSIONS</span>
+          <span className="count-label">{selectedSeries.length} SESSIONS</span>
         </div>
-        <BacktestChart points={series} />
-        <div className="chart-legend"><span className="chart-legend__strategy">Top50策略（含费）</span><span className="chart-legend__benchmark">沪深300</span><small>与官方 qlib_test.py 一致：这里是每日收益算术累加，不把它称为账户NAV。</small></div>
+        <BacktestChart officialPoints={officialSeries} top3Points={top3Series} />
+        <div className="chart-legend" aria-label="曲线图例">
+          <span className="chart-legend__official">官方对齐 Top50（实线）</span>
+          {top3Series.length > 1 ? <span className="chart-legend__top3">历史 Qlib Top3（长虚线）</span> : null}
+          <span className="chart-legend__benchmark">沪深300（短虚线）</span>
+          <small>与官方 qlib_test.py 一致：这里是每日收益算术累加，不把它称为账户NAV。</small>
+        </div>
       </section>
+
+      <HistoricalHoldingsViewer backtest={backtest} onLoad={onLoadHoldings} />
 
       <section className="official-signal-grid" aria-label="四个官方信号">
         {signals.map((signal) => {
@@ -185,7 +264,7 @@ function BacktestEvidence({
 
       <section className="two-column backtest-evidence-grid">
         <div className="content-section">
-          <div className="section-heading"><div><span className="eyebrow">Resolved strategy</span><h2>官方 Demo 执行参数</h2></div></div>
+          <div className="section-heading"><div><span className="eyebrow">Resolved strategy</span><h2>{historicalTop3 ? '历史 Top3 组合参数' : '官方 Demo 执行参数'}</h2></div></div>
           <div className="evidence-list">
             <div><span>持仓 / 每次剔除</span><strong>{backtest.strategy.topk} / {backtest.strategy.n_drop}</strong></div>
             <div><span>最少持有</span><strong>{backtest.strategy.hold_thresh} 个交易日</strong></div>
@@ -193,12 +272,17 @@ function BacktestEvidence({
             <div><span>假设资金</span><strong>{formatMoney(backtest.execution.account)}</strong></div>
             <div><span>买入 / 卖出成本</span><strong>{formatPercent(backtest.execution.open_cost)} / {formatPercent(backtest.execution.close_cost)}</strong></div>
             <div><span>涨跌停阈值</span><strong>{formatPercent(backtest.execution.limit_threshold)}</strong></div>
+            <div><span>日均换手</span><strong>{primary.turnover_mean === null ? '—' : formatPercent(primary.turnover_mean)}</strong></div>
+            {historicalTop3 ? <div><span>实际持仓数</span><strong>{positionCountSummary}</strong></div> : null}
+            {historicalTop3 ? <div><span>逐日可观察性</span><strong>{backtest.observability?.turnover_exposed && backtest.observability.position_count_exposed ? '换手与持仓数已暴露' : '只展示摘要，局限已披露'}</strong></div> : null}
           </div>
         </div>
         <div className="content-section">
           <div className="section-heading"><div><span className="eyebrow">Evidence identity</span><h2>数据与回执</h2></div></div>
           <div className="evidence-list">
             <div><span>模型格</span><strong>{backtest.model_cell_id}</strong></div>
+            <div><span>组合身份</span><strong>{historicalTop3 ? '历史 Qlib Top3' : '官方对齐 Top50'}</strong></div>
+            <div><span>执行域</span><strong>历史 Qlib 模拟</strong></div>
             <div><span>Qlib</span><strong>{backtest.qlib.version}</strong></div>
             <div><span>实际区间</span><strong>{backtest.support.actual_start ?? '—'} → {backtest.support.actual_end ?? '—'}</strong></div>
             <div><span>交易日 / 信号行</span><strong>{backtest.support.sessions} / {backtest.support.signal_rows.toLocaleString()}</strong></div>
@@ -218,27 +302,182 @@ function BacktestEvidence({
   )
 }
 
-function BacktestChart({ points }: { points: HistoricalBacktestPoint[] }) {
+function HistoricalHoldingsViewer({
+  backtest,
+  onLoad,
+}: {
+  backtest: HistoricalBacktest
+  onLoad: (
+    backtestId: string,
+    session?: string,
+    signal?: AbortSignal,
+  ) => Promise<HistoricalHoldingsSnapshot | null>
+}) {
+  const [snapshot, setSnapshot] = useState<HistoricalHoldingsSnapshot | null>(null)
+  const [state, setState] = useState<'loading' | 'ready' | 'unavailable' | 'error'>('loading')
+  const [message, setMessage] = useState('')
+  const controllerRef = useRef<AbortController | null>(null)
+
+  useEffect(() => {
+    controllerRef.current?.abort()
+    const controller = new AbortController()
+    controllerRef.current = controller
+    setState('loading')
+    void onLoad(backtest.id, undefined, controller.signal)
+      .then((result) => {
+        if (controller.signal.aborted) return
+        if (result === null) {
+          setSnapshot(null)
+          setState('unavailable')
+          return
+        }
+        setSnapshot(result)
+        setState('ready')
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return
+        setMessage(error instanceof Error ? error.message : '未知错误')
+        setState('error')
+      })
+    return () => {
+      controller.abort()
+      if (controllerRef.current === controller) controllerRef.current = null
+    }
+  }, [backtest.id, onLoad])
+
+  const selectSession = (session?: string) => {
+    controllerRef.current?.abort()
+    const controller = new AbortController()
+    controllerRef.current = controller
+    setState('loading')
+    void onLoad(backtest.id, session, controller.signal)
+      .then((result) => {
+        if (controller.signal.aborted) return
+        if (result === null) {
+          setSnapshot(null)
+          setState('unavailable')
+          return
+        }
+        setSnapshot(result)
+        setState('ready')
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return
+        setMessage(error instanceof Error ? error.message : '未知错误')
+        setState('error')
+      })
+  }
+
+  return (
+    <section className="content-section historical-holdings" aria-labelledby="historical-holdings-heading">
+      <div className="section-heading historical-holdings__heading">
+        <div><span className="eyebrow">Sealed positions</span><h2 id="historical-holdings-heading">评估期实际持仓</h2></div>
+        {snapshot ? (
+          <label>
+            <span>交易日</span>
+            <div className="holdings-session-control">
+              <button
+                type="button"
+                aria-label="上一交易日"
+                disabled={state === 'loading' || snapshot.sessions.indexOf(snapshot.selected_session) <= 0}
+                onClick={() => selectSession(snapshot.sessions[snapshot.sessions.indexOf(snapshot.selected_session) - 1])}
+              >←</button>
+              <select
+                aria-label="持仓交易日"
+                value={snapshot.selected_session}
+                disabled={state === 'loading'}
+                onChange={(event) => selectSession(event.target.value)}
+              >
+                {snapshot.sessions.map((session) => <option key={session} value={session}>{session}</option>)}
+              </select>
+              <button
+                type="button"
+                aria-label="下一交易日"
+                disabled={state === 'loading' || snapshot.sessions.indexOf(snapshot.selected_session) >= snapshot.sessions.length - 1}
+                onClick={() => selectSession(snapshot.sessions[snapshot.sessions.indexOf(snapshot.selected_session) + 1])}
+              >→</button>
+            </div>
+          </label>
+        ) : null}
+      </div>
+
+      {state === 'loading' ? <div className="holdings-state" role="status">正在校验该交易日的封存持仓…</div> : null}
+      {state === 'unavailable' ? (
+        <EmptyState
+          title="该回测没有封存持仓工件"
+          description="旧版 Top50 只发布了指标与曲线；页面不会推测或伪造历史持仓。"
+        />
+      ) : null}
+      {state === 'error' ? <div className="holdings-state holdings-state--error" role="alert"><strong>持仓证据读取失败</strong><span>{message}</span><button type="button" onClick={() => selectSession(snapshot?.selected_session)}>重试持仓读取</button></div> : null}
+      {state === 'ready' && snapshot ? (
+        <>
+          <div className="holdings-summary" aria-live="polite">
+            <div><span>实际持仓</span><strong>{snapshot.holdings.length} 只</strong></div>
+            <div><span>策略目标</span><strong>{backtest.strategy.topk} 只</strong></div>
+            <p>{snapshot.holdings.length === backtest.strategy.topk ? '实际持仓数与策略目标一致。' : '实际持仓数与目标不同；可交易性、涨跌停与最少持有约束都可能造成偏离。'}</p>
+          </div>
+          {snapshot.holdings.length ? (
+            <div className="holdings-table-wrap">
+              <table className="holdings-table">
+                <caption className="sr-only">{snapshot.selected_session} 封存历史持仓</caption>
+                <thead><tr><th scope="col">股票代码</th><th scope="col">数量</th><th scope="col">权重</th><th scope="col">市值</th></tr></thead>
+                <tbody>
+                  {snapshot.holdings.map((holding) => {
+                    return (
+                      <tr key={holding.instrument}>
+                        <th scope="row"><code>{holding.instrument}</code></th>
+                        <td>{holding.amount.toLocaleString()}</td>
+                        <td>{formatPercent(holding.weight)}</td>
+                        <td>{formatMoney(holding.value)}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : <div className="holdings-state">该交易日的封存持仓为空。</div>}
+          <div className="holdings-receipt"><span>Artifact <code>{shortHash(snapshot.source.artifact_sha256)}</code></span><span>Holdings receipt <code>{shortHash(snapshot.source.receipt_sha256)}</code></span><span>Backtest receipt <code>{shortHash(snapshot.source.backtest_receipt_sha256)}</code></span></div>
+        </>
+      ) : null}
+    </section>
+  )
+}
+
+function BacktestChart({
+  officialPoints,
+  top3Points,
+}: {
+  officialPoints: HistoricalBacktestPoint[]
+  top3Points: HistoricalBacktestPoint[]
+}) {
+  const chartId = useId().replace(/:/g, '')
+  const points = officialPoints.length >= 2 ? officialPoints : top3Points
   if (points.length < 2) return <EmptyState title="历史曲线尚未发布" description="回测摘要存在，但逐日曲线还没有通过哈希校验。" />
-  const values = points.flatMap((point) => [point.strategy, point.benchmark])
+  const values = [
+    ...officialPoints.flatMap((point) => [point.strategy, point.benchmark]),
+    ...top3Points.map((point) => point.strategy),
+  ]
   const min = Math.min(...values)
   const max = Math.max(...values)
   const range = max - min || 1
-  const polyline = (key: 'strategy' | 'benchmark') => points.map((point, index) => {
-    const x = 2 + (index / (points.length - 1)) * 96
+  const polyline = (series: HistoricalBacktestPoint[], key: 'strategy' | 'benchmark') => series.map((point, index) => {
+    const x = 2 + (index / (series.length - 1)) * 96
     const y = 94 - ((point[key] - min) / range) * 86
     return `${x.toFixed(2)},${y.toFixed(2)}`
   }).join(' ')
+  const benchmarkPoints = officialPoints.length >= 2 ? officialPoints : top3Points
+  const hasTop3 = top3Points.length >= 2
   return (
     <div className="backtest-chart">
-      <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-labelledby="backtest-chart-title backtest-chart-description">
-        <title id="backtest-chart-title">Top50策略与沪深300算术累计收益曲线</title>
-        <desc id="backtest-chart-description">展示封存区间内的含费Top50策略和沪深300每日收益算术累加。</desc>
+      <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-labelledby={`${chartId}-title ${chartId}-description`}>
+        <title id={`${chartId}-title`}>{hasTop3 ? '官方对齐Top50、历史Qlib Top3与沪深300算术累计收益曲线' : '官方对齐Top50与沪深300算术累计收益曲线'}</title>
+        <desc id={`${chartId}-description`}>{hasTop3 ? '展示封存区间内官方对齐Top50实线、历史Qlib Top3长虚线和沪深300短虚线的每日收益算术累加。' : '旧版回执只展示官方对齐Top50实线和沪深300短虚线的每日收益算术累加。'}</desc>
         <line x1="0" x2="100" y1={94 - ((0 - min) / range) * 86} y2={94 - ((0 - min) / range) * 86} className="backtest-chart__zero" />
-        <polyline points={polyline('strategy')} className="backtest-chart__strategy" vectorEffect="non-scaling-stroke" />
-        <polyline points={polyline('benchmark')} className="backtest-chart__benchmark" vectorEffect="non-scaling-stroke" />
+        {officialPoints.length >= 2 ? <polyline points={polyline(officialPoints, 'strategy')} className="backtest-chart__official" vectorEffect="non-scaling-stroke" /> : null}
+        {hasTop3 ? <polyline points={polyline(top3Points, 'strategy')} className="backtest-chart__top3" vectorEffect="non-scaling-stroke" /> : null}
+        <polyline points={polyline(benchmarkPoints, 'benchmark')} className="backtest-chart__benchmark" vectorEffect="non-scaling-stroke" />
       </svg>
-      <div><span>{points[0]?.session}</span><strong>{formatPercent(points.at(-1)?.strategy)}</strong><span>{points.at(-1)?.session}</span></div>
+      <div><span>{points[0]?.session}</span><strong>{hasTop3 ? '三线对照' : '两线对照'}</strong><span>{points.at(-1)?.session}</span></div>
     </div>
   )
 }

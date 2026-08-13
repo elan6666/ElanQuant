@@ -15,16 +15,24 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from elanquant.contracts.official_demo import SIGNALS as OFFICIAL_DEMO_SIGNALS
-from elanquant.contracts.official_demo import (
-    sha256_file,
-    validate_backtest_catalog,
-    validate_backtest_receipt,
+from elanquant.contracts.historical_variants import (
+    HOLDINGS_COLUMNS,
+    validate_any_backtest_receipt,
+    validate_historical_catalog,
+    validate_holdings_receipt,
+    validate_holdings_records,
 )
+from elanquant.contracts.official_demo import SIGNALS as OFFICIAL_DEMO_SIGNALS
+from elanquant.contracts.official_demo import sha256_file
 from elanquant.orchestration.jobs import JobStore
 from elanquant.pipelines.paper import ACCOUNT_ID
 from elanquant.settings import Settings
 from elanquant.storage.database import Database
+
+HISTORICAL_CURVE_SEMANTICS = {
+    "official": "Arithmetic cumulative sum of daily returns, matching qlib_test.py.",
+    "derived": "Compounded NAV is an ElanQuant instrumentation extension.",
+}
 
 
 class UpdateInferRequest(BaseModel):
@@ -274,12 +282,48 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allowed_hosts=["127.0.0.1", "localhost", "[::1]", "testserver"],
     )
 
-    def load_historical_backtests() -> dict[str, tuple[dict[str, Any], dict[str, Any]]]:
+    def historical_public_identity(
+        entry: dict[str, Any], receipt: dict[str, Any]
+    ) -> dict[str, object]:
+        split = receipt.get(
+            "evaluation_split", entry.get("evaluation_split", entry.get("selection_split"))
+        )
+        if split not in {"validation_2025", "test_viewed_2026"}:
+            raise RuntimeError("historical public split identity is invalid")
+        top50 = receipt["strategy"].get("topk") == 50
+        expected: dict[str, object] = {
+            "strategy_variant_id": "official_top50" if top50 else "historical_top3",
+            "strategy_role": (
+                "OFFICIAL_METHOD_BASELINE" if top50 else "PORTFOLIO_SENSITIVITY_VARIANT"
+            ),
+            "comparison_group_id": "top50-vs-top3-v1",
+            "execution_domain": "HISTORICAL_QLIB_SIMULATION",
+            "online_paper_equivalent": False,
+            "promotion_eligible": False,
+            "source_backtest_id": None if top50 else receipt.get("source_backtest_id"),
+        }
+        for identity, value in expected.items():
+            if identity in entry:
+                declared = entry[identity]
+            elif identity in receipt:
+                declared = receipt[identity]
+            else:
+                declared = value
+            if declared != value:
+                raise RuntimeError(f"historical public identity disagrees: {identity}")
+            if not top50 and identity == "source_backtest_id" and value is None:
+                raise RuntimeError("historical Top3 source backtest identity is absent")
+        return expected
+
+    def load_historical_backtests() -> tuple[
+        dict[str, Any] | None,
+        dict[str, tuple[dict[str, Any], dict[str, Any]]],
+    ]:
         catalog_path = active_settings.historical_backtest_catalog.resolve()
         if not catalog_path.is_file():
-            return {}
+            return None, {}
         try:
-            catalog = validate_backtest_catalog(
+            catalog = validate_historical_catalog(
                 json.loads(catalog_path.read_text(encoding="utf-8"))
             )
             root = catalog_path.parent.parent.resolve()
@@ -290,7 +334,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     raise RuntimeError("historical backtest receipt escaped its sealed root")
                 if sha256_file(receipt_path) != entry["receipt_sha256"]:
                     raise RuntimeError("historical backtest receipt hash mismatch")
-                receipt = validate_backtest_receipt(
+                receipt = validate_any_backtest_receipt(
                     json.loads(receipt_path.read_text(encoding="utf-8"))
                 )
                 if (
@@ -299,7 +343,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     or receipt["metrics"][receipt["primary_signal"]] != entry["summary"]
                 ):
                     raise RuntimeError("historical backtest catalog and receipt disagree")
-                loaded[str(receipt["id"])] = (entry, receipt)
+                entry = {**entry, **historical_public_identity(entry, receipt)}
+                identifier = str(receipt["id"])
+                if identifier in loaded:
+                    raise RuntimeError("historical backtest identity is duplicated")
+                loaded[identifier] = (entry, receipt)
+            if len(loaded) != len(catalog["entries"]):
+                raise RuntimeError("historical backtest catalog did not load exactly")
         except (
             KeyError,
             OSError,
@@ -312,48 +362,89 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 status_code=503,
                 detail="Historical backtest failed its sealed evidence gate",
             ) from error
-        return loaded
+        return catalog, loaded
 
-    def public_backtest(receipt: dict[str, Any], receipt_sha256: str) -> dict[str, object]:
+    def public_backtest(
+        entry: dict[str, Any], receipt: dict[str, Any], receipt_sha256: str
+    ) -> dict[str, object]:
+        source = entry.get("source")
+        if not isinstance(source, dict):
+            source = {}
+        signal_receipt_sha256 = receipt.get(
+            "signal_receipt_sha256",
+            receipt.get("source_signal_receipt_sha256", source.get("signal_receipt_sha256")),
+        )
+        provider_receipt_sha256 = receipt.get(
+            "provider_receipt_sha256",
+            receipt.get(
+                "source_provider_receipt_sha256", source.get("provider_receipt_sha256")
+            ),
+        )
+        if not valid_sha256(signal_receipt_sha256) or not valid_sha256(
+            provider_receipt_sha256
+        ):
+            raise RuntimeError("historical public source identity is incomplete")
+        curve_semantics = receipt.get(
+            "curve_semantics",
+            HISTORICAL_CURVE_SEMANTICS,
+        )
         result: dict[str, object] = {
             "id": receipt["id"],
             "state": "passed",
-            "track_kind": receipt["track_kind"],
+            "track_kind": receipt.get(
+                "track_kind", "OFFICIAL_DEMO_METHOD_EXTENDED_PIT"
+            ),
             "model_cell_id": receipt["model_cell_id"],
             "generated_at": receipt["generated_at"],
             "selection_eligible": receipt["selection_eligible"],
             "primary_signal": receipt["primary_signal"],
             "receipt_sha256": receipt_sha256,
-            "signal_receipt_sha256": receipt["signal_receipt_sha256"],
-            "provider_receipt_sha256": receipt["provider_receipt_sha256"],
+            "signal_receipt_sha256": signal_receipt_sha256,
+            "provider_receipt_sha256": provider_receipt_sha256,
             "backtest_code_sha256": receipt["backtest_code_sha256"],
             "strategy": receipt["strategy"],
             "execution": receipt["execution"],
             "support": receipt["support"],
             "metrics": receipt["metrics"],
             "qlib": receipt["qlib"],
-            "curve_semantics": receipt["curve_semantics"],
+            "curve_semantics": curve_semantics,
             "deviations": receipt["deviations"],
+            "observability": receipt.get("observability"),
         }
-        if receipt["id"] == "official-demo-method-extended-pit-v1":
-            result.update(
-                {
-                    "evaluation_split": "validation_2025",
-                    "result_role": "TRAINING_VALIDATION_CHECKPOINT_SELECTION",
-                    "used_for_selection": True,
-                    "test_data_access": "NOT_APPLICABLE",
-                }
-            )
-        else:
-            result.update(
-                {
-                    "evaluation_split": receipt["evaluation_split"],
-                    "result_role": receipt["result_role"],
-                    "used_for_selection": receipt["used_for_selection"],
-                    "test_data_access": receipt["test_data_access"],
-                    "analysis_lock_sha256": receipt["analysis_lock_sha256"],
-                }
-            )
+        for identity in (
+            "strategy_variant_id",
+            "strategy_role",
+            "comparison_group_id",
+            "execution_domain",
+            "online_paper_equivalent",
+            "promotion_eligible",
+            "source_backtest_id",
+        ):
+            result[identity] = entry[identity]
+        evaluation_split = receipt.get(
+            "evaluation_split", entry.get("evaluation_split", entry.get("selection_split"))
+        )
+        if evaluation_split not in {"validation_2025", "test_viewed_2026"}:
+            raise RuntimeError("historical public split identity is invalid")
+        result.update(
+            {
+                "evaluation_split": evaluation_split,
+                "result_role": receipt.get(
+                    "result_role",
+                    entry.get(
+                        "result_role", "TRAINING_VALIDATION_CHECKPOINT_SELECTION"
+                    ),
+                ),
+                "used_for_selection": receipt.get(
+                    "used_for_selection", entry.get("used_for_selection", True)
+                ),
+                "test_data_access": receipt.get(
+                    "test_data_access", entry.get("test_data_access", "NOT_APPLICABLE")
+                ),
+            }
+        )
+        if "analysis_lock_sha256" in receipt:
+            result["analysis_lock_sha256"] = receipt["analysis_lock_sha256"]
         return result
 
     @app.middleware("http")
@@ -615,38 +706,37 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/api/v1/research/backtests")
     def research_backtests() -> dict[str, object]:
-        loaded = load_historical_backtests()
+        catalog, loaded = load_historical_backtests()
         if not loaded:
             return {"available": False, "generated_at": None, "backtests": []}
-        catalog = validate_backtest_catalog(
-            json.loads(
-                active_settings.historical_backtest_catalog.read_text(encoding="utf-8")
-            )
-        )
+        if catalog is None:
+            raise HTTPException(status_code=503, detail="Historical catalog disappeared")
         return {
             "available": True,
             "generated_at": catalog["generated_at"],
             "backtests": [
-                public_backtest(receipt, str(entry["receipt_sha256"]))
+                public_backtest(entry, receipt, str(entry["receipt_sha256"]))
                 for entry, receipt in loaded.values()
             ],
         }
 
     @app.get("/api/v1/research/backtests/{backtest_id}")
     def research_backtest(backtest_id: str) -> dict[str, object]:
-        loaded = load_historical_backtests()
+        _, loaded = load_historical_backtests()
         selected = loaded.get(backtest_id)
         if selected is None:
             raise HTTPException(status_code=404, detail="Historical backtest not found")
         entry, receipt = selected
-        return {"backtest": public_backtest(receipt, str(entry["receipt_sha256"]))}
+        return {
+            "backtest": public_backtest(entry, receipt, str(entry["receipt_sha256"]))
+        }
 
     @app.get("/api/v1/research/backtests/{backtest_id}/series")
     def research_backtest_series(
         backtest_id: str,
         signal: Annotated[str, Query()] = "mean",
     ) -> dict[str, object]:
-        loaded = load_historical_backtests()
+        _, loaded = load_historical_backtests()
         selected = loaded.get(backtest_id)
         if selected is None:
             raise HTTPException(status_code=404, detail="Historical backtest not found")
@@ -687,7 +777,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     }
                     if not all(math.isfinite(value) for value in values.values()):
                         raise RuntimeError("historical series contains a non-finite value")
-                    points.append({"session": row["datetime"], **values})
+                    optional_values: dict[str, float | None] = {}
+                    for identity in ("turnover", "position_count"):
+                        raw = row.get(identity)
+                        if raw is None or raw == "":
+                            optional_values[identity] = None
+                            continue
+                        value = float(str(raw))
+                        if not math.isfinite(value):
+                            raise RuntimeError(
+                                f"historical series contains a non-finite {identity}"
+                            )
+                        optional_values[identity] = value
+                    points.append(
+                        {"session": row["datetime"], **values, **optional_values}
+                    )
         except (OSError, TypeError, ValueError, RuntimeError) as error:
             raise HTTPException(
                 status_code=503, detail="Historical series failed its evidence gate"
@@ -703,8 +807,201 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {
             "backtest_id": receipt["id"],
             "signal": signal,
-            "curve_semantics": receipt["curve_semantics"],
+            "curve_semantics": receipt.get(
+                "curve_semantics", HISTORICAL_CURVE_SEMANTICS
+            ),
             "points": points,
+        }
+
+    @app.get("/api/v1/research/backtests/{backtest_id}/holdings")
+    def research_backtest_holdings(
+        backtest_id: str,
+        session: Annotated[date | None, Query()] = None,
+    ) -> dict[str, object]:
+        _, loaded = load_historical_backtests()
+        selected = loaded.get(backtest_id)
+        if selected is None:
+            raise HTTPException(status_code=404, detail="Historical backtest not found")
+        entry, receipt = selected
+        holdings_pointer = entry.get("holdings")
+        if (
+            not isinstance(holdings_pointer, dict)
+            or set(holdings_pointer) != {"receipt_path", "receipt_sha256"}
+        ):
+            raise HTTPException(
+                status_code=404,
+                detail="Historical holdings are unavailable for this backtest",
+            )
+        root = active_settings.historical_backtest_catalog.resolve().parent.parent
+        sidecar_path = (root / str(holdings_pointer.get("receipt_path"))).resolve()
+        try:
+            if (
+                root not in sidecar_path.parents
+                or not sidecar_path.is_file()
+                or sidecar_path.stat().st_size > 1_000_000
+                or not valid_sha256(holdings_pointer.get("receipt_sha256"))
+                or sha256_file(sidecar_path) != holdings_pointer["receipt_sha256"]
+            ):
+                raise RuntimeError("historical holdings receipt mismatch")
+        except (OSError, RuntimeError) as error:
+            raise HTTPException(
+                status_code=503, detail="Historical holdings receipt mismatch"
+            ) from error
+        try:
+            sidecar = validate_holdings_receipt(
+                json.loads(sidecar_path.read_text(encoding="utf-8"))
+            )
+            artifact = sidecar["artifact"]
+            receipt_signal_sha256 = receipt.get(
+                "signal_receipt_sha256", receipt.get("source_signal_receipt_sha256")
+            )
+            receipt_provider_sha256 = receipt.get(
+                "provider_receipt_sha256", receipt.get("source_provider_receipt_sha256")
+            )
+            if (
+                sidecar.get("backtest_id") != receipt["id"]
+                or sidecar.get("evaluation_split")
+                != entry["evaluation_split"]
+                or sidecar.get("strategy_variant_id")
+                != entry["strategy_variant_id"]
+                or sidecar.get("execution_domain")
+                != "HISTORICAL_QLIB_SIMULATION"
+                or sidecar.get("online_paper_equivalent") is not False
+                or sidecar.get("promotion_eligible") is not False
+                or sidecar.get("backtest_receipt_path") != entry["receipt_path"]
+                or sidecar.get("backtest_receipt_sha256") != entry["receipt_sha256"]
+                or sidecar.get("source_signal_receipt_sha256")
+                != receipt_signal_sha256
+                or sidecar.get("source_provider_receipt_sha256")
+                != receipt_provider_sha256
+                or not isinstance(artifact, dict)
+            ):
+                raise RuntimeError("historical holdings sidecar identity is invalid")
+        except (KeyError, OSError, json.JSONDecodeError, RuntimeError, TypeError) as error:
+            raise HTTPException(
+                status_code=503, detail="Historical holdings receipt failed its evidence gate"
+            ) from error
+        artifact_path = (root / str(artifact.get("path"))).resolve()
+        try:
+            if (
+                root not in artifact_path.parents
+                or not artifact_path.is_file()
+                or artifact_path.stat().st_size != artifact.get("bytes")
+                or artifact_path.stat().st_size > 64_000_000
+                or not valid_sha256(artifact.get("sha256"))
+                or sha256_file(artifact_path) != artifact["sha256"]
+                or artifact.get("schema_version")
+                != "elanquant_historical_daily_holdings_v1"
+                or artifact.get("columns")
+                != list(HOLDINGS_COLUMNS)
+                or artifact.get("rows", 200_001) > 200_000
+                or artifact.get("sessions", 1_001) > 1000
+            ):
+                raise RuntimeError("historical holdings evidence mismatch")
+        except (OSError, RuntimeError) as error:
+            raise HTTPException(
+                status_code=503, detail="Historical holdings evidence mismatch"
+            ) from error
+        required = list(HOLDINGS_COLUMNS)
+        rows: list[dict[str, object]] = []
+        try:
+            with artifact_path.open(encoding="utf-8", newline="") as handle:
+                reader = csv.DictReader(handle)
+                if reader.fieldnames != required:
+                    raise RuntimeError("historical holdings columns are not exact")
+                for raw in reader:
+                    instrument = raw["instrument"]
+                    parsed_session = date.fromisoformat(raw["session"])
+                    if raw["signal"] not in OFFICIAL_DEMO_SIGNALS:
+                        raise RuntimeError("historical holding signal is invalid")
+                    if raw["is_empty"] not in {"True", "False"}:
+                        raise RuntimeError("historical holding empty marker is invalid")
+                    is_empty = raw["is_empty"] == "True"
+                    if (not is_empty and not instrument) or len(instrument) > 32:
+                        raise RuntimeError("historical holding instrument is invalid")
+                    values: dict[str, float] = {}
+                    for identity in ("amount", "weight", "value"):
+                        cell = raw[identity]
+                        value = float(cell)
+                        if not math.isfinite(value) or value < 0:
+                            raise RuntimeError("historical holding value is not finite")
+                        values[identity] = value
+                    if values["weight"] > 1:
+                        raise RuntimeError("historical holding weight is invalid")
+                    if is_empty and (instrument or any(value != 0 for value in values.values())):
+                        raise RuntimeError("historical empty holding row is invalid")
+                    rows.append(
+                        {
+                            "session": parsed_session.isoformat(),
+                            "signal": raw["signal"],
+                            "is_empty": is_empty,
+                            "instrument": instrument,
+                            **values,
+                        }
+                    )
+                    if len(rows) > 200_000:
+                        raise RuntimeError("historical holdings artifact is unbounded")
+            observed_support = validate_holdings_records(
+                rows,
+                expected_sessions=artifact["sessions"],
+            )
+            if any(
+                observed_support[identity] != artifact[identity]
+                for identity in (
+                    "rows",
+                    "sessions",
+                    "session_signal_pairs",
+                    "empty_session_signal_pairs",
+                )
+            ):
+                raise RuntimeError("historical holdings support receipt disagrees")
+        except (OSError, TypeError, ValueError, RuntimeError) as error:
+            raise HTTPException(
+                status_code=503, detail="Historical holdings failed its evidence gate"
+            ) from error
+        primary_rows = [row for row in rows if row["signal"] == receipt["primary_signal"]]
+        sessions = sorted({str(row["session"]) for row in primary_rows})
+        if not sessions or len(sessions) > 1000:
+            raise HTTPException(status_code=503, detail="Historical holdings support is invalid")
+        selected_session = session.isoformat() if session is not None else sessions[-1]
+        if selected_session not in sessions:
+            raise HTTPException(status_code=404, detail="Historical holdings session not found")
+        holdings = [
+            {
+                "instrument": row["instrument"],
+                "amount": row["amount"],
+                "weight": row["weight"],
+                "value": row["value"],
+            }
+            for row in primary_rows
+            if row["session"] == selected_session and row["is_empty"] is False
+        ]
+        empty_rows = [
+            row
+            for row in primary_rows
+            if row["session"] == selected_session and row["is_empty"] is True
+        ]
+        if (
+            len(holdings) > 500
+            or len({str(row["instrument"]) for row in holdings}) != len(holdings)
+            or (not holdings and len(empty_rows) != 1)
+            or (holdings and empty_rows)
+        ):
+            raise HTTPException(status_code=503, detail="Historical holdings rows are invalid")
+        return {
+            "backtest_id": receipt["id"],
+            "available": True,
+            "sessions": sessions,
+            "default_session": sessions[-1],
+            "selected_session": selected_session,
+            "signal": receipt["primary_signal"],
+            "empty": not holdings,
+            "source": {
+                "artifact_sha256": artifact["sha256"],
+                "receipt_sha256": holdings_pointer["receipt_sha256"],
+                "backtest_receipt_sha256": entry["receipt_sha256"],
+            },
+            "holdings": holdings,
         }
 
     @app.post("/api/v1/jobs/update-infer", status_code=status.HTTP_202_ACCEPTED)

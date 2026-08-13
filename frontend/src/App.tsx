@@ -101,6 +101,7 @@ export function App({ client = productionClient }: { client?: ApiClient }) {
           backtests={snapshot.historical_backtests}
           available={snapshot.historical_backtest_available}
           seriesById={snapshot.historical_backtest_series}
+          onLoadHoldings={client.getHistoricalHoldings}
         />
       ) : null}
       {page === 'ranking' ? <RankingPage run={snapshot.latest_run} /> : null}

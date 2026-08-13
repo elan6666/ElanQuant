@@ -10,7 +10,7 @@ Environment=ELANQUANT_CONFIG=/data/yilangliu/a_share_research/elanquant/source/c
 Environment=ELANQUANT_DB_PATH=/data/yilangliu/a_share_research/elanquant/artifacts/elanquant.sqlite3
 Environment=ELANQUANT_ARTIFACT_ROOT=/data/yilangliu/a_share_research/elanquant/artifacts/runs
 Environment=ELANQUANT_RESEARCH_CATALOG=/data/yilangliu/a_share_research/elanquant/releases/research-catalog.json
-Environment=ELANQUANT_HISTORICAL_BACKTEST_CATALOG=/data/yilangliu/a_share_research/elanquant/releases/historical-backtest-catalog-v3.json
+Environment=ELANQUANT_HISTORICAL_BACKTEST_CATALOG=/data/yilangliu/a_share_research/elanquant/releases/historical-backtest-catalog-v5.json
 Environment=ELANQUANT_FRONTEND_DIST=/data/yilangliu/a_share_research/elanquant/source/frontend/dist
 Environment=ELANQUANT_PIPELINE_MODE=real
 ExecStart=/data/yilangliu/a_share_research/elanquant/app-venv/bin/elanquant-api

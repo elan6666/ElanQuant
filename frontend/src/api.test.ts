@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ApiContractError, createApiClient } from './api'
-import { historicalBacktest } from './test/fixtures'
+import {
+  finalTestHistoricalBacktest,
+  finalTestHistoricalTop3Backtest,
+  historicalBacktest,
+  historicalTop3Backtest,
+} from './test/fixtures'
 
 const response = (payload: unknown, status = 200): Response =>
   ({
@@ -9,6 +14,35 @@ const response = (payload: unknown, status = 200): Response =>
     statusText: status === 404 ? 'Not Found' : 'OK',
     json: async () => payload,
   }) as Response
+
+const stubHistoricalCatalog = (backtests: unknown[]) => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input)
+      if (path.endsWith('/system/status')) {
+        return response({
+          service_state: 'ready',
+          server_time: '2026-08-13T20:00:00+08:00',
+          latest_closed_session: null,
+          data_as_of: null,
+          inference_as_of: null,
+          active_job_id: null,
+          primary_model: null,
+          warnings: [],
+        })
+      }
+      if (path.endsWith('/jobs')) return response({ jobs: [] })
+      if (path.includes('/runs?')) return response({ runs: [] })
+      if (path.endsWith('/research/experiments')) return response({ experiments: [] })
+      if (path.endsWith('/research/backtests')) return response({ available: true, backtests })
+      if (path.includes('/research/backtests/') && path.includes('/series?signal=mean')) {
+        return response({ signal: 'mean', points: [] })
+      }
+      return response({}, 404)
+    }),
+  )
+}
 
 describe('API runtime contract', () => {
   afterEach(() => vi.unstubAllGlobals())
@@ -196,6 +230,8 @@ describe('API runtime contract', () => {
   })
 
   it('decodes the sealed official-demo backtest as a separate read-only track', async () => {
+    const legacyBacktest: Record<string, unknown> = { ...historicalBacktest }
+    delete legacyBacktest.strategy_variant_id
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
@@ -216,7 +252,7 @@ describe('API runtime contract', () => {
         if (path.includes('/runs?')) return response({ runs: [] })
         if (path.endsWith('/research/experiments')) return response({ experiments: [] })
         if (path.endsWith('/research/backtests')) {
-          return response({ available: true, backtests: [historicalBacktest] })
+          return response({ available: true, backtests: [legacyBacktest] })
         }
         if (path.includes('/research/backtests/') && path.includes('/series?signal=mean')) {
           return response({
@@ -242,5 +278,92 @@ describe('API runtime contract', () => {
     expect(snapshot.historical_backtests[0]?.strategy).toMatchObject({ topk: 50, n_drop: 5, hold_thresh: 5 })
     expect(snapshot.historical_backtest_series[historicalBacktest.id]?.[0]?.strategy).toBe(0.01)
     expect(snapshot.paper).toBeNull()
+  })
+
+  it('accepts only the complete frozen split-by-strategy matrix for the new contract', async () => {
+    const matrix = [
+      historicalBacktest,
+      historicalTop3Backtest,
+      finalTestHistoricalBacktest,
+      finalTestHistoricalTop3Backtest,
+    ]
+    stubHistoricalCatalog(matrix)
+
+    const snapshot = await createApiClient().getSnapshot()
+    expect(snapshot.historical_backtests).toHaveLength(4)
+    expect(
+      snapshot.historical_backtests.map(
+        (entry) => `${entry.evaluation_split}:${entry.strategy_variant_id}`,
+      ),
+    ).toEqual([
+      'validation_2025:official_top50',
+      'validation_2025:historical_top3',
+      'test_viewed_2026:official_top50',
+      'test_viewed_2026:historical_top3',
+    ])
+  })
+
+  it('rejects a partial new matrix instead of rendering a misleading comparison', async () => {
+    stubHistoricalCatalog([
+      historicalBacktest,
+      historicalTop3Backtest,
+      finalTestHistoricalBacktest,
+    ])
+
+    await expect(createApiClient().getSnapshot()).rejects.toThrow(ApiContractError)
+  })
+
+  it('decodes a sealed holdings session with exact position fields', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      expect(String(input)).toContain(
+        '/api/v1/research/backtests/historical-top3-opened-2026-v1/holdings?session=2026-07-29',
+      )
+      return response({
+        backtest_id: 'historical-top3-opened-2026-v1',
+        available: true,
+        signal: 'mean',
+        empty: false,
+        sessions: ['2026-07-28', '2026-07-29'],
+        default_session: '2026-07-29',
+        selected_session: '2026-07-29',
+        source: { artifact_sha256: 'a'.repeat(64), receipt_sha256: 'b'.repeat(64), backtest_receipt_sha256: 'c'.repeat(64) },
+        holdings: [
+          { instrument: 'SH600000', amount: 1_000, weight: 0.4, value: 12_500 },
+          { instrument: 'SZ000001', amount: 800, weight: 0.6, value: 18_750 },
+        ],
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const holdings = await createApiClient().getHistoricalHoldings(
+      'historical-top3-opened-2026-v1',
+      '2026-07-29',
+    )
+    expect(holdings?.holdings).toHaveLength(2)
+    expect(holdings?.holdings[0]).toMatchObject({ instrument: 'SH600000', value: 12_500 })
+  })
+
+  it('rejects holdings whose empty marker disagrees with the sealed rows', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => response({
+        backtest_id: 'historical-top3-opened-2026-v1',
+        available: true,
+        signal: 'mean',
+        empty: true,
+        sessions: ['2026-07-29'],
+        default_session: '2026-07-29',
+        selected_session: '2026-07-29',
+        source: { artifact_sha256: 'a'.repeat(64), receipt_sha256: 'b'.repeat(64), backtest_receipt_sha256: 'c'.repeat(64) },
+        holdings: [{ instrument: 'SH600000', amount: 1_000, weight: 1, value: 12_500 }],
+      })),
+    )
+
+    await expect(
+      createApiClient().getHistoricalHoldings(
+        'historical-top3-opened-2026-v1',
+        '2026-07-29',
+      ),
+    ).rejects.toThrow(ApiContractError)
   })
 })

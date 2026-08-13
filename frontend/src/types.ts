@@ -255,6 +255,8 @@ export interface PaperAccount {
 }
 
 export type OfficialDemoSignal = 'mean' | 'last' | 'max' | 'min'
+export type HistoricalEvaluationSplit = 'validation_2025' | 'test_viewed_2026'
+export type HistoricalStrategyVariant = 'official_top50' | 'historical_top3'
 
 export interface OfficialDemoMetrics {
   total_return_with_cost: number
@@ -275,10 +277,23 @@ export interface HistoricalBacktest {
   track_kind: 'OFFICIAL_DEMO_METHOD_EXTENDED_PIT'
   model_cell_id: 'small-official-ft'
   generated_at: string
-  evaluation_split: 'validation_2025' | 'test_viewed_2026'
+  evaluation_split: HistoricalEvaluationSplit
+  strategy_variant_id: HistoricalStrategyVariant
+  strategy_role: 'OFFICIAL_METHOD_BASELINE' | 'PORTFOLIO_SENSITIVITY_VARIANT'
+  comparison_group_id: string
+  execution_domain: 'HISTORICAL_QLIB_SIMULATION'
+  online_paper_equivalent: false
+  promotion_eligible: boolean
+  source_backtest_id: string | null
+  observability: {
+    turnover_exposed: boolean
+    position_count_exposed: boolean
+  } | null
   result_role:
     | 'TRAINING_VALIDATION_CHECKPOINT_SELECTION'
     | 'CORRECTED_OPENED_OOS_DIAGNOSTIC'
+    | 'POST_HOC_HISTORICAL_SENSITIVITY'
+    | 'POST_HOC_OPENED_STRATEGY_DIAGNOSTIC'
   selection_eligible: boolean
   used_for_selection: boolean
   test_data_access: 'NOT_APPLICABLE' | 'VIEWED'
@@ -289,8 +304,8 @@ export interface HistoricalBacktest {
   backtest_code_sha256: string
   analysis_lock_sha256: string | null
   strategy: {
-    topk: 50
-    n_drop: 5
+    topk: 50 | 3
+    n_drop: 5 | 1
     hold_thresh: 5
     method_sell: 'bottom'
     method_buy: 'top'
@@ -330,6 +345,31 @@ export interface HistoricalBacktestPoint {
   excess: number
   strategy_nav: number
   benchmark_nav: number
+  turnover?: number | null
+  position_count?: number | null
+}
+
+export interface HistoricalHolding {
+  instrument: string
+  weight: number
+  amount: number
+  value: number
+}
+
+export interface HistoricalHoldingsSnapshot {
+  backtest_id: string
+  available: true
+  signal: 'mean'
+  empty: boolean
+  sessions: string[]
+  default_session: string
+  selected_session: string
+  source: {
+    artifact_sha256: string
+    receipt_sha256: string
+    backtest_receipt_sha256: string
+  }
+  holdings: HistoricalHolding[]
 }
 
 export interface DashboardSnapshot {
@@ -354,6 +394,11 @@ export interface SubmitJobReceipt {
 
 export interface ApiClient {
   getSnapshot(signal?: AbortSignal): Promise<DashboardSnapshot>
+  getHistoricalHoldings(
+    backtestId: string,
+    session?: string,
+    signal?: AbortSignal,
+  ): Promise<HistoricalHoldingsSnapshot | null>
   submitUpdateInfer(signal?: AbortSignal): Promise<SubmitJobReceipt>
   retryJob(id: string, signal?: AbortSignal): Promise<SubmitJobReceipt>
 }

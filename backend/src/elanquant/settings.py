@@ -35,7 +35,7 @@ class Settings:
     )
     historical_backtest_catalog: Path = Path(
         "/data/yilangliu/a_share_research/elanquant/releases/"
-        "historical-backtest-catalog-v3.json"
+        "historical-backtest-catalog-v5.json"
     )
 
     @classmethod
@@ -157,7 +157,7 @@ class Settings:
                 "historical_backtest_catalog",
                 Path(
                     "/data/yilangliu/a_share_research/elanquant/releases/"
-                    "historical-backtest-catalog-v3.json"
+                    "historical-backtest-catalog-v5.json"
                 ),
             ),
         )

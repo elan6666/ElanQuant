@@ -125,6 +125,17 @@ Drop-5、最少持有 5 日、日频延迟执行、次日开盘价、1亿元假�
 pyqlib版本或推理seed，本项目为审计固定 pyqlib 0.9.7 与 seed 100。以上差异全部进入
 不可变回执。作者图中的曲线是每日收益算术累计，不标成在线账户 NAV。
 
+在官方 Top50/Drop5/Hold5 基线旁，项目另加
+`historical_top3`（Top3/Drop1/Hold5）作为组合规模敏感性实验。它 byte-for-byte
+复用同一分区的标准化信号与 Qlib provider，不重新推理；`Drop1` 是 Top3 下最小非零
+替换量，不能冒充官方 `5/50` 的同比例复现。2025 与已开封 2026 的 Top3 结果都属于
+事后研究，`selection_eligible=false`、`promotion_eligible=false`。
+
+两个组合版本均重新执行并封存逐日持仓。Top50 重放的四信号指标必须与旧回执在
+`1e-12` 绝对误差内一致才允许发布。持仓 CSV 覆盖每个交易日和四个信号，保存股票、
+数量、权重和市值，并用独立 canonical receipt 与 SHA-256 绑定。Qlib TopkDropout 的
+`topk` 是目标数量；最少持有、可交易性和成交限制会使实际持仓短期高于或低于目标。
+
 ## 模拟执行
 
 - T 日收盘后冻结 Top 3、权重、数量和已知价格。

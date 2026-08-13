@@ -13,6 +13,8 @@ Status: **SHIP**
    Claude-inspired responsive Chinese dashboard.
 5. A corrected 2026 opened out-of-sample diagnostic with T-known candidate
    eligibility and an unclipped dual-period historical chart.
+6. A post-hoc historical Qlib Top3/Drop1/Hold5 sensitivity version plus
+   per-session Top50/Top3 holdings viewer for both evaluation periods.
 
 ## Safety boundary
 
@@ -24,8 +26,8 @@ Status: **SHIP**
 
 ## Final evidence
 
-- Server: 80 tests, Ruff, Pyright, compileall, shell and systemd checks pass.
-- Frontend: 12 tests, ESLint, production build and npm audit pass.
+- Server: 97 tests, Ruff, Pyright, compileall, shell and systemd checks pass.
+- Frontend: 17 tests, ESLint, production build and npm audit pass.
 - SQLite: integrity `ok`, zero foreign-key violations.
 - Official-demo release: 67,349 signals, 233 sessions, immutable audit PASS,
   Top3 tables unchanged.
@@ -47,3 +49,5 @@ Status: **SHIP**
 - Corrected 2026 mean-primary diagnostic: -7.65% after cost versus +0.45%
   SH000300, with -8.09% excess and -13.31% maximum drawdown. The previously
   viewed window is not a blind final test and does not support an alpha claim.
+- Historical Top3 mean: -28.52% in 2025 and -17.47% in opened 2026, with much
+  larger drawdowns than Top50. It is negative sensitivity evidence only.

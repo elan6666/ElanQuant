@@ -27,6 +27,9 @@ trading and a usable full-stack interface.
    reserve a future untouched window for the next true final test.
 7. Render every sealed historical curve point, including negative values and
    the zero baseline, without SVG clipping on desktop or mobile.
+8. Publish a fail-closed 2×2 historical matrix—Top50 and Top3/Drop1/Hold5 over
+   2025 and corrected opened 2026—while proving all online paper tables and the
+   Small release remain unchanged.
 
 ## Baseline
 

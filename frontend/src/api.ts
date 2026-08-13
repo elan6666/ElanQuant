@@ -7,6 +7,7 @@ import type {
   ForecastPoint,
   HistoricalBacktest,
   HistoricalBacktestPoint,
+  HistoricalHoldingsSnapshot,
   Job,
   JobEvent,
   NavPoint,
@@ -634,6 +635,10 @@ const parseHistoricalBacktest = (value: unknown, path: string): HistoricalBackte
   const metrics = object(item.metrics, `${path}.metrics`)
   const qlib = object(item.qlib, `${path}.qlib`)
   const semantics = object(item.curve_semantics, `${path}.curve_semantics`)
+  const observability =
+    item.observability === undefined || item.observability === null
+      ? null
+      : object(item.observability, `${path}.observability`)
   const requireLiteral = <T extends string | number | boolean>(
     value: unknown,
     expected: T,
@@ -642,15 +647,40 @@ const parseHistoricalBacktest = (value: unknown, path: string): HistoricalBackte
     if (value !== expected) throw new ApiContractError(`${literalPath} 不符合封存契约`)
     return expected
   }
+  const requireNull = (value: unknown, literalPath: string): null => {
+    if (value !== null) throw new ApiContractError(`${literalPath} 不符合封存契约`)
+    return null
+  }
   const evaluationSplit = string(item.evaluation_split, `${path}.evaluation_split`)
   if (evaluationSplit !== 'validation_2025' && evaluationSplit !== 'test_viewed_2026') {
     throw new ApiContractError(`${path}.evaluation_split 不符合封存契约`)
   }
   const finalTest = evaluationSplit === 'test_viewed_2026'
-  const expectedRole = finalTest
-    ? 'CORRECTED_OPENED_OOS_DIAGNOSTIC'
-    : 'TRAINING_VALIDATION_CHECKPOINT_SELECTION'
+  const legacy = item.strategy_variant_id === undefined
+  const strategyVariant = legacy
+    ? 'official_top50'
+    : enumValue(
+        item.strategy_variant_id,
+        ['official_top50', 'historical_top3'],
+        `${path}.strategy_variant_id`,
+      )
+  const historicalTop3 = strategyVariant === 'historical_top3'
+  const expectedRole = historicalTop3
+    ? finalTest
+      ? 'POST_HOC_OPENED_STRATEGY_DIAGNOSTIC'
+      : 'POST_HOC_HISTORICAL_SENSITIVITY'
+    : finalTest
+      ? 'CORRECTED_OPENED_OOS_DIAGNOSTIC'
+      : 'TRAINING_VALIDATION_CHECKPOINT_SELECTION'
   const expectedAccess = finalTest ? 'VIEWED' : 'NOT_APPLICABLE'
+  const expectedSelection = !historicalTop3 && !finalTest
+  const strategyRole = legacy
+    ? 'OFFICIAL_METHOD_BASELINE'
+    : requireLiteral(
+        item.strategy_role,
+        historicalTop3 ? 'PORTFOLIO_SENSITIVITY_VARIANT' : 'OFFICIAL_METHOD_BASELINE',
+        `${path}.strategy_role`,
+      )
   return {
     id: string(item.id, `${path}.id`),
     state: requireLiteral(item.state, 'passed', `${path}.state`),
@@ -662,15 +692,51 @@ const parseHistoricalBacktest = (value: unknown, path: string): HistoricalBackte
     model_cell_id: requireLiteral(item.model_cell_id, 'small-official-ft', `${path}.model_cell_id`),
     generated_at: string(item.generated_at, `${path}.generated_at`),
     evaluation_split: evaluationSplit,
+    strategy_variant_id: strategyVariant,
+    strategy_role: strategyRole,
+    comparison_group_id: legacy
+      ? `legacy:${evaluationSplit}`
+      : string(item.comparison_group_id, `${path}.comparison_group_id`),
+    execution_domain: legacy
+      ? 'HISTORICAL_QLIB_SIMULATION'
+      : requireLiteral(
+          item.execution_domain,
+          'HISTORICAL_QLIB_SIMULATION',
+          `${path}.execution_domain`,
+        ),
+    online_paper_equivalent: legacy
+      ? false
+      : requireLiteral(item.online_paper_equivalent, false, `${path}.online_paper_equivalent`),
+    promotion_eligible: legacy
+      ? false
+      : requireLiteral(item.promotion_eligible, false, `${path}.promotion_eligible`),
+    source_backtest_id: legacy
+      ? null
+      : historicalTop3
+        ? string(item.source_backtest_id, `${path}.source_backtest_id`)
+        : requireNull(item.source_backtest_id, `${path}.source_backtest_id`),
+    observability:
+      observability === null
+        ? null
+        : {
+            turnover_exposed: boolean(
+              observability.turnover_exposed,
+              `${path}.observability.turnover_exposed`,
+            ),
+            position_count_exposed: boolean(
+              observability.position_count_exposed,
+              `${path}.observability.position_count_exposed`,
+            ),
+          },
     result_role: requireLiteral(item.result_role, expectedRole, `${path}.result_role`),
     selection_eligible: requireLiteral(
       item.selection_eligible,
-      !finalTest,
+      expectedSelection,
       `${path}.selection_eligible`,
     ),
     used_for_selection: requireLiteral(
       item.used_for_selection,
-      !finalTest,
+      expectedSelection,
       `${path}.used_for_selection`,
     ),
     test_data_access: requireLiteral(
@@ -691,8 +757,8 @@ const parseHistoricalBacktest = (value: unknown, path: string): HistoricalBackte
       `${path}.analysis_lock_sha256`,
     ),
     strategy: {
-      topk: requireLiteral(strategy.topk, 50, `${path}.strategy.topk`),
-      n_drop: requireLiteral(strategy.n_drop, 5, `${path}.strategy.n_drop`),
+      topk: requireLiteral(strategy.topk, historicalTop3 ? 3 : 50, `${path}.strategy.topk`),
+      n_drop: requireLiteral(strategy.n_drop, historicalTop3 ? 1 : 5, `${path}.strategy.n_drop`),
       hold_thresh: requireLiteral(strategy.hold_thresh, 5, `${path}.strategy.hold_thresh`),
       method_sell: requireLiteral(strategy.method_sell, 'bottom', `${path}.strategy.method_sell`),
       method_buy: requireLiteral(strategy.method_buy, 'top', `${path}.strategy.method_buy`),
@@ -760,14 +826,46 @@ const parseHistoricalBacktestEnvelope = (
   const available = boolean(item.available, 'historical_backtests.available')
   const entries = array(item.backtests, 'historical_backtests.backtests')
   if (!available && entries.length === 0) return { available: false, backtests: [] }
-  if (!available || ![1, 2].includes(entries.length)) {
+  const legacy = entries.every((entry, index) =>
+    object(entry, `historical_backtests.backtests[${index}]`).strategy_variant_id === undefined,
+  )
+  if (!available || (legacy ? ![1, 2].includes(entries.length) : entries.length !== 4)) {
     throw new ApiContractError('historical_backtests 可用状态与封存条目不一致')
   }
   const backtests = entries.map((entry, index) =>
     parseHistoricalBacktest(entry, `historical_backtests.backtests[${index}]`),
   )
-  if (new Set(backtests.map((entry) => entry.evaluation_split)).size !== backtests.length) {
-    throw new ApiContractError('historical_backtests 分区重复')
+  const pairs = backtests.map(
+    (entry) => `${entry.evaluation_split}:${entry.strategy_variant_id}`,
+  )
+  if (new Set(pairs).size !== backtests.length) {
+    throw new ApiContractError('historical_backtests 分区与组合变体重复')
+  }
+  if (!legacy) {
+    const expectedPairs = new Set([
+      'validation_2025:official_top50',
+      'validation_2025:historical_top3',
+      'test_viewed_2026:official_top50',
+      'test_viewed_2026:historical_top3',
+    ])
+    if (pairs.some((pair) => !expectedPairs.has(pair))) {
+      throw new ApiContractError('historical_backtests 不是完整的 2×2 封存矩阵')
+    }
+    if (backtests.some((entry) => entry.comparison_group_id !== 'top50-vs-top3-v1')) {
+      throw new ApiContractError('historical_backtests comparison_group_id 不符合封存契约')
+    }
+    for (const top3 of backtests.filter(
+      (entry) => entry.strategy_variant_id === 'historical_top3',
+    )) {
+      const source = backtests.find(
+        (entry) =>
+          entry.evaluation_split === top3.evaluation_split &&
+          entry.strategy_variant_id === 'official_top50',
+      )
+      if (top3.source_backtest_id !== source?.id) {
+        throw new ApiContractError('historical_backtests Top3 源回测身份不匹配')
+      }
+    }
   }
   return {
     available: true,
@@ -787,8 +885,99 @@ const parseHistoricalSeries = (value: unknown): HistoricalBacktestPoint[] => {
       excess: number(row.excess, `historical_series.points[${index}].excess`),
       strategy_nav: number(row.strategy_nav, `historical_series.points[${index}].strategy_nav`),
       benchmark_nav: number(row.benchmark_nav, `historical_series.points[${index}].benchmark_nav`),
+      turnover: optionalNumber(row.turnover, `historical_series.points[${index}].turnover`),
+      position_count: optionalNumber(
+        row.position_count,
+        `historical_series.points[${index}].position_count`,
+      ),
     }
   })
+}
+
+const parseHistoricalHoldings = (value: unknown): HistoricalHoldingsSnapshot => {
+  const item = object(value, 'historical_holdings')
+  const source = object(item.source, 'historical_holdings.source')
+  const holdings = array(item.holdings, 'historical_holdings.holdings').map(
+    (holding, index) => {
+      const row = object(holding, `historical_holdings.holdings[${index}]`)
+      return {
+        instrument: string(
+          row.instrument,
+          `historical_holdings.holdings[${index}].instrument`,
+        ),
+        weight: number(row.weight, `historical_holdings.holdings[${index}].weight`),
+        amount: number(row.amount, `historical_holdings.holdings[${index}].amount`),
+        value: number(row.value, `historical_holdings.holdings[${index}].value`),
+      }
+    },
+  )
+  const sessions = strings(item.sessions, 'historical_holdings.sessions')
+  const defaultSession = string(
+    item.default_session,
+    'historical_holdings.default_session',
+  )
+  const selectedSession = string(
+    item.selected_session,
+    'historical_holdings.selected_session',
+  )
+  if (
+    sessions.length === 0 ||
+    new Set(sessions).size !== sessions.length ||
+    [...sessions].sort().some((session, index) => session !== sessions[index]) ||
+    !sessions.includes(defaultSession) ||
+    !sessions.includes(selectedSession) ||
+    new Set(holdings.map((holding) => holding.instrument)).size !== holdings.length ||
+    holdings.some(
+      (holding) =>
+        holding.instrument.length === 0 ||
+        holding.amount < 0 ||
+        holding.weight < 0 ||
+        holding.weight > 1 ||
+        holding.value < 0,
+    ) ||
+    item.signal !== 'mean' ||
+    typeof item.empty !== 'boolean' ||
+    item.empty !== (holdings.length === 0)
+  ) {
+    throw new ApiContractError('historical_holdings 日期或持仓身份不符合封存契约')
+  }
+  return {
+    backtest_id: string(item.backtest_id, 'historical_holdings.backtest_id'),
+    available: requireLiteralBoolean(
+      item.available,
+      true,
+      'historical_holdings.available',
+    ),
+    signal: 'mean',
+    empty: item.empty,
+    sessions,
+    default_session: defaultSession,
+    selected_session: selectedSession,
+    source: {
+      artifact_sha256: string(
+        source.artifact_sha256,
+        'historical_holdings.source.artifact_sha256',
+      ),
+      receipt_sha256: string(
+        source.receipt_sha256,
+        'historical_holdings.source.receipt_sha256',
+      ),
+      backtest_receipt_sha256: string(
+        source.backtest_receipt_sha256,
+        'historical_holdings.source.backtest_receipt_sha256',
+      ),
+    },
+    holdings,
+  }
+}
+
+const requireLiteralBoolean = <T extends boolean>(
+  value: unknown,
+  expected: T,
+  path: string,
+): T => {
+  if (value !== expected) throw new ApiContractError(`${path} 不符合封存契约`)
+  return expected
 }
 
 const parseReceipt = (value: unknown): SubmitJobReceipt => {
@@ -928,6 +1117,19 @@ export const createApiClient = (): ApiClient => ({
       paper: paperRaw === null ? null : parsePaper(paperRaw, orders, nav),
       paper_summary: paperSummaryRaw === null ? null : parsePaperSummary(paperSummaryRaw),
     } satisfies DashboardSnapshot
+  },
+
+  async getHistoricalHoldings(backtestId, session, signal) {
+    const raw = await optionalJson(
+      `/api/v1/research/backtests/${encodeURIComponent(backtestId)}/holdings${session ? `?session=${encodeURIComponent(session)}` : ''}`,
+      signal,
+    )
+    if (raw === null) return null
+    const parsed = parseHistoricalHoldings(raw)
+    if (parsed.backtest_id !== backtestId || (session && parsed.selected_session !== session)) {
+      throw new ApiContractError('historical_holdings 回执身份与请求不一致')
+    }
+    return parsed
   },
 
   async submitUpdateInfer(signal) {

@@ -29,7 +29,7 @@ immutable artifacts referenced by hash.
 - `GET /api/v1/jobs`, `/jobs/{id}`; `POST /jobs/{id}/retry`
 - `GET /api/v1/research/experiments` for the sealed six-cell catalog
 - `GET /api/v1/research/backtests`, detail and bounded mean-signal series for a
-  sealed, read-only official-demo-method catalog; there is no corresponding POST
+  sealed, read-only exact 2×2 Top50/Top3 × 2025/2026 catalog; there is no POST
 - `GET /api/v1/runs`, `/runs/latest`, `/runs/{id}`, scores, diff and data health
 - `GET /api/v1/paper/account`, orders, NAV and evidence-aware summary
 
@@ -46,7 +46,8 @@ immutable artifacts referenced by hash.
   inference path, per-instance 90-session normalization, N=5 and four
   standardized close differences. Qlib TopkDropout 50/5/hold5 exposes 2025 as
   training-validation evidence and a corrected, opened 2026 out-of-sample
-  diagnostic. T-day candidates require only prior 90 global sessions; forecast
+  diagnostic. A post-hoc Qlib Top3/Drop1/Hold5 variant reuses the exact sealed
+  signals/providers and changes only portfolio construction. T-day candidates require only prior 90 global sessions; forecast
   timestamps are the next ten global exchange sessions and never inspect future
   symbol rows. Neither track stores SQLite state or participates in selection.
 

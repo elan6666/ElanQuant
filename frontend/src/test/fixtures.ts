@@ -192,6 +192,14 @@ export const historicalBacktest: HistoricalBacktest = {
   model_cell_id: 'small-official-ft',
   generated_at: '2026-08-13T15:00:00+08:00',
   evaluation_split: 'validation_2025',
+  strategy_variant_id: 'official_top50',
+  strategy_role: 'OFFICIAL_METHOD_BASELINE',
+  comparison_group_id: 'top50-vs-top3-v1',
+  execution_domain: 'HISTORICAL_QLIB_SIMULATION',
+  online_paper_equivalent: false,
+  promotion_eligible: false,
+  source_backtest_id: null,
+  observability: null,
   result_role: 'TRAINING_VALIDATION_CHECKPOINT_SELECTION',
   selection_eligible: true,
   used_for_selection: true,
@@ -283,6 +291,48 @@ export const finalTestHistoricalBacktest: HistoricalBacktest = {
   deviations: [
     'Uses the admitted opened test_viewed_2026 split for a frozen post-selection evaluation.',
   ],
+}
+
+export const historicalTop3Backtest: HistoricalBacktest = {
+  ...historicalBacktest,
+  id: 'historical-top3-validation-2025-v1',
+  strategy_variant_id: 'historical_top3',
+  strategy_role: 'PORTFOLIO_SENSITIVITY_VARIANT',
+  result_role: 'POST_HOC_HISTORICAL_SENSITIVITY',
+  selection_eligible: false,
+  used_for_selection: false,
+  promotion_eligible: false,
+  source_backtest_id: historicalBacktest.id,
+  observability: { turnover_exposed: true, position_count_exposed: true },
+  receipt_sha256: '7'.repeat(64),
+  strategy: { ...historicalBacktest.strategy, topk: 3, n_drop: 1 },
+  metrics: {
+    ...historicalBacktest.metrics,
+    mean: { ...officialMetrics, total_return_with_cost: 0.1, excess_return_with_cost: 0.02 },
+  },
+}
+
+export const finalTestHistoricalTop3Backtest: HistoricalBacktest = {
+  ...finalTestHistoricalBacktest,
+  id: 'historical-top3-opened-2026-v1',
+  strategy_variant_id: 'historical_top3',
+  strategy_role: 'PORTFOLIO_SENSITIVITY_VARIANT',
+  result_role: 'POST_HOC_OPENED_STRATEGY_DIAGNOSTIC',
+  selection_eligible: false,
+  used_for_selection: false,
+  promotion_eligible: false,
+  source_backtest_id: finalTestHistoricalBacktest.id,
+  observability: { turnover_exposed: true, position_count_exposed: true },
+  receipt_sha256: '8'.repeat(64),
+  strategy: { ...finalTestHistoricalBacktest.strategy, topk: 3, n_drop: 1 },
+  metrics: {
+    ...finalTestHistoricalBacktest.metrics,
+    mean: {
+      ...finalTestHistoricalBacktest.metrics.mean,
+      total_return_with_cost: 0.06,
+      excess_return_with_cost: 0.03,
+    },
+  },
 }
 
 export const snapshot = (overrides: Partial<DashboardSnapshot> = {}): DashboardSnapshot => ({
