@@ -34,7 +34,8 @@ Status: **SHIP**
 - 1440 × 1000 and 390 × 844 browser QA: no overflow or console warning/error.
 - Independent design, product-boundary and Base/catalog reviews: SHIP, no P0/P1.
 - Git delivery includes `40c3b2d` for the isolated official-demo version and
-  `610eaf5` for the final Base/catalog compatibility and delivery state.
+  `610eaf5` for the Base/catalog compatibility state. Plan 009 implementation
+  is commit `395275b`; the current delivery-state commit only adds this record.
 
 ## Important result interpretation
 
