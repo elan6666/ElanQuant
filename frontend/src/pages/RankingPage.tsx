@@ -60,21 +60,21 @@ export function RankingPage({ run }: { run: ResearchRun | null }) {
             <tbody>
               {visible.map((stock) => (
                 <tr
-                  aria-selected={selectedStock.symbol === stock.symbol}
                   className={selectedStock.symbol === stock.symbol ? 'is-selected' : ''}
                   key={stock.symbol}
                   onClick={() => setSelected(stock.symbol)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault()
-                      setSelected(stock.symbol)
-                    }
-                  }}
-                  tabIndex={0}
-                  role="row"
                 >
                   <td><b>{String(stock.rank).padStart(2, '0')}</b></td>
-                  <td><strong>{stock.name}</strong><small>{stock.symbol}</small></td>
+                  <td><button
+                    aria-label={`查看 ${stock.name} ${stock.symbol} 的证据详情`}
+                    aria-pressed={selectedStock.symbol === stock.symbol}
+                    className="ranking-stock-button"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      setSelected(stock.symbol)
+                    }}
+                    type="button"
+                  ><strong>{stock.name}</strong><small>{stock.symbol}</small></button></td>
                   <td className={stock.forecast_return >= 0 ? 'positive' : 'negative'}>{formatPercent(stock.forecast_return)}</td>
                   <td>{stock.previous_rank === null ? '首次' : `#${stock.previous_rank} ${stock.rank_delta === null ? '' : stock.rank_delta > 0 ? `↑${stock.rank_delta}` : stock.rank_delta < 0 ? `↓${Math.abs(stock.rank_delta)}` : '—'}`}</td>
                   <td>{formatPercent(stock.input_completeness, 1)}</td>

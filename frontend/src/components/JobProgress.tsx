@@ -25,7 +25,14 @@ export function JobProgress({ job, compact = false }: { job: Job; compact?: bool
         <Badge state={job.state}>{jobStateLabel[job.state]}</Badge>
       </div>
 
-      <div className="progress-track" aria-label={`任务进度 ${Math.round(job.progress * 100)}%`}>
+      <div
+        aria-label={`任务进度 ${Math.round(job.progress * 100)}%`}
+        aria-valuemax={100}
+        aria-valuemin={0}
+        aria-valuenow={Math.round(job.progress * 100)}
+        className="progress-track"
+        role="progressbar"
+      >
         <span style={{ width: `${Math.min(100, Math.max(0, job.progress * 100))}%` }} />
       </div>
 

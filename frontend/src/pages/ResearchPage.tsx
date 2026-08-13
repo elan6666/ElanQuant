@@ -55,7 +55,7 @@ interface ResearchPageProps {
 }
 
 export function ResearchPage({ run, catalog, catalogAvailable, runs, diff }: ResearchPageProps) {
-  const evidence = catalog.length > 0 ? catalog : run?.experiment_matrix ?? []
+  const evidence = catalogAvailable ? catalog : []
   const cells = sizes.flatMap((model) =>
     tracks.map(
       (track) =>
@@ -69,7 +69,7 @@ export function ResearchPage({ run, catalog, catalogAvailable, runs, diff }: Res
       <header className="page-heading page-heading--split">
         <div>
           <span className="eyebrow">03 / Experiment evidence</span>
-          <h1>Small 与 Base 六格实验</h1>
+          <h1>Small 与 Base <span className="title-phrase">六格实验</span></h1>
           <p>两个规模都只比较三条预先定义的轨道。正式验证和已查看测试分开展示，在线结果不参与评分。</p>
         </div>
         <div className="identity-card">
