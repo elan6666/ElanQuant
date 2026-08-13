@@ -93,6 +93,11 @@ Kronos 的 `huggingface_hub` 等只读推理依赖由该隔离目录提供，不
 `compile_training_matrix.py`；后端只接受由数据准入和各阶段真实回执派生的 sealed
 matrix，不能靠手写 JSON 标记 PASS。Base 使用同一准入数据单独生成候选 matrix 和
 FORMAL 评估；完成后只进入 `research-catalog.json`，不会替换 `releases/current`。
+如果四段训练和 Base matrix 已经封存，而 follower 在评估前因环境或路径错误退出，
+禁止重训、重编或覆盖 matrix。先确认 smoke/formal/catalog 都不存在，再用新的 transient
+unit 调用 `scripts/server/resume_base_evaluation.sh`；该入口只消费现有 matrix，并要求
+显式提供正确的 pinned upstream、PASS 在线快照和不可变 Small release。失败 unit 不复用，
+每次恢复都使用新的 unit 名，并保留旧 journal 作为审计证据。
 首次准入命令为：
 
 ```bash
