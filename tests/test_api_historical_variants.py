@@ -407,13 +407,13 @@ def test_variant_public_identity_disagreement_fails_closed(
     assert response.status_code == 503
 
 
-def test_settings_default_to_immutable_v5_catalog() -> None:
+def test_settings_default_to_immutable_v6_catalog() -> None:
     active = Settings(
         database_path=Path("db.sqlite3"),
         artifact_root=Path("artifacts"),
         frontend_dist=Path("dist"),
     )
-    assert active.historical_backtest_catalog.name == "historical-backtest-catalog-v5.json"
+    assert active.historical_backtest_catalog.name == "historical-backtest-catalog-v6.json"
 
 
 def test_holdings_missing_sidecar_is_local_404_and_does_not_poison_catalog(

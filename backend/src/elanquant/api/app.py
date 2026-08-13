@@ -15,6 +15,13 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from elanquant.contracts.historical_matrix import (
+    CATALOG_SCHEMA as HISTORICAL_MATRIX_CATALOG_SCHEMA,
+    BACKTEST_SCHEMA as HISTORICAL_MATRIX_BACKTEST_SCHEMA,
+    backtest_id as historical_matrix_backtest_id,
+    validate_backtest_receipt as validate_matrix_backtest_receipt,
+    validate_catalog as validate_matrix_catalog,
+)
 from elanquant.contracts.historical_variants import (
     HOLDINGS_COLUMNS,
     validate_any_backtest_receipt,
@@ -291,16 +298,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if split not in {"validation_2025", "test_viewed_2026"}:
             raise RuntimeError("historical public split identity is invalid")
         top50 = receipt["strategy"].get("topk") == 50
+        matrix = receipt.get("schema_version") == HISTORICAL_MATRIX_BACKTEST_SCHEMA
+        source_backtest_id = None
+        comparison_group_id = "top50-vs-top3-v1"
+        if matrix:
+            comparison_group_id = "six-model-top50-top3-v1"
+            if not top50:
+                source_backtest_id = historical_matrix_backtest_id(
+                    str(receipt["model_cell_id"]),
+                    str(split),
+                    "official_top50",
+                )
+        elif not top50:
+            source_backtest_id = receipt.get("source_backtest_id")
         expected: dict[str, object] = {
             "strategy_variant_id": "official_top50" if top50 else "historical_top3",
             "strategy_role": (
                 "OFFICIAL_METHOD_BASELINE" if top50 else "PORTFOLIO_SENSITIVITY_VARIANT"
             ),
-            "comparison_group_id": "top50-vs-top3-v1",
+            "comparison_group_id": comparison_group_id,
             "execution_domain": "HISTORICAL_QLIB_SIMULATION",
             "online_paper_equivalent": False,
             "promotion_eligible": False,
-            "source_backtest_id": None if top50 else receipt.get("source_backtest_id"),
+            "source_backtest_id": source_backtest_id,
         }
         for identity, value in expected.items():
             if identity in entry:
@@ -323,8 +343,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not catalog_path.is_file():
             return None, {}
         try:
-            catalog = validate_historical_catalog(
-                json.loads(catalog_path.read_text(encoding="utf-8"))
+            raw_catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+            catalog = (
+                validate_matrix_catalog(raw_catalog)
+                if raw_catalog.get("schema_version") == HISTORICAL_MATRIX_CATALOG_SCHEMA
+                else validate_historical_catalog(raw_catalog)
             )
             root = catalog_path.parent.parent.resolve()
             loaded: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
@@ -334,13 +357,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     raise RuntimeError("historical backtest receipt escaped its sealed root")
                 if sha256_file(receipt_path) != entry["receipt_sha256"]:
                     raise RuntimeError("historical backtest receipt hash mismatch")
-                receipt = validate_any_backtest_receipt(
-                    json.loads(receipt_path.read_text(encoding="utf-8"))
+                raw_receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+                receipt = (
+                    validate_matrix_backtest_receipt(raw_receipt)
+                    if raw_receipt.get("schema_version")
+                    == HISTORICAL_MATRIX_BACKTEST_SCHEMA
+                    else validate_any_backtest_receipt(raw_receipt)
                 )
+                summary = entry["summary"]
                 if (
                     receipt["id"] != entry["id"]
                     or receipt["model_cell_id"] != entry["model_cell_id"]
-                    or receipt["metrics"][receipt["primary_signal"]] != entry["summary"]
+                    or not isinstance(summary, dict)
+                    or any(
+                        receipt["metrics"][receipt["primary_signal"]].get(key) != value
+                        for key, value in summary.items()
+                    )
                 ):
                     raise RuntimeError("historical backtest catalog and receipt disagree")
                 entry = {**entry, **historical_public_identity(entry, receipt)}
@@ -392,7 +424,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "id": receipt["id"],
             "state": "passed",
             "track_kind": receipt.get(
-                "track_kind", "OFFICIAL_DEMO_METHOD_EXTENDED_PIT"
+                "track_kind",
+                (
+                    "HISTORICAL_MODEL_MATRIX"
+                    if receipt.get("schema_version") == HISTORICAL_MATRIX_BACKTEST_SCHEMA
+                    else "OFFICIAL_DEMO_METHOD_EXTENDED_PIT"
+                ),
             ),
             "model_cell_id": receipt["model_cell_id"],
             "generated_at": receipt["generated_at"],
@@ -824,63 +861,84 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Historical backtest not found")
         entry, receipt = selected
         holdings_pointer = entry.get("holdings")
-        if (
-            not isinstance(holdings_pointer, dict)
-            or set(holdings_pointer) != {"receipt_path", "receipt_sha256"}
-        ):
+        sidecar_holdings = isinstance(holdings_pointer, dict) and set(
+            holdings_pointer
+        ) == {"receipt_path", "receipt_sha256"}
+        matrix_holdings = isinstance(holdings_pointer, dict) and set(
+            holdings_pointer
+        ) == {"artifact_path", "artifact_sha256"}
+        if not sidecar_holdings and not matrix_holdings:
             raise HTTPException(
                 status_code=404,
                 detail="Historical holdings are unavailable for this backtest",
             )
         root = active_settings.historical_backtest_catalog.resolve().parent.parent
-        sidecar_path = (root / str(holdings_pointer.get("receipt_path"))).resolve()
-        try:
+        if matrix_holdings:
+            artifact = receipt.get("artifacts", {}).get("holdings")
             if (
-                root not in sidecar_path.parents
-                or not sidecar_path.is_file()
-                or sidecar_path.stat().st_size > 1_000_000
-                or not valid_sha256(holdings_pointer.get("receipt_sha256"))
-                or sha256_file(sidecar_path) != holdings_pointer["receipt_sha256"]
+                not isinstance(artifact, dict)
+                or artifact.get("path") != holdings_pointer.get("artifact_path")
+                or artifact.get("sha256") != holdings_pointer.get("artifact_sha256")
             ):
-                raise RuntimeError("historical holdings receipt mismatch")
-        except (OSError, RuntimeError) as error:
-            raise HTTPException(
-                status_code=503, detail="Historical holdings receipt mismatch"
-            ) from error
-        try:
-            sidecar = validate_holdings_receipt(
-                json.loads(sidecar_path.read_text(encoding="utf-8"))
-            )
-            artifact = sidecar["artifact"]
-            receipt_signal_sha256 = receipt.get(
-                "signal_receipt_sha256", receipt.get("source_signal_receipt_sha256")
-            )
-            receipt_provider_sha256 = receipt.get(
-                "provider_receipt_sha256", receipt.get("source_provider_receipt_sha256")
-            )
-            if (
-                sidecar.get("backtest_id") != receipt["id"]
-                or sidecar.get("evaluation_split")
-                != entry["evaluation_split"]
-                or sidecar.get("strategy_variant_id")
-                != entry["strategy_variant_id"]
-                or sidecar.get("execution_domain")
-                != "HISTORICAL_QLIB_SIMULATION"
-                or sidecar.get("online_paper_equivalent") is not False
-                or sidecar.get("promotion_eligible") is not False
-                or sidecar.get("backtest_receipt_path") != entry["receipt_path"]
-                or sidecar.get("backtest_receipt_sha256") != entry["receipt_sha256"]
-                or sidecar.get("source_signal_receipt_sha256")
-                != receipt_signal_sha256
-                or sidecar.get("source_provider_receipt_sha256")
-                != receipt_provider_sha256
-                or not isinstance(artifact, dict)
-            ):
-                raise RuntimeError("historical holdings sidecar identity is invalid")
-        except (KeyError, OSError, json.JSONDecodeError, RuntimeError, TypeError) as error:
-            raise HTTPException(
-                status_code=503, detail="Historical holdings receipt failed its evidence gate"
-            ) from error
+                raise HTTPException(
+                    status_code=503,
+                    detail="Historical matrix holdings identity mismatch",
+                )
+        else:
+            sidecar_path = (root / str(holdings_pointer.get("receipt_path"))).resolve()
+            try:
+                if (
+                    root not in sidecar_path.parents
+                    or not sidecar_path.is_file()
+                    or sidecar_path.stat().st_size > 1_000_000
+                    or not valid_sha256(holdings_pointer.get("receipt_sha256"))
+                    or sha256_file(sidecar_path) != holdings_pointer["receipt_sha256"]
+                ):
+                    raise RuntimeError("historical holdings receipt mismatch")
+            except (OSError, RuntimeError) as error:
+                raise HTTPException(
+                    status_code=503, detail="Historical holdings receipt mismatch"
+                ) from error
+            try:
+                sidecar = validate_holdings_receipt(
+                    json.loads(sidecar_path.read_text(encoding="utf-8"))
+                )
+                artifact = sidecar["artifact"]
+                receipt_signal_sha256 = receipt.get(
+                    "signal_receipt_sha256", receipt.get("source_signal_receipt_sha256")
+                )
+                receipt_provider_sha256 = receipt.get(
+                    "provider_receipt_sha256",
+                    receipt.get("source_provider_receipt_sha256"),
+                )
+                if (
+                    sidecar.get("backtest_id") != receipt["id"]
+                    or sidecar.get("evaluation_split") != entry["evaluation_split"]
+                    or sidecar.get("strategy_variant_id")
+                    != entry["strategy_variant_id"]
+                    or sidecar.get("execution_domain") != "HISTORICAL_QLIB_SIMULATION"
+                    or sidecar.get("online_paper_equivalent") is not False
+                    or sidecar.get("promotion_eligible") is not False
+                    or sidecar.get("backtest_receipt_path") != entry["receipt_path"]
+                    or sidecar.get("backtest_receipt_sha256") != entry["receipt_sha256"]
+                    or sidecar.get("source_signal_receipt_sha256")
+                    != receipt_signal_sha256
+                    or sidecar.get("source_provider_receipt_sha256")
+                    != receipt_provider_sha256
+                    or not isinstance(artifact, dict)
+                ):
+                    raise RuntimeError("historical holdings sidecar identity is invalid")
+            except (
+                KeyError,
+                OSError,
+                json.JSONDecodeError,
+                RuntimeError,
+                TypeError,
+            ) as error:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Historical holdings receipt failed its evidence gate",
+                ) from error
         artifact_path = (root / str(artifact.get("path"))).resolve()
         try:
             if (
@@ -891,7 +949,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 or not valid_sha256(artifact.get("sha256"))
                 or sha256_file(artifact_path) != artifact["sha256"]
                 or artifact.get("schema_version")
-                != "elanquant_historical_daily_holdings_v1"
+                not in {
+                    "elanquant_historical_daily_holdings_v1",
+                    "elanquant_historical_model_holdings_v1",
+                }
                 or artifact.get("columns")
                 != list(HOLDINGS_COLUMNS)
                 or artifact.get("rows", 200_001) > 200_000

@@ -303,6 +303,58 @@ describe('API runtime contract', () => {
     ])
   })
 
+  it('accepts the exact six-model by split by strategy matrix', async () => {
+    const models = [
+      'small-zero-shot',
+      'small-official-ft',
+      'small-strict-pit',
+      'base-zero-shot',
+      'base-official-ft',
+      'base-strict-pit',
+    ] as const
+    const splitPairs = [
+      [historicalBacktest, historicalTop3Backtest],
+      [finalTestHistoricalBacktest, finalTestHistoricalTop3Backtest],
+    ] as const
+    const matrix = models.flatMap((model) =>
+      splitPairs.flatMap(([top50, top3]) => {
+        const top50Id = `historical-${model}-${top50.evaluation_split}-official_top50-v1`
+        return [
+          {
+            ...top50,
+            id: top50Id,
+            track_kind: 'HISTORICAL_MODEL_MATRIX',
+            model_cell_id: model,
+            comparison_group_id: 'six-model-top50-top3-v1',
+            result_role:
+              top50.evaluation_split === 'test_viewed_2026'
+                ? 'POST_HOC_OPENED_MODEL_STRATEGY_DIAGNOSTIC'
+                : 'POST_HOC_MODEL_STRATEGY_COMPARISON',
+            selection_eligible: false,
+            used_for_selection: false,
+          },
+          {
+            ...top3,
+            id: `historical-${model}-${top3.evaluation_split}-historical_top3-v1`,
+            track_kind: 'HISTORICAL_MODEL_MATRIX',
+            model_cell_id: model,
+            comparison_group_id: 'six-model-top50-top3-v1',
+            source_backtest_id: top50Id,
+            result_role:
+              top3.evaluation_split === 'test_viewed_2026'
+                ? 'POST_HOC_OPENED_MODEL_STRATEGY_DIAGNOSTIC'
+                : 'POST_HOC_MODEL_STRATEGY_COMPARISON',
+          },
+        ]
+      }),
+    )
+    stubHistoricalCatalog(matrix)
+
+    const snapshot = await createApiClient().getSnapshot()
+    expect(snapshot.historical_backtests).toHaveLength(24)
+    expect(new Set(snapshot.historical_backtests.map((entry) => entry.model_cell_id)).size).toBe(6)
+  })
+
   it('rejects a partial new matrix instead of rendering a misleading comparison', async () => {
     stubHistoricalCatalog([
       historicalBacktest,

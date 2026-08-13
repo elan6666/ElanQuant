@@ -257,6 +257,13 @@ export interface PaperAccount {
 export type OfficialDemoSignal = 'mean' | 'last' | 'max' | 'min'
 export type HistoricalEvaluationSplit = 'validation_2025' | 'test_viewed_2026'
 export type HistoricalStrategyVariant = 'official_top50' | 'historical_top3'
+export type HistoricalModelCell =
+  | 'small-zero-shot'
+  | 'small-official-ft'
+  | 'small-strict-pit'
+  | 'base-zero-shot'
+  | 'base-official-ft'
+  | 'base-strict-pit'
 
 export interface OfficialDemoMetrics {
   total_return_with_cost: number
@@ -274,8 +281,8 @@ export interface OfficialDemoMetrics {
 export interface HistoricalBacktest {
   id: string
   state: 'passed'
-  track_kind: 'OFFICIAL_DEMO_METHOD_EXTENDED_PIT'
-  model_cell_id: 'small-official-ft'
+  track_kind: 'OFFICIAL_DEMO_METHOD_EXTENDED_PIT' | 'HISTORICAL_MODEL_MATRIX'
+  model_cell_id: HistoricalModelCell
   generated_at: string
   evaluation_split: HistoricalEvaluationSplit
   strategy_variant_id: HistoricalStrategyVariant
@@ -294,6 +301,8 @@ export interface HistoricalBacktest {
     | 'CORRECTED_OPENED_OOS_DIAGNOSTIC'
     | 'POST_HOC_HISTORICAL_SENSITIVITY'
     | 'POST_HOC_OPENED_STRATEGY_DIAGNOSTIC'
+    | 'POST_HOC_MODEL_STRATEGY_COMPARISON'
+    | 'POST_HOC_OPENED_MODEL_STRATEGY_DIAGNOSTIC'
   selection_eligible: boolean
   used_for_selection: boolean
   test_data_access: 'NOT_APPLICABLE' | 'VIEWED'

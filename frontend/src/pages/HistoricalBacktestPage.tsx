@@ -7,6 +7,7 @@ import type {
   HistoricalBacktest,
   HistoricalBacktestPoint,
   HistoricalHoldingsSnapshot,
+  HistoricalModelCell,
   HistoricalStrategyVariant,
   OfficialDemoSignal,
 } from '../types'
@@ -16,6 +17,15 @@ const signals: { id: OfficialDemoSignal; label: string; detail: string }[] = [
   { id: 'last', label: '第10日', detail: '辅助描述，不参与选优' },
   { id: 'max', label: '未来最大', detail: '辅助描述，不参与选优' },
   { id: 'min', label: '未来最小', detail: '辅助描述，不参与选优' },
+]
+
+const modelCells: { id: HistoricalModelCell; label: string; detail: string }[] = [
+  { id: 'small-zero-shot', label: 'Small · Zero-shot', detail: '官方预训练权重' },
+  { id: 'small-official-ft', label: 'Small · Official FT', detail: '作者风格微调' },
+  { id: 'small-strict-pit', label: 'Small · Strict PIT', detail: '严格PIT微调' },
+  { id: 'base-zero-shot', label: 'Base · Zero-shot', detail: '官方预训练权重' },
+  { id: 'base-official-ft', label: 'Base · Official FT', detail: '作者风格微调' },
+  { id: 'base-strict-pit', label: 'Base · Strict PIT', detail: '严格PIT微调' },
 ]
 
 const deviationTranslations: Record<string, string> = {
@@ -64,10 +74,15 @@ export function HistoricalBacktestPage({
   const [selectedStrategy, setSelectedStrategy] = useState<HistoricalStrategyVariant>(
     'official_top50',
   )
-  const activeSplit = backtests.some((entry) => entry.evaluation_split === selectedSplit)
+  const [selectedModel, setSelectedModel] = useState<HistoricalModelCell>('small-official-ft')
+  const activeModel = backtests.some((entry) => entry.model_cell_id === selectedModel)
+    ? selectedModel
+    : (backtests[0]?.model_cell_id ?? 'small-official-ft')
+  const modelBacktests = backtests.filter((entry) => entry.model_cell_id === activeModel)
+  const activeSplit = modelBacktests.some((entry) => entry.evaluation_split === selectedSplit)
     ? selectedSplit
     : 'validation_2025'
-  const splitBacktests = backtests.filter((entry) => entry.evaluation_split === activeSplit)
+  const splitBacktests = modelBacktests.filter((entry) => entry.evaluation_split === activeSplit)
   const backtest =
     splitBacktests.find((entry) => entry.strategy_variant_id === selectedStrategy) ??
     splitBacktests.find((entry) => entry.strategy_variant_id === 'official_top50') ??
@@ -86,11 +101,11 @@ export function HistoricalBacktestPage({
         <div>
           <span className="eyebrow">04 / Official-demo method</span>
           <h1>历史组合 <span className="title-phrase">对照回测</span></h1>
-          <p>同一封存信号下查看官方对齐 Top50 与历史 Top3 组合变体。切换只改变明细，不用结果选模或改动在线账户。</p>
+          <p>六个模型版本分别使用自己的预测信号，交叉查看两个评估期与 Top50 / Top3 组合。结果只作研究比较，不自动选模或改动在线账户。</p>
         </div>
         <div className="identity-card identity-card--backtest">
           <span>轨道身份</span>
-          <strong>2 SPLITS × 2 PORTFOLIOS</strong>
+          <strong>6 MODELS × 2 SPLITS × 2 PORTFOLIOS</strong>
           <small>历史 Qlib 模拟 · 只读回执 · 不生成在线订单</small>
         </div>
       </header>
@@ -109,12 +124,37 @@ export function HistoricalBacktestPage({
         />
       ) : (
         <>
+          <section className="historical-model-picker" aria-labelledby="historical-model-heading">
+            <div className="section-heading">
+              <div><span className="eyebrow">Model matrix</span><h2 id="historical-model-heading">选择模型版本</h2></div>
+              <small>每格均使用自身 checkpoint 生成的标准化空间信号</small>
+            </div>
+            <div className="historical-model-cards" role="group" aria-label="历史回测模型版本">
+              {modelCells.map((model) => {
+                const present = backtests.some((entry) => entry.model_cell_id === model.id)
+                return (
+                  <button
+                    type="button"
+                    className={activeModel === model.id ? 'historical-model-card is-active' : 'historical-model-card'}
+                    aria-pressed={activeModel === model.id}
+                    disabled={!present}
+                    key={model.id}
+                    onClick={() => setSelectedModel(model.id)}
+                  >
+                    <strong>{model.label}</strong>
+                    <small>{model.detail}</small>
+                  </button>
+                )
+              })}
+            </div>
+            <p className="historical-strategy-disclosure">Small / Base 与三种训练轨道互相独立；页面不会把某一格的信号或收益复制给其他模型。</p>
+          </section>
           <div className="backtest-split-tabs" role="group" aria-label="历史回测评估分区">
             {([
               ['test_viewed_2026', '2026 已开封样本外诊断（已修正）'],
               ['validation_2025', '2025 训练验证 / checkpoint 选择'],
             ] as const).map(([split, label]) => {
-              const present = backtests.some((entry) => entry.evaluation_split === split)
+              const present = modelBacktests.some((entry) => entry.evaluation_split === split)
               return (
                 <button
                   type="button"

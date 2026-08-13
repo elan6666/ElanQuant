@@ -610,7 +610,17 @@ h1, h2, h3 { font-family: "Iowan Old Style", "Baskerville", "Songti SC", "STSong
 .backtest-split-tabs button { min-height: 44px; border: 0; border-radius: 10px; background: transparent; color: #615850; font: 600 11px/1.35 Inter, sans-serif; cursor: pointer; }
 .backtest-split-tabs button[aria-pressed="true"] { background: var(--ink); color: #fffaf4; box-shadow: 0 7px 18px rgba(45,39,35,.14); }
 .backtest-split-tabs button:disabled { cursor: not-allowed; opacity: .42; }
-.historical-strategy-picker { margin-top: 18px; padding: 22px; background: rgba(255,253,248,.72); border: 1px solid var(--line); border-radius: 16px; }
+.historical-model-picker, .historical-strategy-picker { margin-top: 18px; padding: 22px; background: rgba(255,253,248,.72); border: 1px solid var(--line); border-radius: 16px; }
+.historical-model-picker .section-heading, .historical-strategy-picker .section-heading { margin-bottom: 16px; }
+.historical-model-picker .section-heading small, .historical-strategy-picker .section-heading small { color: #746b63; font-size: 10px; }
+.historical-model-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.historical-model-card { min-width: 0; padding: 14px 15px; display: flex; flex-direction: column; gap: 5px; text-align: left; color: var(--ink); background: #fffdf8; border: 1px solid #d8cfc5; border-radius: 12px; cursor: pointer; }
+.historical-model-card:hover:not(:disabled) { border-color: #b89b86; }
+.historical-model-card.is-active { border-color: var(--red); box-shadow: inset 0 3px 0 var(--red); }
+.historical-model-card:disabled { cursor: not-allowed; opacity: .42; }
+.historical-model-card strong { font-size: 13px; }
+.historical-model-card small { color: #746b63; font-size: 10px; }
+.historical-model-card:focus-visible { outline: 3px solid rgba(38,122,131,.32); outline-offset: 2px; }
 .historical-strategy-picker .section-heading { margin-bottom: 16px; }
 .historical-strategy-picker .section-heading small { color: #746b63; font-size: 10px; }
 .historical-strategy-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
@@ -698,6 +708,7 @@ h1, h2, h3 { font-family: "Iowan Old Style", "Baskerville", "Songti SC", "STSong
   .official-boundary-banner > span, .chart-legend small { width: 100%; margin-left: 0; }
   .backtest-chart { height: 250px; }
   .backtest-split-tabs { grid-template-columns: 1fr; }
+  .historical-model-cards { grid-template-columns: 1fr 1fr; }
   .historical-strategy-cards { grid-template-columns: 1fr; }
   .historical-holdings__heading { align-items: stretch; flex-direction: column; }
   .historical-holdings__heading label, .historical-holdings__heading select { width: 100%; box-sizing: border-box; }
@@ -722,5 +733,7 @@ h1, h2, h3 { font-family: "Iowan Old Style", "Baskerville", "Songti SC", "STSong
   .official-signal-card > p { min-height: 0; }
   .track-separation { padding: 18px; }
   .historical-strategy-picker { padding: 18px; }
+  .historical-model-picker { padding: 18px; }
+  .historical-model-cards { grid-template-columns: 1fr; }
   .historical-strategy-card { min-height: 142px; }
 }
