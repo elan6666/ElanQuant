@@ -880,6 +880,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 status_code=404,
                 detail="Historical holdings are unavailable for this backtest",
             )
+        assert isinstance(holdings_pointer, dict)
+        holdings_receipt_sha256 = str(
+            entry["receipt_sha256"]
+            if matrix_holdings
+            else holdings_pointer["receipt_sha256"]
+        )
         root = active_settings.historical_backtest_catalog.resolve().parent.parent
         if matrix_holdings:
             artifact = receipt.get("artifacts", {}).get("holdings")
@@ -1067,7 +1073,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "empty": not holdings,
             "source": {
                 "artifact_sha256": artifact["sha256"],
-                "receipt_sha256": holdings_pointer["receipt_sha256"],
+                "receipt_sha256": holdings_receipt_sha256,
                 "backtest_receipt_sha256": entry["receipt_sha256"],
             },
             "holdings": holdings,
