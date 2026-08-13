@@ -12,17 +12,17 @@
   real Worker/disconnect E2E; Claude-inspired responsive redesign; GitHub source
   baseline; Base parameterization/start; competitor research; evidence-chain
   product implementation and third static review.
-- Remaining plans: authenticate SSH; finish/audit Base candidate and six-cell
-  catalog; back up/migrate live DB; deploy; perform evidence refresh and live
-  browser/server E2E; final ship review; commit/push/delivery.
+- Remaining plans: finish/audit Base candidate and six-cell catalog; perform one
+  same-session evidence refresh and prove the frozen ledger is unchanged; live
+  desktop/mobile browser QA; final ship review; commit/push/delivery.
 - Review verdict: NOT SHIP only because Base/live deployment/server verification
   and final Git delivery gates remain.
 - Iteration count: 3/3.
 - Subagent mode: on; three exploration/implementation handoffs completed and
   integrated by the main agent.
-- Hard blockers: none; interactive owner authentication is a required external
-  boundary, while the durable Base service continues independently.
-- Exact resume action: use `/tmp/codex-yilangliu-elanquant-r3.sock` after the
-  owner enters the password, inspect `elanquant-train-base-a-share-v1-20260813`
-  and its r2 follower/outputs, and never overwrite an existing Base artifact.
+- Hard blockers: none; the isolated Base evaluation is a normal long-running
+  external gate and the Small product remains available while it runs.
+- Exact resume action: use `/tmp/codex-yilangliu-elanquant-r4.sock`, inspect
+  `elanquant-evaluate-base-candidate-v1-20260813-r4`, and never overwrite or
+  recompile the sealed Base matrix.
 - Parked future items: 0, excluded from Auto.

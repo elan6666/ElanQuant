@@ -74,7 +74,7 @@ def validate_research_catalog(payload: object) -> dict[str, object]:
         raise RuntimeError("catalog top-level receipt is invalid")
     if {str(item["id"]) for item in experiments} != set(expected_tracks):
         raise RuntimeError("catalog is not the exact six-cell experiment")
-    support_by_split: dict[str, tuple[object, object, object]] = {}
+    support_by_split: dict[str, tuple[int, int, str]] = {}
     for item in experiments:
         model_id = str(item["id"])
         expected_size, expected_track = expected_tracks[model_id]
@@ -116,7 +116,7 @@ def validate_research_catalog(payload: object) -> dict[str, object]:
                 or not valid_sha256(anchor)
             ):
                 raise RuntimeError(f"catalog support is invalid: {model_id}.{split}")
-            signature = (rows, sections, anchor)
+            signature = (rows, sections, str(anchor))
             if split in support_by_split and support_by_split[split] != signature:
                 raise RuntimeError(f"catalog common support disagrees: {split}")
             support_by_split[split] = signature

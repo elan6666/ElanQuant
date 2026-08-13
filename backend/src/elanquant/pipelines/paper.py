@@ -301,6 +301,7 @@ def create_frozen_intents(
             continue
         frozen_price = float(item["reference_price"])
         quantity = int(allocation // (frozen_price * BOARD_LOT)) * BOARD_LOT
+        frozen_commission = 0.0
         while quantity > 0:
             frozen_gross = round(frozen_price * quantity, 2)
             frozen_commission = round(
