@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import csv
 import hashlib
 import json
 import math
 import sqlite3
 from collections import Counter
 from datetime import UTC, date, datetime, timedelta
-from typing import Annotated
+from typing import Annotated, Any
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query, Request, Response, status
@@ -14,6 +15,12 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from elanquant.contracts.official_demo import SIGNALS as OFFICIAL_DEMO_SIGNALS
+from elanquant.contracts.official_demo import (
+    sha256_file,
+    validate_backtest_catalog,
+    validate_backtest_receipt,
+)
 from elanquant.orchestration.jobs import JobStore
 from elanquant.pipelines.paper import ACCOUNT_ID
 from elanquant.settings import Settings
@@ -213,6 +220,69 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         TrustedHostMiddleware,
         allowed_hosts=["127.0.0.1", "localhost", "[::1]", "testserver"],
     )
+
+    def load_historical_backtest() -> tuple[dict[str, Any], dict[str, Any]] | None:
+        catalog_path = active_settings.historical_backtest_catalog.resolve()
+        if not catalog_path.is_file():
+            return None
+        try:
+            catalog = validate_backtest_catalog(
+                json.loads(catalog_path.read_text(encoding="utf-8"))
+            )
+            entry = catalog["entries"][0]
+            root = catalog_path.parent.parent.resolve()
+            receipt_path = (root / str(entry["receipt_path"])).resolve()
+            if root not in receipt_path.parents or not receipt_path.is_file():
+                raise RuntimeError("historical backtest receipt escaped its sealed root")
+            if sha256_file(receipt_path) != entry["receipt_sha256"]:
+                raise RuntimeError("historical backtest receipt hash mismatch")
+            receipt = validate_backtest_receipt(
+                json.loads(receipt_path.read_text(encoding="utf-8"))
+            )
+            if (
+                receipt["id"] != entry["id"]
+                or receipt["model_cell_id"] != entry["model_cell_id"]
+                or receipt["metrics"][receipt["primary_signal"]] != entry["summary"]
+            ):
+                raise RuntimeError("historical backtest catalog and receipt disagree")
+        except (
+            KeyError,
+            OSError,
+            json.JSONDecodeError,
+            RuntimeError,
+            TypeError,
+            ValueError,
+        ) as error:
+            raise HTTPException(
+                status_code=503,
+                detail="Historical backtest failed its sealed evidence gate",
+            ) from error
+        return catalog, receipt
+
+    def public_backtest(receipt: dict[str, Any], receipt_sha256: str) -> dict[str, object]:
+        return {
+            "id": receipt["id"],
+            "state": "passed",
+            "track_kind": receipt["track_kind"],
+            "model_cell_id": receipt["model_cell_id"],
+            "generated_at": receipt["generated_at"],
+            "selection_split": receipt["selection_split"],
+            "selection_eligible": receipt["selection_eligible"],
+            "test_viewed_consumed": receipt["test_viewed_consumed"],
+            "test_status": receipt["test_status"],
+            "primary_signal": receipt["primary_signal"],
+            "receipt_sha256": receipt_sha256,
+            "signal_receipt_sha256": receipt["signal_receipt_sha256"],
+            "provider_receipt_sha256": receipt["provider_receipt_sha256"],
+            "backtest_code_sha256": receipt["backtest_code_sha256"],
+            "strategy": receipt["strategy"],
+            "execution": receipt["execution"],
+            "support": receipt["support"],
+            "metrics": receipt["metrics"],
+            "qlib": receipt["qlib"],
+            "curve_semantics": receipt["curve_semantics"],
+            "deviations": receipt["deviations"],
+        }
 
     @app.middleware("http")
     async def browser_boundary(request: Request, call_next):  # type: ignore[no-untyped-def]
@@ -469,6 +539,91 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {
             "generated_at": validated.get("generated_at"),
             "experiments": validated["experiments"],
+        }
+
+    @app.get("/api/v1/research/backtests")
+    def research_backtests() -> dict[str, object]:
+        loaded = load_historical_backtest()
+        if loaded is None:
+            return {"available": False, "generated_at": None, "backtests": []}
+        catalog, receipt = loaded
+        entry = catalog["entries"][0]
+        return {
+            "available": True,
+            "generated_at": catalog["generated_at"],
+            "backtests": [public_backtest(receipt, str(entry["receipt_sha256"]))],
+        }
+
+    @app.get("/api/v1/research/backtests/{backtest_id}")
+    def research_backtest(backtest_id: str) -> dict[str, object]:
+        loaded = load_historical_backtest()
+        if loaded is None:
+            raise HTTPException(status_code=404, detail="Historical backtest not found")
+        catalog, receipt = loaded
+        entry = catalog["entries"][0]
+        if backtest_id != receipt["id"]:
+            raise HTTPException(status_code=404, detail="Historical backtest not found")
+        return {"backtest": public_backtest(receipt, str(entry["receipt_sha256"]))}
+
+    @app.get("/api/v1/research/backtests/{backtest_id}/series")
+    def research_backtest_series(
+        backtest_id: str,
+        signal: Annotated[str, Query()] = "mean",
+    ) -> dict[str, object]:
+        loaded = load_historical_backtest()
+        if loaded is None:
+            raise HTTPException(status_code=404, detail="Historical backtest not found")
+        catalog, receipt = loaded
+        if backtest_id != receipt["id"]:
+            raise HTTPException(status_code=404, detail="Historical backtest not found")
+        if signal not in OFFICIAL_DEMO_SIGNALS:
+            raise HTTPException(status_code=422, detail="Unsupported official demo signal")
+        root = active_settings.historical_backtest_catalog.resolve().parent.parent
+        artifact = receipt["artifacts"]["daily_series"]
+        artifact_path = (root / str(artifact["path"])).resolve()
+        if root not in artifact_path.parents or not artifact_path.is_file():
+            raise HTTPException(status_code=503, detail="Historical series is unavailable")
+        if sha256_file(artifact_path) != artifact["sha256"]:
+            raise HTTPException(status_code=503, detail="Historical series hash mismatch")
+        required = {
+            "datetime",
+            "signal",
+            "additive_strategy_with_cost",
+            "additive_benchmark",
+            "additive_excess_with_cost",
+            "compounded_strategy_nav",
+            "compounded_benchmark_nav",
+        }
+        points: list[dict[str, object]] = []
+        try:
+            with artifact_path.open(encoding="utf-8", newline="") as handle:
+                reader = csv.DictReader(handle)
+                if reader.fieldnames is None or not required.issubset(reader.fieldnames):
+                    raise RuntimeError("historical series columns are incomplete")
+                for row in reader:
+                    if row["signal"] != signal:
+                        continue
+                    values = {
+                        "strategy": float(row["additive_strategy_with_cost"]),
+                        "benchmark": float(row["additive_benchmark"]),
+                        "excess": float(row["additive_excess_with_cost"]),
+                        "strategy_nav": float(row["compounded_strategy_nav"]),
+                        "benchmark_nav": float(row["compounded_benchmark_nav"]),
+                    }
+                    if not all(math.isfinite(value) for value in values.values()):
+                        raise RuntimeError("historical series contains a non-finite value")
+                    points.append({"session": row["datetime"], **values})
+        except (OSError, TypeError, ValueError, RuntimeError) as error:
+            raise HTTPException(
+                status_code=503, detail="Historical series failed its evidence gate"
+            ) from error
+        if not points or len(points) > 1000:
+            raise HTTPException(status_code=503, detail="Historical series support is invalid")
+        return {
+            "backtest_id": receipt["id"],
+            "signal": signal,
+            "curve_semantics": receipt["curve_semantics"],
+            "points": points,
         }
 
     @app.post("/api/v1/jobs/update-infer", status_code=status.HTTP_202_ACCEPTED)

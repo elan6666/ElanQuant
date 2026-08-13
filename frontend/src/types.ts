@@ -254,12 +254,89 @@ export interface PaperAccount {
   gaps: string[]
 }
 
+export type OfficialDemoSignal = 'mean' | 'last' | 'max' | 'min'
+
+export interface OfficialDemoMetrics {
+  total_return_with_cost: number
+  benchmark_return: number
+  excess_return_without_cost: number
+  excess_return_with_cost: number
+  annualized_return_with_cost: number
+  annualized_excess_return_with_cost: number
+  information_ratio_with_cost: number
+  max_drawdown_with_cost: number
+  total_cost: number
+  turnover_mean: number | null
+}
+
+export interface HistoricalBacktest {
+  id: string
+  state: 'passed'
+  track_kind: 'OFFICIAL_DEMO_METHOD_EXTENDED_PIT'
+  model_cell_id: 'small-official-ft'
+  generated_at: string
+  selection_split: 'validation_2025'
+  selection_eligible: true
+  test_viewed_consumed: false
+  test_status: 'NOT_ACCESSED_FOR_SELECTION'
+  primary_signal: 'mean'
+  receipt_sha256: string
+  signal_receipt_sha256: string
+  provider_receipt_sha256: string
+  backtest_code_sha256: string
+  strategy: {
+    topk: 50
+    n_drop: 5
+    hold_thresh: 5
+    method_sell: 'bottom'
+    method_buy: 'top'
+    only_tradable: false
+    forbid_all_trade_at_limit: true
+  }
+  execution: {
+    account: number
+    benchmark: 'SH000300'
+    delay_execution: true
+    deal_price: 'open'
+    open_cost: number
+    close_cost: number
+    min_cost: number
+    limit_threshold: number
+  }
+  support: {
+    sessions: number
+    signal_rows: number
+    signal_cross_sections: number | null
+    actual_start: string | null
+    actual_end: string | null
+    candidate_min: number | null
+    candidate_median: number | null
+    candidate_max: number | null
+  }
+  metrics: Record<OfficialDemoSignal, OfficialDemoMetrics>
+  qlib: { version: string; metadata_sha256: string; record_sha256: string; source_tree_sha256: string }
+  curve_semantics: { official: string; derived: string }
+  deviations: string[]
+}
+
+export interface HistoricalBacktestPoint {
+  session: string
+  strategy: number
+  benchmark: number
+  excess: number
+  strategy_nav: number
+  benchmark_nav: number
+}
+
 export interface DashboardSnapshot {
   system: SystemStatus
   jobs: Job[]
   latest_run: ResearchRun | null
   research_catalog: ExperimentCell[]
   research_catalog_available: boolean
+  historical_backtest: HistoricalBacktest | null
+  historical_backtest_available: boolean
+  historical_backtest_series: HistoricalBacktestPoint[]
   runs: RunSummary[]
   run_diff: RunDiff | null
   paper: PaperAccount | null

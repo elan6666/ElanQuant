@@ -8,7 +8,7 @@ export function PaperPage({ account, summary }: { account: PaperAccount | null; 
   return (
     <>
       <header className="page-heading page-heading--split">
-        <div><span className="eyebrow">05 / Paper ledger</span><h1>模拟账户与成交账本</h1><p>T日收盘冻结意图，T+1只负责成交或拒绝；拒单不会用新信息补买另一只股票。</p></div>
+        <div><span className="eyebrow">06 / Paper ledger</span><h1>模拟账户与成交账本</h1><p>T日收盘冻结意图，T+1只负责成交或拒绝；拒单不会用新信息补买另一只股票。</p></div>
         <div className="identity-card identity-card--paper"><span>账户类型</span><strong>RMB 100K / LONG ONLY</strong><small>完全模拟 · 无券商连接</small></div>
       </header>
 

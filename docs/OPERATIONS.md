@@ -142,6 +142,32 @@ systemctl --user start elanquant-api elanquant-worker
 `LEGACY_MIXED_RUNS` 警告并保留原数据；回滚时停止两个服务，恢复整份备份数据库，
 不能只回退某几张表。
 
+## 官方 Demo 方法对齐版历史回测
+
+这条轨道不由网页按钮触发，也不写 SQLite。它与 Top3 线上模拟产品并存：
+
+```text
+2025标准化信号（Small official-ft, sample_count=5）
+  -> Qlib Top50/Drop5/Hold5 连续回测
+  -> releases/historical-backtest-catalog.json
+  -> GET /api/v1/research/backtests
+```
+
+信号生成和回测必须使用各自新的 transient systemd unit，输出目录存在时拒绝覆盖。
+pyqlib固定为0.9.7，其安装元数据、RECORD和源码树哈希进入回执；Kronos仓库没有固定
+Qlib版本，因此这是为了可审计而增加的基础设施决定。发布前运行
+`scripts/server/audit_paper_boundary.py` 封存 recommendation/paper 各表的行数与哈希，
+发布后用 `--compare` 重算；任一表改变都会让发布失败。
+
+API服务需设置：
+
+```text
+ELANQUANT_HISTORICAL_BACKTEST_CATALOG=/data/yilangliu/a_share_research/elanquant/releases/historical-backtest-catalog.json
+```
+
+目录缺失时页面显示“服务器生成中”；目录、回执或逐日曲线任一哈希不一致时 API 返回
+503，不得回退到模拟数据。新轨只允许 GET，不添加 POST、重试或每日自动调度。
+
 ## 常见故障
 
 - `nc -zvw5 10.24.1.91 22` 不通：校园 VPN/路由问题；再使用 EasyConnect 技能检查。

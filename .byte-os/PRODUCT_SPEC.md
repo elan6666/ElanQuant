@@ -28,6 +28,9 @@ trading understandable and auditable in one interface.
 - Split-aware experiments, run history/diff, data health, stock ranking/details,
   provenance and scoreability labels.
 - RMB100k Top-3 paper account with frozen T intent and T+1 fill/reject ledger.
+- A separate historical `official-demo-method-extended-pit-v1` research page:
+  Small official-ft, standardized-space signals, sample-count 5, Top-50,
+  Drop-5 and minimum hold 5. It is artifact-only and cannot create paper orders.
 - Same-origin Chinese owner dashboard over VPN/SSH tunnel.
 
 ## Non-goals
@@ -48,6 +51,8 @@ trading understandable and auditable in one interface.
 - A signal session has exactly one frozen paper publication; force reruns remain
   research-only and expose their skipped-publication reason.
 - Model training is separate from the daily button.
+- Top3 online paper trading and the official-demo historical version never share
+  orders, positions, NAV, strategy identity or mutation endpoints.
 
 ## Acceptance criteria
 

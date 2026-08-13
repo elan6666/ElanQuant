@@ -4,7 +4,7 @@
   strict PIT, extended A-share data, on-demand server inference, simulated
   trading, review, three iterations, and handoff.
 - Started at: 2026-08-12T22:57:00+08:00
-- Current loop: 8
+- Current loop: 9
 - Completed stages: repository isolation; goal creation; VPN/SSH preflight;
   Byte start/research/harness/shape/plan; foundation; backend; frontend;
   strict-PIT research contracts; official weights hash gate; extended data v2;
@@ -12,11 +12,13 @@
   real Worker/disconnect E2E; Claude-inspired responsive redesign; GitHub source
   baseline; Base parameterization/start; competitor research; evidence-chain
   product implementation and third static review.
-- Remaining plans: finish/audit Base candidate and six-cell catalog; perform one
-  same-session evidence refresh and prove the frozen ledger is unchanged; live
-  desktop/mobile browser QA; final ship review; commit/push/delivery.
-- Review verdict: NOT SHIP only because Base/live deployment/server verification
-  and final Git delivery gates remain.
+  The isolated official-demo-method historical version, same-session frozen
+  ledger proof, server full verification and deployed desktop/mobile QA are
+  also complete.
+- Remaining plans: finish/audit Base candidate and six-cell catalog; final ship
+  review; commit/push/delivery.
+- Review verdict: official-demo design review is SHIP; overall delivery waits
+  only for Base formal/catalog evidence and final Git delivery.
 - Iteration count: 3/3.
 - Subagent mode: on; three exploration/implementation handoffs completed and
   integrated by the main agent.

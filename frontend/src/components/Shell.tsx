@@ -1,14 +1,15 @@
 import type { ServiceState } from '../types'
 
-export type PageKey = 'overview' | 'jobs' | 'research' | 'ranking' | 'paper' | 'methods'
+export type PageKey = 'overview' | 'jobs' | 'research' | 'backtest' | 'ranking' | 'paper' | 'methods'
 
 const navItems: { key: PageKey; label: string; index: string }[] = [
   { key: 'overview', label: '总览', index: '01' },
   { key: 'jobs', label: '任务', index: '02' },
   { key: 'research', label: '实验矩阵', index: '03' },
-  { key: 'ranking', label: '股票排名', index: '04' },
-  { key: 'paper', label: '模拟账户', index: '05' },
-  { key: 'methods', label: '方法说明', index: '06' },
+  { key: 'backtest', label: '历史回测', index: '04' },
+  { key: 'ranking', label: '股票排名', index: '05' },
+  { key: 'paper', label: '模拟账户', index: '06' },
+  { key: 'methods', label: '方法说明', index: '07' },
 ]
 
 interface ShellProps {

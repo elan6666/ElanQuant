@@ -4,6 +4,7 @@ import { App } from './App'
 import type { ApiClient } from './types'
 import {
   incompleteJob,
+  historicalBacktest,
   paperAccount,
   paperSummary,
   passedSmallCell,
@@ -97,5 +98,30 @@ describe('ElanQuant dashboard states', () => {
     expect(screen.getByText('证据不足')).toBeInTheDocument()
     expect(screen.getByText('资金不足一手')).toBeInTheDocument()
     expect(screen.getByText(/不足以买入 A 股最小的 100 股整手/)).toBeInTheDocument()
+  })
+
+  it('adds the official-aligned backtest without replacing the Top3 product', async () => {
+    render(
+      <App
+        client={clientFor(
+          snapshot({
+            historical_backtest: historicalBacktest,
+            historical_backtest_available: true,
+            historical_backtest_series: [
+              { session: '2025-01-02', strategy: 0, benchmark: 0, excess: 0, strategy_nav: 1, benchmark_nav: 1 },
+              { session: '2025-12-31', strategy: 0.12, benchmark: 0.08, excess: 0.04, strategy_nav: 1.12, benchmark_nav: 1.08 },
+            ],
+          }),
+        )}
+      />,
+    )
+    fireEvent.click(await screen.findByRole('button', { name: '历史回测' }))
+    expect(screen.getByRole('heading', { name: /官方对齐版.*历史回测/ })).toBeInTheDocument()
+    expect(screen.getByText('Top3 在线模拟')).toBeInTheDocument()
+    expect(screen.getByText('TOP50 / DROP5 / HOLD5')).toBeInTheDocument()
+    expect(screen.getByText('5条（官方）')).toBeInTheDocument()
+    expect(screen.getByText('明确禁止同次递补')).toBeInTheDocument()
+    expect(screen.getByText(/2026 TEST_VIEWED 未用于/)).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: /Top50策略与沪深300/ })).toBeInTheDocument()
   })
 })

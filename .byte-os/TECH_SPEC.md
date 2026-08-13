@@ -28,6 +28,8 @@ immutable artifacts referenced by hash.
 - `POST /api/v1/jobs/update-infer` -> 202/idempotent ID
 - `GET /api/v1/jobs`, `/jobs/{id}`; `POST /jobs/{id}/retry`
 - `GET /api/v1/research/experiments` for the sealed six-cell catalog
+- `GET /api/v1/research/backtests`, detail and bounded mean-signal series for a
+  sealed, read-only official-demo-method catalog; there is no corresponding POST
 - `GET /api/v1/runs`, `/runs/latest`, `/runs/{id}`, scores, diff and data health
 - `GET /api/v1/paper/account`, orders, NAV and evidence-aware summary
 
@@ -40,6 +42,10 @@ immutable artifacts referenced by hash.
   training data. Online latest anchors never enter metrics before maturation.
 - Main signal inverse-transforms predicted closes then implements the paper
   ten-day mean-return formula with T=.6, top-p=.9, N=10.
+- The independent official-demo-method track uses the pinned low-level upstream
+  inference path, per-instance 90-session normalization, N=5 and four
+  standardized close differences. Qlib TopkDropout 50/5/hold5 runs only on the
+  admitted 2025 validation split and stores no SQLite state.
 
 ## Security and operations
 

@@ -5,9 +5,12 @@ import type {
   EvaluationSplit,
   ExperimentCell,
   ForecastPoint,
+  HistoricalBacktest,
+  HistoricalBacktestPoint,
   Job,
   JobEvent,
   NavPoint,
+  OfficialDemoMetrics,
   PaperAccount,
   PaperDecision,
   PaperOrder,
@@ -589,6 +592,181 @@ const parsePaperSummary = (value: unknown): PaperSummary => {
   }
 }
 
+const parseOfficialMetrics = (value: unknown, path: string): OfficialDemoMetrics => {
+  const item = object(value, path)
+  return {
+    total_return_with_cost: number(item.total_return_with_cost, `${path}.total_return_with_cost`),
+    benchmark_return: number(item.benchmark_return, `${path}.benchmark_return`),
+    excess_return_without_cost: number(
+      item.excess_return_without_cost,
+      `${path}.excess_return_without_cost`,
+    ),
+    excess_return_with_cost: number(
+      item.excess_return_with_cost,
+      `${path}.excess_return_with_cost`,
+    ),
+    annualized_return_with_cost: number(
+      item.annualized_return_with_cost,
+      `${path}.annualized_return_with_cost`,
+    ),
+    annualized_excess_return_with_cost: number(
+      item.annualized_excess_return_with_cost,
+      `${path}.annualized_excess_return_with_cost`,
+    ),
+    information_ratio_with_cost: number(
+      item.information_ratio_with_cost,
+      `${path}.information_ratio_with_cost`,
+    ),
+    max_drawdown_with_cost: number(
+      item.max_drawdown_with_cost,
+      `${path}.max_drawdown_with_cost`,
+    ),
+    total_cost: number(item.total_cost, `${path}.total_cost`),
+    turnover_mean: optionalNumber(item.turnover_mean, `${path}.turnover_mean`),
+  }
+}
+
+const parseHistoricalBacktest = (value: unknown, path: string): HistoricalBacktest => {
+  const item = object(value, path)
+  const strategy = object(item.strategy, `${path}.strategy`)
+  const execution = object(item.execution, `${path}.execution`)
+  const support = object(item.support, `${path}.support`)
+  const metrics = object(item.metrics, `${path}.metrics`)
+  const qlib = object(item.qlib, `${path}.qlib`)
+  const semantics = object(item.curve_semantics, `${path}.curve_semantics`)
+  const requireLiteral = <T extends string | number | boolean>(
+    value: unknown,
+    expected: T,
+    literalPath: string,
+  ): T => {
+    if (value !== expected) throw new ApiContractError(`${literalPath} 不符合封存契约`)
+    return expected
+  }
+  return {
+    id: string(item.id, `${path}.id`),
+    state: requireLiteral(item.state, 'passed', `${path}.state`),
+    track_kind: requireLiteral(
+      item.track_kind,
+      'OFFICIAL_DEMO_METHOD_EXTENDED_PIT',
+      `${path}.track_kind`,
+    ),
+    model_cell_id: requireLiteral(item.model_cell_id, 'small-official-ft', `${path}.model_cell_id`),
+    generated_at: string(item.generated_at, `${path}.generated_at`),
+    selection_split: requireLiteral(item.selection_split, 'validation_2025', `${path}.selection_split`),
+    selection_eligible: requireLiteral(item.selection_eligible, true, `${path}.selection_eligible`),
+    test_viewed_consumed: requireLiteral(
+      item.test_viewed_consumed,
+      false,
+      `${path}.test_viewed_consumed`,
+    ),
+    test_status: requireLiteral(
+      item.test_status,
+      'NOT_ACCESSED_FOR_SELECTION',
+      `${path}.test_status`,
+    ),
+    primary_signal: requireLiteral(item.primary_signal, 'mean', `${path}.primary_signal`),
+    receipt_sha256: string(item.receipt_sha256, `${path}.receipt_sha256`),
+    signal_receipt_sha256: string(item.signal_receipt_sha256, `${path}.signal_receipt_sha256`),
+    provider_receipt_sha256: string(
+      item.provider_receipt_sha256,
+      `${path}.provider_receipt_sha256`,
+    ),
+    backtest_code_sha256: string(item.backtest_code_sha256, `${path}.backtest_code_sha256`),
+    strategy: {
+      topk: requireLiteral(strategy.topk, 50, `${path}.strategy.topk`),
+      n_drop: requireLiteral(strategy.n_drop, 5, `${path}.strategy.n_drop`),
+      hold_thresh: requireLiteral(strategy.hold_thresh, 5, `${path}.strategy.hold_thresh`),
+      method_sell: requireLiteral(strategy.method_sell, 'bottom', `${path}.strategy.method_sell`),
+      method_buy: requireLiteral(strategy.method_buy, 'top', `${path}.strategy.method_buy`),
+      only_tradable: requireLiteral(strategy.only_tradable, false, `${path}.strategy.only_tradable`),
+      forbid_all_trade_at_limit: requireLiteral(
+        strategy.forbid_all_trade_at_limit,
+        true,
+        `${path}.strategy.forbid_all_trade_at_limit`,
+      ),
+    },
+    execution: {
+      account: number(execution.account, `${path}.execution.account`),
+      benchmark: requireLiteral(execution.benchmark, 'SH000300', `${path}.execution.benchmark`),
+      delay_execution: requireLiteral(
+        execution.delay_execution,
+        true,
+        `${path}.execution.delay_execution`,
+      ),
+      deal_price: requireLiteral(execution.deal_price, 'open', `${path}.execution.deal_price`),
+      open_cost: number(execution.open_cost, `${path}.execution.open_cost`),
+      close_cost: number(execution.close_cost, `${path}.execution.close_cost`),
+      min_cost: number(execution.min_cost, `${path}.execution.min_cost`),
+      limit_threshold: number(execution.limit_threshold, `${path}.execution.limit_threshold`),
+    },
+    support: {
+      sessions: number(support.sessions, `${path}.support.sessions`),
+      signal_rows: number(support.signal_rows, `${path}.support.signal_rows`),
+      signal_cross_sections: optionalNumber(
+        support.signal_cross_sections,
+        `${path}.support.signal_cross_sections`,
+      ),
+      actual_start: optionalString(support.actual_start, `${path}.support.actual_start`),
+      actual_end: optionalString(support.actual_end, `${path}.support.actual_end`),
+      candidate_min: optionalNumber(support.candidate_min, `${path}.support.candidate_min`),
+      candidate_median: optionalNumber(
+        support.candidate_median,
+        `${path}.support.candidate_median`,
+      ),
+      candidate_max: optionalNumber(support.candidate_max, `${path}.support.candidate_max`),
+    },
+    metrics: {
+      mean: parseOfficialMetrics(metrics.mean, `${path}.metrics.mean`),
+      last: parseOfficialMetrics(metrics.last, `${path}.metrics.last`),
+      max: parseOfficialMetrics(metrics.max, `${path}.metrics.max`),
+      min: parseOfficialMetrics(metrics.min, `${path}.metrics.min`),
+    },
+    qlib: {
+      version: string(qlib.version, `${path}.qlib.version`),
+      metadata_sha256: string(qlib.metadata_sha256, `${path}.qlib.metadata_sha256`),
+      record_sha256: string(qlib.record_sha256, `${path}.qlib.record_sha256`),
+      source_tree_sha256: string(qlib.source_tree_sha256, `${path}.qlib.source_tree_sha256`),
+    },
+    curve_semantics: {
+      official: string(semantics.official, `${path}.curve_semantics.official`),
+      derived: string(semantics.derived, `${path}.curve_semantics.derived`),
+    },
+    deviations: strings(item.deviations, `${path}.deviations`),
+  }
+}
+
+const parseHistoricalBacktestEnvelope = (
+  value: unknown,
+): { available: boolean; backtest: HistoricalBacktest | null } => {
+  const item = object(value, 'historical_backtests')
+  const available = boolean(item.available, 'historical_backtests.available')
+  const entries = array(item.backtests, 'historical_backtests.backtests')
+  if (!available && entries.length === 0) return { available: false, backtest: null }
+  if (!available || entries.length !== 1) {
+    throw new ApiContractError('historical_backtests 可用状态与封存条目不一致')
+  }
+  return {
+    available: true,
+    backtest: parseHistoricalBacktest(entries[0], 'historical_backtests.backtests[0]'),
+  }
+}
+
+const parseHistoricalSeries = (value: unknown): HistoricalBacktestPoint[] => {
+  const item = object(value, 'historical_series')
+  if (item.signal !== 'mean') throw new ApiContractError('历史曲线必须固定使用 mean 主信号')
+  return array(item.points, 'historical_series.points').map((point, index) => {
+    const row = object(point, `historical_series.points[${index}]`)
+    return {
+      session: string(row.session, `historical_series.points[${index}].session`),
+      strategy: number(row.strategy, `historical_series.points[${index}].strategy`),
+      benchmark: number(row.benchmark, `historical_series.points[${index}].benchmark`),
+      excess: number(row.excess, `historical_series.points[${index}].excess`),
+      strategy_nav: number(row.strategy_nav, `historical_series.points[${index}].strategy_nav`),
+      benchmark_nav: number(row.benchmark_nav, `historical_series.points[${index}].benchmark_nav`),
+    }
+  })
+}
+
 const parseReceipt = (value: unknown): SubmitJobReceipt => {
   const item = object(value, 'receipt')
   const nestedJob = item.job === undefined ? null : object(item.job, 'receipt.job')
@@ -653,12 +831,13 @@ const collection = (value: unknown, keys: string[], path: string): unknown[] => 
 
 export const createApiClient = (): ApiClient => ({
   async getSnapshot(signal) {
-    const [systemRaw, jobsRaw, runRaw, runsRaw, researchRaw, paperRaw] = await Promise.all([
+    const [systemRaw, jobsRaw, runRaw, runsRaw, researchRaw, backtestsRaw, paperRaw] = await Promise.all([
       requestJson('/api/v1/system/status', { signal }),
       requestJson('/api/v1/jobs', { signal }),
       optionalJson('/api/v1/runs/latest', signal),
       requestJson('/api/v1/runs?limit=10', { signal }),
       optionalServiceJson('/api/v1/research/experiments', signal),
+      optionalServiceJson('/api/v1/research/backtests', signal),
       optionalJson('/api/v1/paper/account', signal),
     ])
     const jobItems = collection(jobsRaw, ['items', 'jobs'], 'jobs_response')
@@ -672,7 +851,11 @@ export const createApiClient = (): ApiClient => ({
       parseExperiment(experiment, `research[${index}]`),
     )
     const parsedRun = runRaw === null ? null : parseRun(runRaw)
-    const [scoresRaw, diffRaw, ordersRaw, navRaw, paperSummaryRaw] = await Promise.all([
+    const historical =
+      backtestsRaw === null
+        ? { available: false, backtest: null }
+        : parseHistoricalBacktestEnvelope(backtestsRaw)
+    const [scoresRaw, diffRaw, ordersRaw, navRaw, paperSummaryRaw, historicalSeriesRaw] = await Promise.all([
       parsedRun === null
         ? Promise.resolve(null)
         : optionalJson(`/api/v1/runs/${encodeURIComponent(parsedRun.id)}/scores`, signal),
@@ -682,6 +865,12 @@ export const createApiClient = (): ApiClient => ({
       paperRaw === null ? Promise.resolve(null) : optionalJson('/api/v1/paper/orders', signal),
       paperRaw === null ? Promise.resolve(null) : optionalJson('/api/v1/paper/nav', signal),
       paperRaw === null ? Promise.resolve(null) : optionalJson('/api/v1/paper/summary', signal),
+      historical.backtest === null
+        ? Promise.resolve(null)
+        : optionalServiceJson(
+            `/api/v1/research/backtests/${encodeURIComponent(historical.backtest.id)}/series?signal=mean`,
+            signal,
+          ),
     ])
 
     const embeddedRun = runRaw === null ? null : object(runRaw, 'latest_run')
@@ -703,6 +892,10 @@ export const createApiClient = (): ApiClient => ({
       latest_run: runRaw === null ? null : parseRun(runRaw, scores),
       research_catalog: researchCatalog,
       research_catalog_available: researchRaw !== null,
+      historical_backtest: historical.backtest,
+      historical_backtest_available: historical.available,
+      historical_backtest_series:
+        historicalSeriesRaw === null ? [] : parseHistoricalSeries(historicalSeriesRaw),
       runs,
       run_diff: diffRaw === null ? null : parseRunDiff(diffRaw),
       paper: paperRaw === null ? null : parsePaper(paperRaw, orders, nav),

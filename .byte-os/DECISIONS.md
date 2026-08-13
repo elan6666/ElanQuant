@@ -66,3 +66,15 @@ The first successful run for a signal session freezes the only paper
 publication. A forced same-session rerun may publish new research evidence but
 must not add, remove or replace paper intents. Historical mixed-run provenance
 is preserved and labelled rather than silently rewritten.
+
+## 2026-08-13 — Preserve Top3 and add an isolated official-demo method version
+
+The existing manual Top3 strict-PIT ranking and paper ledger remain the online
+product. A separate historical research version reproduces the pinned Kronos
+demo method with standardized-space signals, sample count five and Qlib
+Top50/Drop5/minimum-hold-five. It is immutable-artifact and GET-only: it never
+writes jobs, inference runs, recommendations, orders, fills, positions or NAV.
+Because the admitted extended 2025 validation split, dynamic PIT membership,
+provider data, pinned pyqlib version and deterministic seed differ from the
+author environment, the product calls it method-aligned rather than an exact
+data reproduction and lists every deviation in its receipt and UI.

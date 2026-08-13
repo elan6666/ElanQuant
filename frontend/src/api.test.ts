@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ApiContractError, createApiClient } from './api'
+import { historicalBacktest } from './test/fixtures'
 
 const response = (payload: unknown, status = 200): Response =>
   ({
@@ -192,5 +193,54 @@ describe('API runtime contract', () => {
     expect(snapshot.research_catalog).toEqual([])
     expect(snapshot.research_catalog_available).toBe(false)
     expect(snapshot.system.service_state).toBe('ready')
+  })
+
+  it('decodes the sealed official-demo backtest as a separate read-only track', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = String(input)
+        if (path.endsWith('/system/status')) {
+          return response({
+            service_state: 'ready',
+            server_time: '2026-08-13T15:00:00+08:00',
+            latest_closed_session: null,
+            data_as_of: null,
+            inference_as_of: null,
+            active_job_id: null,
+            primary_model: null,
+            warnings: [],
+          })
+        }
+        if (path.endsWith('/jobs')) return response({ jobs: [] })
+        if (path.includes('/runs?')) return response({ runs: [] })
+        if (path.endsWith('/research/experiments')) return response({ experiments: [] })
+        if (path.endsWith('/research/backtests')) {
+          return response({ available: true, backtests: [historicalBacktest] })
+        }
+        if (path.includes('/research/backtests/') && path.includes('/series?signal=mean')) {
+          return response({
+            signal: 'mean',
+            points: [
+              {
+                session: '2025-01-02',
+                strategy: 0.01,
+                benchmark: 0.005,
+                excess: 0.005,
+                strategy_nav: 1.01,
+                benchmark_nav: 1.005,
+              },
+            ],
+          })
+        }
+        return response({}, 404)
+      }),
+    )
+
+    const snapshot = await createApiClient().getSnapshot()
+    expect(snapshot.historical_backtest_available).toBe(true)
+    expect(snapshot.historical_backtest?.strategy).toMatchObject({ topk: 50, n_drop: 5, hold_thresh: 5 })
+    expect(snapshot.historical_backtest_series[0]?.strategy).toBe(0.01)
+    expect(snapshot.paper).toBeNull()
   })
 })

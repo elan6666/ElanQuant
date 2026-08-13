@@ -93,7 +93,7 @@ export function RankingPage({ run }: { run: ResearchRun | null }) {
 function RankingHeading({ run }: { run: ResearchRun | null }) {
   return (
     <header className="page-heading page-heading--split">
-      <div><span className="eyebrow">04 / Ranking</span><h1>股票排名与证据解释</h1><p>主分数来自反归一化后的10日平均预测收盘价收益；排名不是买入承诺。</p></div>
+      <div><span className="eyebrow">05 / Ranking</span><h1>股票排名与证据解释</h1><p>主分数来自反归一化后的10日平均预测收盘价收益；排名不是买入承诺。</p></div>
       <div className="identity-card"><span>As-of</span><strong>{run?.as_of || '—'}</strong><small>Data {shortHash(run?.data_hash)}</small></div>
     </header>
   )

@@ -31,6 +31,12 @@ const sections = [
   },
   {
     index: '06',
+    title: 'Top3和官方Demo版为什么同时保留',
+    body: 'Top3是收盘后手动运行的在线研究与模拟订单：反归一化百分比信号、10条采样、T日冻结、T+1执行。官方Demo版是独立连续历史回测：标准化空间差值、5条采样、Top50、Drop5、最少持有5日。它们回答不同问题，绝不共享账本。',
+    tag: 'TWO TRACKS',
+  },
+  {
+    index: '07',
     title: '最新预测为什么尚不可评分',
     body: '今天收盘后可以预测未来10日，但真实未来尚未发生。只有第10个未来交易日结束后，这个anchor才能进入IC、RankIC和收益评价；在线预测与已成熟评估必须分开显示。',
     tag: 'EVALUATION',
@@ -41,7 +47,7 @@ export function MethodsPage() {
   return (
     <>
       <header className="page-heading methods-heading">
-        <span className="eyebrow">06 / Methods</span>
+        <span className="eyebrow">07 / Methods</span>
         <h1>从一次点击，理解完整系统</h1>
         <p>这里解释产品为什么这样设计。所有方法都围绕同一个原则：今天做出的判断，只能使用今天已经知道的事实。</p>
       </header>

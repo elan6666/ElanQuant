@@ -1,6 +1,7 @@
 import type {
   DashboardSnapshot,
   ExperimentCell,
+  HistoricalBacktest,
   Job,
   PaperAccount,
   PaperSummary,
@@ -171,6 +172,82 @@ export const paperSummary: PaperSummary = {
   warnings: [],
 }
 
+const officialMetrics = {
+  total_return_with_cost: 0.12,
+  benchmark_return: 0.08,
+  excess_return_without_cost: 0.05,
+  excess_return_with_cost: 0.04,
+  annualized_return_with_cost: 0.13,
+  annualized_excess_return_with_cost: 0.045,
+  information_ratio_with_cost: 0.61,
+  max_drawdown_with_cost: -0.07,
+  total_cost: 0.01,
+  turnover_mean: 0.03,
+}
+
+export const historicalBacktest: HistoricalBacktest = {
+  id: 'official-demo-method-extended-pit-v1',
+  state: 'passed',
+  track_kind: 'OFFICIAL_DEMO_METHOD_EXTENDED_PIT',
+  model_cell_id: 'small-official-ft',
+  generated_at: '2026-08-13T15:00:00+08:00',
+  selection_split: 'validation_2025',
+  selection_eligible: true,
+  test_viewed_consumed: false,
+  test_status: 'NOT_ACCESSED_FOR_SELECTION',
+  primary_signal: 'mean',
+  receipt_sha256: 'a'.repeat(64),
+  signal_receipt_sha256: 'b'.repeat(64),
+  provider_receipt_sha256: 'c'.repeat(64),
+  backtest_code_sha256: '1'.repeat(64),
+  strategy: {
+    topk: 50,
+    n_drop: 5,
+    hold_thresh: 5,
+    method_sell: 'bottom',
+    method_buy: 'top',
+    only_tradable: false,
+    forbid_all_trade_at_limit: true,
+  },
+  execution: {
+    account: 100_000_000,
+    benchmark: 'SH000300',
+    delay_execution: true,
+    deal_price: 'open',
+    open_cost: 0.001,
+    close_cost: 0.0015,
+    min_cost: 5,
+    limit_threshold: 0.095,
+  },
+  support: {
+    sessions: 240,
+    signal_rows: 68_000,
+    signal_cross_sections: 240,
+    actual_start: '2025-01-02',
+    actual_end: '2025-12-31',
+    candidate_min: 250,
+    candidate_median: 290,
+    candidate_max: 300,
+  },
+  metrics: {
+    mean: officialMetrics,
+    last: { ...officialMetrics, total_return_with_cost: 0.09 },
+    max: { ...officialMetrics, total_return_with_cost: 0.08 },
+    min: { ...officialMetrics, total_return_with_cost: 0.06 },
+  },
+  qlib: {
+    version: '0.9.7',
+    metadata_sha256: 'd'.repeat(64),
+    record_sha256: 'e'.repeat(64),
+    source_tree_sha256: 'f'.repeat(64),
+  },
+  curve_semantics: {
+    official: 'Arithmetic cumulative sum.',
+    derived: 'Compounded NAV extension.',
+  },
+  deviations: ['Uses admitted extended validation_2025 split.'],
+}
+
 export const snapshot = (overrides: Partial<DashboardSnapshot> = {}): DashboardSnapshot => ({
   system: {
     service_state: 'ready',
@@ -186,6 +263,9 @@ export const snapshot = (overrides: Partial<DashboardSnapshot> = {}): DashboardS
   latest_run: null,
   research_catalog: [],
   research_catalog_available: true,
+  historical_backtest: null,
+  historical_backtest_available: false,
+  historical_backtest_series: [],
   runs: [],
   run_diff: null,
   paper: null,

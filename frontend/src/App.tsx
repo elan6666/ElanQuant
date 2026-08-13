@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { createApiClient } from './api'
 import { Shell, type PageKey } from './components/Shell'
 import { JobsPage } from './pages/JobsPage'
+import { HistoricalBacktestPage } from './pages/HistoricalBacktestPage'
 import { MethodsPage } from './pages/MethodsPage'
 import { OverviewPage } from './pages/OverviewPage'
 import { PaperPage } from './pages/PaperPage'
@@ -12,7 +13,7 @@ import { useDashboard } from './useDashboard'
 
 const productionClient = createApiClient()
 
-const validPages: PageKey[] = ['overview', 'jobs', 'research', 'ranking', 'paper', 'methods']
+const validPages: PageKey[] = ['overview', 'jobs', 'research', 'backtest', 'ranking', 'paper', 'methods']
 
 const initialPage = (): PageKey => {
   const candidate = window.location.hash.replace('#/', '') as PageKey
@@ -93,6 +94,13 @@ export function App({ client = productionClient }: { client?: ApiClient }) {
           catalogAvailable={snapshot.research_catalog_available}
           runs={snapshot.runs}
           diff={snapshot.run_diff}
+        />
+      ) : null}
+      {page === 'backtest' ? (
+        <HistoricalBacktestPage
+          backtest={snapshot.historical_backtest}
+          available={snapshot.historical_backtest_available}
+          series={snapshot.historical_backtest_series}
         />
       ) : null}
       {page === 'ranking' ? <RankingPage run={snapshot.latest_run} /> : null}

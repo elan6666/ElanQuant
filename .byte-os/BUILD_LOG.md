@@ -126,3 +126,30 @@
   PASS; 10 frontend tests, ESLint, build and npm audit PASS. Independent static
   review is SHIP; full server/API, live migration/data refresh and deployed
   1440/390 QA remain delivery gates.
+
+## 2026-08-13 — Isolated official-demo method version
+
+- Preserved the existing manual Top3 strict-PIT online/paper product and added a
+  separate artifact/catalog-only historical research version. It has no POST,
+  job, recommendation, order, position, fill or NAV write path.
+- Reproduced the pinned Kronos demo method with 90-session instance
+  normalization, sample count five, standardized-space last/mean/max/min close
+  differences, and Qlib Top50/Drop5/minimum-hold-five delayed next-open
+  execution. pyqlib 0.9.7 and all provider/code/config/model identities are
+  recorded because the author repository does not pin Qlib.
+- Sealed 67,349 signal rows over 233 validation-2025 cross-sections and a
+  233-session backtest. The predeclared mean signal returned 7.03% after cost
+  versus 16.30% for SH000300, with -9.27% excess and -11.78% maximum drawdown;
+  the product therefore labels this as a method baseline, not alpha evidence.
+- Published fail-closed GET-only API endpoints and a dedicated Chinese
+  `历史回测` page with a direct Top3-versus-official comparison, four signals,
+  execution constants, hashes and Chinese deviation disclosure.
+- Recomputed the sealed release and catalog hashes successfully. A before/after
+  audit found every Top3 paper table unchanged. A later same-session Top3 force
+  refresh succeeded on the second GPU, published 900 scores and six split
+  evaluation rows, skipped the already-frozen paper publication, and left the
+  frozen ledger byte-for-byte unchanged.
+- Final server gate: 73 pytest PASS, Ruff PASS, Pyright 0 errors/warnings,
+  compileall PASS, shell syntax PASS and systemd unit verification PASS. Frontend: 12 Vitest PASS, ESLint,
+  production build and zero-vulnerability npm audit PASS. Live 1440 and 390 px
+  browser QA has no overflow or console warnings/errors.

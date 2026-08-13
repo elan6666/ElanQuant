@@ -15,11 +15,16 @@
 
 ## Current command evidence
 
-- Local non-API evidence suite: 42 pytest PASS, Ruff PASS, compileall PASS and
-  `git diff --check` PASS. Full API suite remains server-only.
-- Frontend: 10 Vitest PASS, ESLint PASS, TypeScript/Vite build PASS and
+- Server full suite: 73 pytest PASS, Ruff PASS, Pyright 0 errors/warnings,
+  compileall PASS, all shell syntax PASS and both systemd units verify.
+- Frontend: 12 Vitest PASS, ESLint PASS, TypeScript/Vite build PASS and
   `npm audit --omit=dev` reports zero vulnerabilities.
-- Browser: current error-state shell at 1440px and emulated 390px has zero
-  console errors and no page overflow; final data-bearing live QA waits for deploy.
+- Browser: deployed data-bearing pages at 1440 × 1000 and 390 × 844 have zero
+  console warnings/errors and no page overflow. Mobile heading wrapping was
+  corrected from the first visual pass and rechecked live.
+- Official-demo release audit: 67,349 standardized signal rows, 233 sessions,
+  canonical catalog receipt PASS and all Top3 paper tables unchanged.
+- Same-session Top3 force refresh: 900 scores, six split-evaluation rows,
+  `SKIPPED_EXISTING_FROZEN_RUN`, and frozen ledger hash unchanged.
 - Research runtime: PyTorch 2.7.1+cu128 with two RTX 5090; isolated target deps.
 - Module-local AGENTS.md files remain unnecessary at current size.

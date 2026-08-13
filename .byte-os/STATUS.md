@@ -9,7 +9,7 @@ review_verdict: not_ship_external_gates
 iteration_count: 3
 harness_status: ready
 hard_blocked: false
-updated_at: 2026-08-13T13:38:00+08:00
+updated_at: 2026-08-13T15:27:00+08:00
 ---
 
 # Current State
@@ -22,6 +22,12 @@ promotion. The third product iteration is deployed: the live database was
 backed up, migrated by one process, checked for integrity and restarted with the
 six-cell evidence catalog, run/data/stock lineage, sample-aware paper accounting
 and Claude-inspired warm editorial dashboard.
+The existing Top3 track remains unchanged. Plan 008's completely isolated
+official-demo-method historical version is now sealed and deployed: 67,349
+standardized signal rows, 233 sessions, Top50/Drop5/Hold5, GET-only API and a
+dedicated page. Its independent audit proves every Top3 paper table was
+unchanged. A same-session Top3 force refresh also left the frozen ledger
+unchanged while publishing current run evidence.
 
 ## Goal
 
@@ -38,17 +44,15 @@ inference, without real brokerage connectivity.
 
 ## Harness
 
-Server pytest passes 65 tests after a real API-contract fix; server Ruff and
-compileall pass. Frontend passes 10 Vitest tests, ESLint, TypeScript/Vite build
-and npm audit with zero vulnerabilities. Live DB migration reports
-`integrity_check=ok` and zero foreign-key violations. Final Base artifact audit,
-same-session evidence refresh, desktop/mobile browser QA and delivery review
-remain.
+Server passes 73 pytest tests, Ruff, compileall, shell syntax and systemd unit
+verification. Frontend passes 12 Vitest tests, ESLint, TypeScript/Vite build and
+npm audit with zero vulnerabilities. Live DB reports `integrity_check=ok` and
+zero foreign-key violations. Official release audit, same-session frozen-ledger
+comparison and deployed 1440/390 browser QA pass. Only the still-running Base
+formal/catalog audit and final delivery review remain.
 
 ## Next
 
-Wait for the isolated Base evaluation service, validate smoke/formal/catalog,
-then run one same-session force evidence refresh after the GPU is free. Confirm
-that the frozen historical orders are byte-for-byte unchanged and that the new
-run contains data-health plus all Small split evidence. Finish desktop/mobile
-Browser QA, final independent review, delivery ledger and Git push.
+Wait for the isolated Base evaluation service, validate its formal receipt and
+cross-size six-cell catalog without promoting it over Small. Then complete the
+final independent delivery review, delivery ledger and Git push.

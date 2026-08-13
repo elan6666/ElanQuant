@@ -33,6 +33,10 @@ class Settings:
     research_catalog: Path = Path(
         "/data/yilangliu/a_share_research/elanquant/releases/research-catalog.json"
     )
+    historical_backtest_catalog: Path = Path(
+        "/data/yilangliu/a_share_research/elanquant/releases/"
+        "historical-backtest-catalog.json"
+    )
 
     @classmethod
     def load(cls, config_path: Path | None = None) -> Settings:
@@ -147,5 +151,13 @@ class Settings:
                         )
                     ),
                 )
+            ),
+            historical_backtest_catalog=resolved_path(
+                "ELANQUANT_HISTORICAL_BACKTEST_CATALOG",
+                "historical_backtest_catalog",
+                Path(
+                    "/data/yilangliu/a_share_research/elanquant/releases/"
+                    "historical-backtest-catalog.json"
+                ),
             ),
         )
