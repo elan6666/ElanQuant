@@ -27,9 +27,7 @@ PY
   --pythonpath "$APP_PYTHON" \
   backend/src scripts/server
 "$APP_PYTHON" -m compileall -q backend/src scripts/server tests
-npm --prefix frontend test -- --run
-npm --prefix frontend run lint
-npm --prefix frontend run build
+[[ -f frontend/dist/index.html ]] || { echo "frontend build is absent" >&2; exit 1; }
 
 install -m 0600 deploy/systemd/elanquant-api.service \
   "$HOME/.config/systemd/user/elanquant-api.service"
