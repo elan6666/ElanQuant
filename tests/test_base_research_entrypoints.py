@@ -38,3 +38,15 @@ def test_base_finalizer_is_immutable_catalog_only_and_never_promotes_current() -
     assert "build_research_catalog.py" in script
     assert "publish_release.py" not in script
     assert "releases/current" not in script
+
+
+def test_base_evaluation_resume_preserves_existing_matrix_and_never_promotes() -> None:
+    script = (ROOT / "scripts/server/resume_base_evaluation.sh").read_text()
+    assert '[[ -f "$MATRIX" ]]' in script
+    assert "compile_training_matrix.py" not in script
+    assert '[[ ! -e "$target" ]]' in script
+    assert '[[ ! -e "$CATALOG" ]]' in script
+    assert "--model-size base" in script
+    assert "build_research_catalog.py" in script
+    assert "publish_release.py" not in script
+    assert "releases/current" not in script

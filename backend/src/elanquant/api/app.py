@@ -651,7 +651,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ).fetchall()
         if row is None:
             raise HTTPException(status_code=404, detail="Run not found")
-        safe_run = {key: row[key] for key in row if key != "artifact_path"}
+        safe_run = dict(row)
+        safe_run.pop("artifact_path", None)
         return {"run": safe_run, "recommendations": [dict(item) for item in recommendations]}
 
     @app.get("/api/v1/runs/{run_id}/scores")
