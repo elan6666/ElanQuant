@@ -2,10 +2,10 @@
 
 ## Project Purpose
 
-Build an auditable, research-only A-share Kronos Small/Base comparison with
-strict PIT data, on-demand Small server inference, and a simulated trading
-account. Base is an admitted research candidate only and must never replace the
-Small live release without a separate evidence-backed owner decision.
+Build a reproducible, research-only A-share Kronos Small/Base comparison using
+the pinned official demo date slices, matured rolling-test evaluation,
+Top50/Top3 historical studies and local/remote inference profiles. Superseded
+strict-PIT artifacts remain read-only but are not an active product version.
 
 ## Start Here
 
@@ -35,7 +35,8 @@ Small live release without a separate evidence-backed owner decision.
 
 ## Server Boundary
 
-- All market-data downloads, dataset builds, training, inference, evaluation,
+- Until a local execution profile passes its explicit smoke/admission gate, all
+  market-data downloads, dataset builds, training, inference, evaluation,
   paper ledgers, reports, checkpoints, and weights run only under
   `/data/yilangliu/a_share_research/elanquant` on `yilangliu@10.24.1.91`.
 - Before server work, verify port 22, remote path, GPUs, and free space.
@@ -63,6 +64,6 @@ Small live release without a separate evidence-backed owner decision.
 
 ## Maintenance
 
-- Last reviewed: 2026-08-13
-- Next review: after the Base candidate and six-cell catalog are sealed
+- Last reviewed: 2026-08-14
+- Next review: after portable runtime and official-split v3 delivery
 - Owner/DRI: root integrator

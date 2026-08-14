@@ -4,9 +4,20 @@ import argparse
 import logging
 import threading
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 
+from elanquant.execution import (
+    CapabilityUnavailableError,
+    SystemCapabilities,
+    build_execution_receipt,
+    load_execution_profile,
+    probe_system_capabilities,
+    require_capability,
+    restricted_process_environment,
+    runtime_values,
+    sanitized_subprocess_environment,
+)
 from elanquant.orchestration.jobs import JobStore
 from elanquant.pipelines.placeholder import run_placeholder_pipeline
 from elanquant.pipelines.real import DataIncompleteError, run_real_pipeline
@@ -17,8 +28,13 @@ LOGGER = logging.getLogger("elanquant.worker")
 
 
 class Worker:
-    def __init__(self, settings: Settings):
+    def __init__(
+        self,
+        settings: Settings,
+        capability_probe: Callable[[str], SystemCapabilities] = probe_system_capabilities,
+    ):
         self.settings = settings
+        self.capability_probe = capability_probe
         self.database = Database(settings.database_path)
         self.database.initialize()
         self.jobs = JobStore(self.database)
@@ -40,7 +56,47 @@ class Worker:
 
     def run_once(self) -> bool:
         self.heartbeat()
-        job = self.jobs.claim_next()
+        queued = self.jobs.peek_next()
+        if queued is None:
+            return False
+        queued_id = str(queued["id"])
+        if self.settings.pipeline_mode == "real":
+            if queued["execution_profile"] != self.settings.execution_profile:
+                self.jobs.fail(
+                    queued_id,
+                    "EXECUTION_PROFILE_MISMATCH",
+                    "Queued job execution profile differs from this worker deployment",
+                )
+                return True
+            try:
+                profile = load_execution_profile(
+                    str(queued["execution_profile"]), self.settings.execution_profiles_root
+                )
+                receipt = build_execution_receipt(
+                    profile,
+                    str(queued["model_release"]),
+                    str(queued["requested_device"]),
+                    self.capability_probe(str(queued["requested_device"])),
+                    inference_batch_size=self.settings.inference_batch_size,
+                )
+                self.jobs.record_execution_receipt(queued_id, receipt)
+                require_capability(receipt)
+                if profile.is_research_only(str(queued["model_release"])):
+                    self.jobs.fail(
+                        queued_id,
+                        "MODEL_RELEASE_RESEARCH_ONLY",
+                        "This model release is admitted for research smoke only and cannot publish",
+                    )
+                    return True
+            except CapabilityUnavailableError as error:
+                LOGGER.warning("Job %s stopped at capability gate: %s", queued_id, error)
+                self.jobs.fail(queued_id, "CAPABILITY_UNAVAILABLE", str(error))
+                return True
+            except (OSError, TypeError, ValueError) as error:
+                LOGGER.warning("Job %s has an invalid execution profile: %s", queued_id, error)
+                self.jobs.fail(queued_id, "EXECUTION_PROFILE_INVALID", str(error))
+                return True
+        job = self.jobs.claim_next(queued_id)
         if job is None:
             return False
         job_id = str(job["id"])
@@ -66,7 +122,19 @@ class Worker:
                 if self.settings.pipeline_mode == "real"
                 else run_placeholder_pipeline
             )
-            run_id = pipeline(self.database, self.settings, job, advance)
+            if self.settings.pipeline_mode == "real":
+                environment = sanitized_subprocess_environment(
+                    runtime_values=runtime_values(
+                        str(job["execution_profile"]),
+                        str(job["model_release"]),
+                        str(job["requested_device"]),
+                        self.settings.inference_batch_size,
+                    )
+                )
+                with restricted_process_environment(environment):
+                    run_id = pipeline(self.database, self.settings, job, advance)
+            else:
+                run_id = pipeline(self.database, self.settings, job, advance)
             if self.jobs.get(job_id)["status"] == "RUNNING":
                 self.jobs.succeed(job_id, run_id)
         except DataIncompleteError as error:

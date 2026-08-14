@@ -1,4 +1,15 @@
 export type ServiceState = 'ready' | 'degraded' | 'offline'
+export type ExecutionLocation = 'local' | 'remote'
+export type ExecutionProfile =
+  | 'local-apple-silicon'
+  | 'remote-linux-nvidia'
+  | 'legacy-yilangliu'
+
+export interface ExecutionProfileAvailability {
+  available: boolean
+  profile_id: ExecutionProfile | null
+  reason: string | null
+}
 export type JobState =
   | 'queued'
   | 'running'
@@ -25,6 +36,9 @@ export interface SystemStatus {
   inference_as_of: string | null
   active_job_id: string | null
   primary_model: string | null
+  active_execution_profile: ExecutionProfile
+  default_execution_location: ExecutionLocation
+  execution_profiles: Record<ExecutionLocation, ExecutionProfileAvailability>
   warnings: string[]
 }
 
@@ -39,6 +53,7 @@ export interface JobEvent {
 export interface Job {
   id: string
   kind: 'update_infer'
+  execution_profile: ExecutionProfile
   state: JobState
   stage: JobStage
   requested_at: string
@@ -115,6 +130,7 @@ export interface StockScore {
   name: string
   score: number
   forecast_return: number
+  reference_price: number | null
   coverage: number | null
   input_completeness: number | null
   eligible: boolean
@@ -399,6 +415,7 @@ export interface DashboardSnapshot {
 export interface SubmitJobReceipt {
   job_id: string
   coalesced: boolean
+  execution_profile: ExecutionProfile
 }
 
 export interface ApiClient {
@@ -408,6 +425,6 @@ export interface ApiClient {
     session?: string,
     signal?: AbortSignal,
   ): Promise<HistoricalHoldingsSnapshot | null>
-  submitUpdateInfer(signal?: AbortSignal): Promise<SubmitJobReceipt>
+  submitUpdateInfer(profile: ExecutionProfile, signal?: AbortSignal): Promise<SubmitJobReceipt>
   retryJob(id: string, signal?: AbortSignal): Promise<SubmitJobReceipt>
 }

@@ -1,0 +1,11 @@
+schema_version: elanquant_execution_profile_v1
+id: legacy-yilangliu
+visibility: private
+operating_systems: [Linux]
+architectures: [x86_64]
+allowed_devices: [cuda]
+default_device: cuda
+allowed_releases: [small]
+default_release: small
+research_only_releases: []
+require_explicit_base: false

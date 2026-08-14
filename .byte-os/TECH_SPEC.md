@@ -1,71 +1,92 @@
-# Technical Specification
+# Technical Specification — ElanQuant v1
 
 ## Architecture
 
-- React/TypeScript/Vite frontend built and served by FastAPI.
-- FastAPI loopback service on `127.0.0.1:8765`.
-- SQLite WAL metadata database with busy timeout and atomic portfolio commits.
-- Independent worker atomically claims queued jobs; GPU pipeline runs in child
-  process and publishes immutable artifacts atomically.
-- Access only with EasyConnect plus SSH local forwarding.
+- React/TypeScript/Vite frontend served by FastAPI.
+- Loopback FastAPI + SQLite durable jobs + independent worker.
+- Versioned research CLIs produce immutable data, training, evaluation and
+  historical-backtest artifacts outside Git.
+- A portable runtime layer resolves deployment profile, release and device
+  before any job is claimed.
 
-## Backend modules
+## Identity model
 
-`api`, `orchestration`, `pipelines`, `storage`, and `settings`. Research
-contracts plus training/data CLIs live under `scripts/`.
+`ModelEvidenceIdentity` binds upstream commit, predictor/tokenizer/config,
+matrix and evaluation hashes. `ExecutionIdentity` binds profile, OS/arch,
+Python/Torch, device backend/name, batch schedule and inference code. `DataIdentity`
+binds canonical data hash, schema mapping, calendar/universe declarations and
+provenance. Local/remote changes only ExecutionIdentity.
 
-## Data model
+## Official-split dataset v3
 
-Jobs/events; data snapshots with safe health summaries; model versions;
-run-bound split evaluations; inference runs; stock scores; recommendation
-sets/items; one publication per signal session; intent decisions; paper
-accounts, positions, orders, fills and portfolio snapshots. Large paths are
-immutable artifacts referenced by hash.
+- Input: immutable closed-world raw manifest or canonical BYO-data receipt.
+- Outputs: per-symbol train/val/test pickles plus manifest and effective-range receipt.
+- Training windows are exactly 101 rows and fully contained in their raw slice.
+- Test inference windows use 90 context + next 10 global exchange timestamps;
+  candidate eligibility never reads future symbol availability.
+- The manifest records requested/frozen end, actual coverage, raw ranges,
+  effective first/last anchors and targets, exclusions and every file SHA.
 
-## API
+## Model release v3
 
-- `GET /api/v1/health`, `/system/status`
-- `POST /api/v1/jobs/update-infer` -> 202/idempotent ID
-- `GET /api/v1/jobs`, `/jobs/{id}`; `POST /jobs/{id}/retry`
-- `GET /api/v1/research/experiments` for the sealed six-cell catalog
-- `GET /api/v1/research/backtests`, detail and bounded mean-signal series for a
-  sealed, read-only exact 2×2 Top50/Top3 × 2025/2026 catalog; there is no POST
-- `GET /api/v1/runs`, `/runs/latest`, `/runs/{id}`, scores, diff and data health
-- `GET /api/v1/paper/account`, orders, NAV and evidence-aware summary
+- Active cells: two sizes x zero-shot/official-ft.
+- Small and Base each train official tokenizer then predictor from pinned weights.
+- Author optimizer, scheduler, loss, sampling and 30-epoch behavior are preserved.
+- Unique immutable run directories; old v2 current remains until v3 admission passes.
+- Retirement receipt points to superseded v2 evidence; it never deletes it.
 
-## Research protocols
+## Evaluation/backtest
 
-- Pin official upstream/HF revisions and hashes.
-- Separate official-style A-share and strict-PIT config namespaces. Neither is
-  mislabeled as an exact qlib backtest reproduction.
-- Strict split by complete target ranges; tokenizer/scaler/predictor fit only on
-  training data. Online latest anchors never enter metrics before maturation.
-- Main signal inverse-transforms predicted closes then implements the paper
-  ten-day mean-return formula with T=.6, top-p=.9, N=10.
-- The independent official-demo-method track uses the pinned low-level upstream
-  inference path, per-instance 90-session normalization, N=5 and four
-  standardized close differences. Qlib TopkDropout 50/5/hold5 exposes 2025 as
-  training-validation evidence and a corrected, opened 2026 out-of-sample
-  diagnostic. A post-hoc Qlib Top3/Drop1/Hold5 variant reuses the exact sealed
-  signals/providers and changes only portfolio construction. T-day candidates require only prior 90 global sessions; forecast
-  timestamps are the next ten global exchange sessions and never inspect future
-  symbol rows. Neither track stores SQLite state or participates in selection.
+- Mature evaluation end is derived from the frozen calendar, never guessed by dates.
+- Rolling evaluation schema labels `TEST_VIEWED`, `used_for_selection=false`.
+- Historical matrix: four model cells x Top50/Top3 over one viewed rolling backtest
+  window, with common-support and same-signal hashes within each model.
+- Large signals, series and holdings stay in immutable artifacts; catalogs are GET-only.
 
-## Security and operations
+## Portable runtime
 
-- No public bind, broker code, credentials, secrets in logs, or generated
-  artifacts in Git.
-- Approved server data client only; source token remains server-only.
-- user-systemd services with `Linger=yes`; retain an honest warning until the
-  current submit/disconnect/reconnect E2E passes.
+- New profile config and validator resolve `local-apple-silicon`,
+  `remote-linux-nvidia` or private `legacy-yilangliu`.
+- Jobs persist execution profile and resolved release identity; retry inherits them;
+  idempotency includes profile/release/session.
+- Worker capability gate runs before claim. MPS/CUDA cannot silently fall back to CPU.
+- Research subprocess receives an environment allowlist rather than the parent environment.
+- Base remains explicit opt-in until its local/remote resource gate passes.
+
+## Public data and weights
+
+- Canonical file schema: instrument,timestamp,open,high,low,close with optional
+  volume,amount; CSV and Parquet normalize to an identical canonical hash.
+- Validators fail on duplicate/non-monotonic dates, invalid OHLC, non-finite values,
+  timezone/calendar ambiguity, future dates or missing universe/PIT declarations.
+- Tushare token is read only from environment or a 0600 file and never enters output.
+- Official weight downloader supports Small default, Base opt-in, check/offline modes,
+  allowlisted files, pinned revisions, tree hash, license inventory and canonical receipt.
+
+## CLI
+
+- `elanquant bootstrap --profile ... --release small|base [--dry-run]`
+- `elanquant doctor --check-only`
+- `elanquant smoke --fixture synthetic`
+- `elanquant weights fetch|verify --release small|base [--offline]`
+- `elanquant data import --source files|tushare ...`
+
+## API/UI contract
+
+- Execution profile availability is read from system status.
+- Update-infer POST includes profile; job/run responses expose it.
+- Public experiment and historical selectors filter to the four active IDs.
+- Legacy strict-PIT evidence remains accepted by internal decoders and audit endpoints.
+- Ranking exposes reference price and a formula-level explanation of ten-day predicted change.
 
 ## Testing
 
-- Unit: split, hashes, job state/idempotency, scoring, board lots, costs.
-- Integration: 202 response, worker claim/recovery, incomplete data fail-close,
-  paper transaction and duplicate-date protection.
-- Research: official pin/hash, future perturbation, membership, adjustment,
-  tokenizer fit boundary, common-support metrics.
-- Frontend: schema rejection, live backend-shaped envelopes,
-  empty/running/failure/success, keyboard ranking and responsive build.
-- E2E: submit, disconnect, reconnect, completion; GPU released after job.
+- Split golden tests: 101 rows, raw-overlap/effective-range proof, future perturbation,
+  matured T+10 boundary and requested/actual backtest start.
+- Runtime tests: profile/release compatibility, no fallback, idempotency, retry, env allowlist.
+- Data/weight tests: CSV=Parquet canonical hash, corruption, offline verify, secret scan.
+- Research tests: exact four cells, formal receipt, Top50/Top3 same-signal binding.
+- Frontend: four public cells, retired strict hidden, metric definitions, six-nav shell,
+  profile selection and legacy payload compatibility.
+- Server-only: materialization, DDP training, inference/evaluation/backtest and release switch.
+- Delivery: wheel/sdist contents, licenses, full backend/frontend gates, 1440/390/browser console.

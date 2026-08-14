@@ -153,3 +153,38 @@ Stars are only a community signal, not proof of correctness.
 No first-hand user complaints or analytics were available in this research
 wave. The opportunities above are inferences from primary product behavior and
 the owner's stated learning/audit needs, not simulated user feedback.
+# 2026-08-14 Official-split and portability refresh
+
+## Primary-source facts
+
+- Pinned Kronos `config.py` defines raw train 2011-01-01..2022-12-31,
+  validation 2022-09-01..2024-06-30, test 2024-04-01..2025-06-05 and
+  backtest 2024-07-01..2025-06-05. The source explicitly says validation/test
+  start early for lookback context. It also fixes 30 epochs, batch 50/GPU,
+  seed 100, sample_count 5 and Top50/Drop5/Hold5.
+  Source: https://raw.githubusercontent.com/shiyu-coder/Kronos/67b630e67f6a18c9e9be918d9b4337c960db1e9a/finetune/config.py
+- Pinned `dataset.py` consumes lookback + prediction + one row: 101 rows for
+  90/10. Mean/std are calculated only from the first 90 rows.
+  Source: https://raw.githubusercontent.com/shiyu-coder/Kronos/67b630e67f6a18c9e9be918d9b4337c960db1e9a/finetune/dataset.py
+- Pinned `qlib_test.py` iterates test windows, generates standardized-space
+  last/mean/max/min close differences, and runs Qlib TopkDropout with delayed
+  daily execution. Source: https://raw.githubusercontent.com/shiyu-coder/Kronos/67b630e67f6a18c9e9be918d9b4337c960db1e9a/finetune/qlib_test.py
+- Official model cards publish Tokenizer-base, Small (~24.7M) and Base
+  (~102.3M) under MIT-labelled model repositories. Sources:
+  https://huggingface.co/NeoQuasar/Kronos-Tokenizer-base,
+  https://huggingface.co/NeoQuasar/Kronos-small,
+  https://huggingface.co/NeoQuasar/Kronos-base.
+
+## Product implications
+
+- Extending the official end date to the latest close is an ElanQuant rolling
+  extension and receives a new immutable data/release identity.
+- Raw slice overlap is lookback context. Receipts must prove effective
+  context/anchor/target/consumed boundaries rather than infer leakage from raw dates.
+- IC/RankIC and realized returns require ten mature future sessions. Online
+  signals may exist later than the mature evaluation end.
+- The viewed rolling test is non-selection. Top3/Drop1/Hold5 is an explicit
+  portfolio-size extension, not an official configuration.
+- Public source can safely automate official-weight downloads. Provider data
+  and new fine-tuned weights require separate license treatment; the default
+  public promise is BYO-data reproducibility rather than bundled data/artifacts.

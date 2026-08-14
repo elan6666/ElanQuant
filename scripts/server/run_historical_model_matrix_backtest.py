@@ -29,7 +29,6 @@ from elanquant.contracts.historical_variants import (
     HOLDINGS_SCHEMA,
     validate_holdings_records,
 )
-
 from elanquant.contracts.official_demo import (
     EXPECTED_EXECUTION,
     PRIMARY_SIGNAL,

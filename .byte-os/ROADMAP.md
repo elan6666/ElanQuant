@@ -1,19 +1,20 @@
 # Roadmap
 
-## v0 — Active Auto goal
+## v1 current delivery
 
-Foundation/harness; official Small/Base research; strict contracts; backend/job
-worker; experiment/run/data-health evidence UI; immutable paper ledger; server
-data/training/inference; sealed Top50/Top3 historical sensitivity matrix;
-verification; three iterations; delivery.
+1. Official-split dataset v3 and four-cell Small/Base training/evaluation release.
+2. Shared-signal Top50/Top3 rolling historical matrix.
+3. Local Apple Silicon and remote Linux/NVIDIA execution profiles.
+4. BYO data, pinned official weights, bootstrap/doctor/smoke and public packaging.
+5. Simplified six-page web product with metric definitions and retired strict-PIT UI.
+6. Server deployment, three evidence-led iterations and reproducible Git handoff.
 
-## v1 — After real forward evidence
+## v1.1
 
-Forward-unseen monitoring, richer risk decomposition, company actions, improved
-notification, and model retrain approval workflow.
+- Additional Apple hardware benchmarks and optional Base admission.
+- More provider adapters using the same canonical data contract.
+- Future untouched evaluation window after model/strategy freeze.
 
-## Later opportunities
+## Non-goals
 
-Broker-authorized execution may be discussed only after separate compliance,
-API permission, security, simulation, and user authorization work. It is not an
-active or parked Auto requirement.
+- Broker integration, automated scheduling, hosted user data, paid data redistribution.

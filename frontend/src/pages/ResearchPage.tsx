@@ -1,4 +1,5 @@
 import { Badge } from '../components/Badge'
+import { MetricHelp } from '../components/MetricHelp'
 import { experimentStateLabel, formatDateTime, formatNumber, formatPercent, shortHash } from '../format'
 import type {
   ExperimentCell,
@@ -8,7 +9,7 @@ import type {
   RunSummary,
 } from '../types'
 
-const tracks: ExperimentTrack[] = ['zero_shot', 'official_style', 'strict_pit']
+const visibleTracks: ExperimentTrack[] = ['zero_shot', 'official_style']
 const sizes = ['small', 'base'] as const
 
 const trackMeta: Record<ExperimentTrack, { label: string; code: string; description: string }> = {
@@ -57,7 +58,7 @@ interface ResearchPageProps {
 export function ResearchPage({ run, catalog, catalogAvailable, runs, diff }: ResearchPageProps) {
   const evidence = catalogAvailable ? catalog : []
   const cells = sizes.flatMap((model) =>
-    tracks.map(
+    visibleTracks.map(
       (track) =>
         evidence.find((cell) => cell.model_size === model && cell.track === track) ??
         emptyCell(model, track),
@@ -69,24 +70,33 @@ export function ResearchPage({ run, catalog, catalogAvailable, runs, diff }: Res
       <header className="page-heading page-heading--split">
         <div>
           <span className="eyebrow">03 / Experiment evidence</span>
-          <h1>Small 与 Base <span className="title-phrase">六格实验</span></h1>
-          <p>两个规模都只比较三条预先定义的轨道。正式验证和已查看测试分开展示，在线结果不参与评分。</p>
+          <h1>Small 与 Base <span className="title-phrase">四格对照</span></h1>
+          <p>比较官方预训练权重与官方方式微调；2025 用于选择，2026 只描述结果。</p>
         </div>
         <div className="identity-card">
           <span>当前在线主轨</span>
           <strong>{run ? `${run.as_of} / ${run.model_id}` : '尚无正式回执'}</strong>
-          <small>严格PIT资格≠验证集最优；Base完成后也不会自动替换Small。</small>
+          <small>在线版本独立封存；完成 Base 不会自动替换 Small。</small>
         </div>
       </header>
 
       <section className="matrix-key">
-        {tracks.map((track) => (
+        {visibleTracks.map((track) => (
           <div key={track}>
             <b>{trackMeta[track].code}</b>
             <span><strong>{trackMeta[track].label}</strong><small>{trackMeta[track].description}</small></span>
           </div>
         ))}
       </section>
+
+      <MetricHelp
+        items={[
+          { term: 'RankIC（排名相关）', description: '预测排序与成熟的实际10日收益排序之间的相关性，范围为 -1 到 1。' },
+          { term: 'Pearson IC（数值相关）', description: '预测值与成熟的实际10日收益之间的线性相关性，范围为 -1 到 1。' },
+          { term: 'Top10 标签期收益', description: '每日预测前10只股票在成熟10日标签期内的平均实际收益。' },
+          { term: '对零样本 RankIC Δ', description: '本格验证 RankIC 减去同规模零样本验证 RankIC。' },
+        ]}
+      />
 
       {!catalogAvailable ? (
         <section className="state-panel state-panel--warning">
@@ -99,7 +109,7 @@ export function ResearchPage({ run, catalog, catalogAvailable, runs, diff }: Res
         <section className="model-evidence" key={size}>
           <div className="section-heading model-evidence__heading">
             <div><span className="eyebrow">Kronos {size.toUpperCase()}</span><h2>{size === 'small' ? 'Small · 当前在线基线' : 'Base · 补充规模对照'}</h2></div>
-            <span className="count-label">3 CELLS</span>
+            <span className="count-label">2 CELLS</span>
           </div>
           <div className="research-matrix">
             {cells.filter((cell) => cell.model_size === size).map((cell, index) => (
@@ -123,7 +133,7 @@ export function ResearchPage({ run, catalog, catalogAvailable, runs, diff }: Res
         <span className="method-note__index">RULE / 01</span>
         <div>
           <h2>评估与上线是两件事</h2>
-          <p>2025 validation用于比较；2026已查看结果只做描述。严格PIT轨才有模拟组合资格，但这不等于它的指标最高，也不构成投资有效性证明。</p>
+          <p>2025 验证结果用于比较；2026 已查看结果只作描述。公开四格不会自动决定在线版本，也不构成投资有效性证明。</p>
         </div>
       </section>
     </>
@@ -157,14 +167,14 @@ function ExperimentCard({
       <div className="experiment-card__metrics">
         <div><span>RankIC</span><strong>{formatNumber(validationRankIc, 4)}</strong></div>
         <div><span>Pearson IC</span><strong>{formatNumber(validation?.pearson_ic ?? cell.pearson_ic, 4)}</strong></div>
-        <div><span>Top10十日收益</span><strong>{formatPercent(validation?.top10_mean_return ?? cell.top10_mean_return)}</strong></div>
+        <div><span>Top10标签期收益</span><strong>{formatPercent(validation?.top10_mean_return ?? cell.top10_mean_return)}</strong></div>
       </div>
       <div className="metric-context">
         <span>对零样本 RankIC Δ</span><b className={(delta ?? 0) >= 0 ? 'positive' : 'negative'}>{delta === null ? '—' : formatNumber(delta, 4)}</b>
-        <small>{validation ? `${validation.rows.toLocaleString()} rows · ${validation.cross_sections} sections` : '尚无样本支持回执'}</small>
+        <small>{validation ? `${validation.rows.toLocaleString()} 条股票样本 · ${validation.cross_sections} 个交易日截面` : '尚无样本支持回执'}</small>
       </div>
       <div className="viewed-strip">
-        <span>TEST_VIEWED / 2026</span>
+        <span>2026 已查看测试（只描述）</span>
         <b>RankIC {formatNumber(viewed?.rank_ic ?? null, 4)}</b>
         <small>{viewed ? `${viewed.rows.toLocaleString()} rows · 不可反向调参` : '尚无终态回执'}</small>
       </div>

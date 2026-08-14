@@ -3,7 +3,6 @@ import { createApiClient } from './api'
 import { Shell, type PageKey } from './components/Shell'
 import { JobsPage } from './pages/JobsPage'
 import { HistoricalBacktestPage } from './pages/HistoricalBacktestPage'
-import { MethodsPage } from './pages/MethodsPage'
 import { OverviewPage } from './pages/OverviewPage'
 import { PaperPage } from './pages/PaperPage'
 import { RankingPage } from './pages/RankingPage'
@@ -13,7 +12,7 @@ import { useDashboard } from './useDashboard'
 
 const productionClient = createApiClient()
 
-const validPages: PageKey[] = ['overview', 'jobs', 'research', 'backtest', 'ranking', 'paper', 'methods']
+const validPages: PageKey[] = ['overview', 'jobs', 'research', 'backtest', 'ranking', 'paper']
 
 const initialPage = (): PageKey => {
   const candidate = window.location.hash.replace('#/', '') as PageKey
@@ -36,7 +35,7 @@ export function App({ client = productionClient }: { client?: ApiClient }) {
         <div className="brand__seal">EQ</div>
         <span className="eyebrow">ElanQuant / Connecting</span>
         <h1>正在读取服务器状态</h1>
-        <p>请保持 EasyConnect 与 SSH 隧道可用。</p>
+        <p>正在建立安全连接。</p>
         <div className="boot-line"><span /></div>
       </div>
     )
@@ -48,11 +47,7 @@ export function App({ client = productionClient }: { client?: ApiClient }) {
         <span className="eyebrow">Connection unavailable</span>
         <h1>无法读取 ElanQuant 服务器</h1>
         <p>{dashboard.error || '没有收到服务器响应。'}</p>
-        <ol>
-          <li>确认 EasyConnect 已连接学校网络。</li>
-          <li>确认 SSH 本地隧道仍在运行。</li>
-          <li>确认服务器API服务已启动。</li>
-        </ol>
+        <p>请确认已配置的本机或远程运行服务可用，然后重试。</p>
         <button className="primary-action" type="button" onClick={() => void dashboard.refresh()}>
           <span>重新连接</span><b>↻</b>
         </button>
@@ -81,7 +76,7 @@ export function App({ client = productionClient }: { client?: ApiClient }) {
           snapshot={snapshot}
           submitting={dashboard.submitting}
           receipt={dashboard.receipt}
-          onSubmit={() => void dashboard.submit()}
+          onSubmit={(profile) => void dashboard.submit(profile)}
         />
       ) : null}
       {page === 'jobs' ? (
@@ -108,7 +103,6 @@ export function App({ client = productionClient }: { client?: ApiClient }) {
       {page === 'paper' ? (
         <PaperPage account={snapshot.paper} summary={snapshot.paper_summary} />
       ) : null}
-      {page === 'methods' ? <MethodsPage /> : null}
     </Shell>
   )
 }

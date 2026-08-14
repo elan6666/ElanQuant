@@ -168,7 +168,7 @@ describe('API runtime contract', () => {
             service_state: 'ready', server_time: '2026-08-12T16:30:00+08:00',
             latest_closed_session: '2026-08-12', data_as_of: '2026-08-12',
             inference_as_of: '2026-08-12', active_job_id: null,
-            primary_model: 'small-strict-pit', warnings: [],
+            primary_model: 'small-strict-pit', execution_profile: 'remote-linux-nvidia', warnings: [],
           })
         }
         if (path.endsWith('/jobs')) return response({ jobs: [] })
@@ -181,7 +181,7 @@ describe('API runtime contract', () => {
           return response({ as_of: '2026-08-12', initial_cash: 100_000, cash: 100_000, market_value: 0, equity: 100_000, valuation_policy: 'REAL_CLOSE_OR_BOOK_COST', positions: [], gaps: [] })
         }
         if (path.endsWith('/runs/run-1/scores')) {
-          return response({ scores: [{ rank: 1, code: '000001.SZ', name: '平安银行', score: 0.04, forecast_return: 0.04, coverage: 1, input_completeness: 1, eligible: true, model_spread: 0.01, previous_rank: null, rank_delta: null, selected_top3: true, paper_decision: 'ORDER_FROZEN', paper_reason: 'frozen', model_scores: { 'small-strict-pit': 0.04 }, forecast: [] }] })
+          return response({ scores: [{ rank: 1, code: '000001.SZ', name: '平安银行', score: 0.04, forecast_return: 0.04, reference_price: 10, coverage: 1, input_completeness: 1, eligible: true, model_spread: 0.01, previous_rank: null, rank_delta: null, selected_top3: true, paper_decision: 'ORDER_FROZEN', paper_reason: 'frozen', model_scores: { 'small-strict-pit': 0.04 }, forecast: [] }] })
         }
         if (path.endsWith('/runs/run-1/diff')) return response({ run_id: 'run-1', against_run_id: null, comparable: false })
         if (path.endsWith('/paper/orders')) return response({ orders: [] })
@@ -195,11 +195,43 @@ describe('API runtime contract', () => {
 
     const snapshot = await createApiClient().getSnapshot()
     expect(snapshot.latest_run?.scores[0]).toMatchObject({
-      symbol: '000001.SZ', selected_top3: true, paper_decision: 'ORDER_FROZEN',
+      symbol: '000001.SZ', reference_price: 10, selected_top3: true, paper_decision: 'ORDER_FROZEN',
+    })
+    expect(snapshot.system).toMatchObject({
+      active_execution_profile: 'remote-linux-nvidia',
+      default_execution_location: 'remote',
+      execution_profiles: {
+        local: { available: false, profile_id: null },
+        remote: { available: true, profile_id: 'remote-linux-nvidia' },
+      },
     })
     expect(snapshot.research_catalog[0]?.evaluations.validation_2025?.rows).toBe(18_000)
     expect(snapshot.research_catalog_available).toBe(true)
     expect(snapshot.paper_summary?.latest_publication?.source_run_id).toBe('run-1')
+  })
+
+  it('submits an additive execution profile and verifies the returned identity', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      void input
+      void init
+      return response({
+        created: true,
+        job: { id: 'job-local', execution_profile: 'local-apple-silicon' },
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const receipt = await createApiClient().submitUpdateInfer('local-apple-silicon')
+
+    expect(receipt).toEqual({
+      job_id: 'job-local',
+      coalesced: false,
+      execution_profile: 'local-apple-silicon',
+    })
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      force: false,
+      execution_profile: 'local-apple-silicon',
+    })
   })
 
   it('keeps the control plane usable when the optional research catalog is unavailable', async () => {

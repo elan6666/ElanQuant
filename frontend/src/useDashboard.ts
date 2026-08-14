@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { ApiClient, DashboardSnapshot, SubmitJobReceipt } from './types'
+import type { ApiClient, DashboardSnapshot, ExecutionProfile, SubmitJobReceipt } from './types'
 
 interface DashboardState {
   snapshot: DashboardSnapshot | null
@@ -9,7 +9,7 @@ interface DashboardState {
   error: string | null
   receipt: SubmitJobReceipt | null
   refresh: () => Promise<void>
-  submit: () => Promise<void>
+  submit: (profile: ExecutionProfile) => Promise<void>
   retry: (id: string) => Promise<void>
 }
 
@@ -69,11 +69,11 @@ export const useDashboard = (client: ApiClient): DashboardState => {
     }
   }, [activePolling, load])
 
-  const submit = useCallback(async () => {
+  const submit = useCallback(async (profile: ExecutionProfile) => {
     setSubmitting(true)
     setError(null)
     try {
-      const nextReceipt = await client.submitUpdateInfer()
+      const nextReceipt = await client.submitUpdateInfer(profile)
       if (!mounted.current) return
       setReceipt(nextReceipt)
       await load(true)

@@ -39,6 +39,7 @@ from elanquant.contracts.historical_variants import (
 )
 from elanquant.contracts.official_demo import SIGNALS as OFFICIAL_DEMO_SIGNALS
 from elanquant.contracts.official_demo import sha256_file
+from elanquant.execution import load_execution_profile
 from elanquant.orchestration.jobs import JobStore
 from elanquant.pipelines.paper import ACCOUNT_ID
 from elanquant.settings import Settings
@@ -53,6 +54,10 @@ HISTORICAL_CURVE_SEMANTICS = {
 class UpdateInferRequest(BaseModel):
     target_session: date | None = Field(default=None, description="Requested A-share session")
     force: bool = False
+    execution_profile: str | None = Field(
+        default=None, description="Frozen deployment execution profile"
+    )
+    model_release: str | None = Field(default=None, description="Small default or Base opt-in")
 
 
 def canonical_hash(payload: object) -> str:
@@ -281,6 +286,12 @@ def validate_research_catalog(payload: object) -> dict[str, object]:
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     active_settings = settings or Settings.load()
+    active_profile = load_execution_profile(
+        active_settings.execution_profile, active_settings.execution_profiles_root
+    )
+    active_profile.validate_request(
+        active_settings.model_release, active_settings.execution_device
+    )
     database = Database(active_settings.database_path)
     database.initialize()
     jobs = JobStore(database)
@@ -538,6 +549,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 """,
                 (run["id"],),
             ).fetchall()
+            job_identity = connection.execute(
+                """
+                SELECT execution_profile, model_release, requested_device,
+                    execution_receipt_json
+                FROM jobs WHERE id = ?
+                """,
+                (run["job_id"],),
+            ).fetchone()
             if not models and str(run["protocol"]).startswith("PLACEHOLDER"):
                 models = connection.execute(
                     """
@@ -666,6 +685,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "state": run.get("paper_publication_state"),
                 "source_run_id": run.get("paper_publication_run_id"),
             },
+            "execution": (
+                {
+                    "profile": job_identity["execution_profile"],
+                    "model_release": job_identity["model_release"],
+                    "requested_device": job_identity["requested_device"],
+                    "receipt_available": job_identity["execution_receipt_json"] is not None,
+                }
+                if job_identity is not None
+                else None
+            ),
             "data_health": data_health,
             "experiment_matrix": matrix,
         }
@@ -724,6 +753,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 if active_settings.pipeline_mode == "real"
                 else "PLACEHOLDER_RESEARCH_ONLY"
             ),
+            "execution_profile": active_profile.id,
+            "model_release": active_settings.model_release,
+            "execution_device": active_settings.execution_device,
+            "inference_batch_size": active_settings.inference_batch_size,
+            "release_research_only": active_profile.is_research_only(
+                active_settings.model_release
+            ),
+            "available_releases": list(active_profile.allowed_releases),
             "broker_connected": False,
             "automatic_schedule": False,
         }
@@ -1081,7 +1118,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post("/api/v1/jobs/update-infer", status_code=status.HTTP_202_ACCEPTED)
     def submit_update_infer(payload: UpdateInferRequest, response: Response) -> dict[str, object]:
-        job, created = jobs.submit_update_infer(payload.target_session, force=payload.force)
+        requested_profile = payload.execution_profile or active_profile.id
+        if requested_profile != active_profile.id:
+            raise HTTPException(
+                status_code=409,
+                detail="Requested execution profile differs from this deployment",
+            )
+        requested_release = payload.model_release or active_settings.model_release
+        try:
+            active_profile.validate_request(requested_release, active_settings.execution_device)
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        job, created = jobs.submit_update_infer(
+            payload.target_session,
+            force=payload.force,
+            execution_profile=requested_profile,
+            model_release=requested_release,
+            requested_device=active_settings.execution_device,
+        )
         response.headers["Location"] = f"/api/v1/jobs/{job['id']}"
         return {"created": created, "job": job}
 

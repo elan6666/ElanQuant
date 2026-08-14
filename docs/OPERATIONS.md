@@ -1,198 +1,134 @@
 # ElanQuant 运维手册
 
-## 固定路径
+本手册使用公开占位路径，不包含项目维护者的主机名、校园 VPN 或账户信息。
 
-- Mac 源码：`/Users/elan/Documents/量化/ElanQuant`
-- 服务器根目录：`/data/yilangliu/a_share_research/elanquant`
-- 服务器源码：`/data/yilangliu/a_share_research/elanquant/source`
-- 数据、权重、训练和运行产物只保留在服务器根目录的忽略目录中。
-
-## 服务
+## 运行目录
 
 ```bash
-systemctl --user status elanquant-api elanquant-worker
-journalctl --user -u elanquant-api -n 100 --no-pager
-journalctl --user -u elanquant-worker -n 100 --no-pager
+export ELANQUANT_ROOT="$HOME/.local/share/elanquant"
+export ELANQUANT_SOURCE="$ELANQUANT_ROOT/source"
 ```
 
-API 和 Worker 都必须显示 loopback 配置；服务器防火墙无需开放 8765。Mac 通过：
+源码与状态分开：`source/` 可以由 Git 重建；`artifacts/`、`data/`、`models/`、
+`runs/`、`releases/` 和数据库属于不可提交状态。
+
+## Linux/NVIDIA 服务安装
 
 ```bash
-ssh -N -L 8765:127.0.0.1:8765 yilangliu@10.24.1.91
-```
-
-访问 `http://127.0.0.1:8765/api/v1/health` 应返回 `status=ok`。
-
-## 服务安装
-
-```bash
-cd /data/yilangliu/a_share_research/elanquant/source
+cd "$ELANQUANT_SOURCE"
+ELANQUANT_ROOT="$ELANQUANT_ROOT" \
+ELANQUANT_EXECUTION_PROFILE=remote-linux-nvidia \
+ELANQUANT_MODEL_RELEASE=small \
+ELANQUANT_EXECUTION_DEVICE=cuda \
 bash scripts/bootstrap_server.sh
-systemctl --user daemon-reload
+
 systemctl --user enable --now elanquant-api elanquant-worker
+systemctl --user status elanquant-api elanquant-worker
 ```
 
-`bootstrap_server.sh` 会先创建应用虚拟环境、安装开发依赖并执行后端门禁，
-再安装 service 文件。如果服务器没有 Node/npm，先在 Mac 运行：
+脚本从 `.service.in` 模板渲染本机绝对路径，不把维护者私有路径提交到仓库。API 只监听
+`127.0.0.1:8765`；通过用户自己的 SSH 主机建立端口转发：
 
 ```bash
-cd /Users/elan/Documents/量化/ElanQuant/frontend
-npm ci && npm test && npm run lint && npm run build
-rsync -az --delete dist/ \
-  yilangliu@10.24.1.91:/data/yilangliu/a_share_research/elanquant/source/frontend/dist/
+ssh -N -L 8765:127.0.0.1:8765 USER@YOUR_SERVER
 ```
 
-`frontend/dist/` 是已忽略的构建产物，不进 Git；bootstrap 会验证入口文件并
-使用该已验证构建。只有正式训练矩阵和正式评估回执封存到 `releases/current/` 后，才允许
-启动真实 Worker。
+浏览器访问 `http://127.0.0.1:8765`。不要向公网开放 8765。
 
-`systemd --user` 在 `Linger=yes` 后可保证 VPN/最后一个 SSH 会话断开时服务继续运行。
-主机重启后，永久启用的 API/Worker 会重新启动，但当时正在运行的任务会被标记为失败，
-必须由用户显式重试；临时训练服务也不会从中间 checkpoint 自动续跑。当前已验证
-`Linger=yes`。新服务器若为 `Linger=no`，需要管理员执行：
+## Apple Silicon
+
+先运行：
 
 ```bash
-loginctl enable-linger yilangliu
+elanquant bootstrap --profile local-apple-silicon --release small
+elanquant doctor --check-only --profile local-apple-silicon --release small --device mps
+elanquant smoke --fixture synthetic --profile local-apple-silicon --release small --device mps
 ```
 
-不要把 `tmux`/`nohup` 当作正式部署，只可用于开发排障。
+doctor/smoke 通过前不要把本机标记为可推理；系统禁止 MPS/CUDA 失败后静默改用 CPU。
+Base 只在显式选择且能力门通过时可用，并保持 research-only。
 
-## 手动更新和推理
+## 服务语义
 
-前端按钮调用 `POST /api/v1/jobs/update-infer`。API 立即返回 202，Worker 独立执行：
+- API 接收任务后立即返回，Worker 独立领取；浏览器关闭不等于取消任务。
+- job 幂等身份包含交易日、execution profile、Small/Base release 和设备。
+- retry 继承原 execution identity，不能悄悄换机器或模型。
+- 训练不是网页按钮能力，只能用独立、可追踪的服务器任务运行。
+- Linux 用户服务若要在最后一个 SSH 会话退出后继续，需要由管理员正确配置 linger；
+  主机重启会恢复服务，但不会从半写的 GPU 阶段自动续跑。
+
+## 数据与凭据
+
+- 用户自行提供已授权的 CSV/Parquet 或 Tushare-compatible `get_pro()` 适配器。
+- token 放在用户私有配置文件中，权限 0600；禁止放命令行、日志、回执或 Git。
+- provider、传输方式、PIT 声明、许可标签和内容哈希必须写入数据回执。
+- 不完整 CSI300 成分快照只保留原始证据并排除，绝不能当成完整集合向前填充。
+
+详见 [DATA_POLICY.md](DATA_POLICY.md)。
+
+## 官方分割训练顺序
+
+固定顺序：
 
 ```text
-解析交易日 -> 下载不可变快照 -> 数据门禁 -> Small
--> 严格PIT排名 -> 模拟账本 -> 原子发布
+fetch raw
+  -> materialize official slices
+  -> payload admission
+  -> Small tokenizer + predictor
+  -> Base tokenizer + predictor
+  -> exact four-cell matrix
+  -> pre-result analysis lock
+  -> mature evaluation + 8 historical backtests
+  -> independent audit
+  -> atomic release switch
 ```
 
-重复点击同一交易日会返回已有任务。失败任务只能显式重试；Worker 重启后会把遗留
-运行任务标为失败，不会从半写 GPU 结果自动续跑。
+所有输出目录必须是新的、此前不存在的 run id。失败后保留日志与 partial 证据，修复后
+换新 id；禁止覆盖旧 checkpoint、receipt 或 release。旧 Strict PIT 目录不物理删除，
+只通过 retirement receipt 从活动产品退役。
 
-## 训练
+## SQLite 迁移
 
-训练不是网页按钮能力。它只在服务器通过独立、可追踪的服务单元运行。正式参数由
-`scripts/server/kronos_config.py` 固定，训练顺序由
-`scripts/server/run_training_matrix.sh` 固定。检查：
-
-```bash
-systemctl --user status elanquant-training-small-a-share-v2-20260813-r2
-journalctl --user -u elanquant-training-small-a-share-v2-20260813-r2 -n 100 --no-pager
-systemctl --user status elanquant-finalize-small-a-share-v2-20260813
-journalctl --user -u elanquant-finalize-small-a-share-v2-20260813 -n 100 --no-pager
-find /data/yilangliu/a_share_research/elanquant/runs/training -name terminal.json -print
-readlink /data/yilangliu/a_share_research/elanquant/releases/current
-cat /data/yilangliu/a_share_research/elanquant/releases/current/manifest.json
-```
-
-Follower 必须设置 `RESEARCH_DEPS=/data/yilangliu/a_share_research/elanquant/research-deps`；
-Kronos 的 `huggingface_hub` 等只读推理依赖由该隔离目录提供，不能临时写入上游仓库。
-
-每个 `terminal.json` 必须为 PASS，且包含数据、workspace、日志和 checkpoint 哈希。
-完成后必须先存在不可变的 `runs/admission/extended-v2.json`，再运行
-`compile_training_matrix.py`；后端只接受由数据准入和各阶段真实回执派生的 sealed
-matrix，不能靠手写 JSON 标记 PASS。Base 使用同一准入数据单独生成候选 matrix 和
-FORMAL 评估；完成后只进入 `research-catalog.json`，不会替换 `releases/current`。
-如果四段训练和 Base matrix 已经封存，而 follower 在评估前因环境或路径错误退出，
-禁止重训、重编或覆盖 matrix。先确认 smoke/formal/catalog 都不存在，再用新的 transient
-unit 调用 `scripts/server/resume_base_evaluation.sh`；该入口只消费现有 matrix，并要求
-显式提供正确的 pinned upstream、PASS 在线快照和不可变 Small release。失败 unit 不复用，
-每次恢复都使用新的 unit 名，并保留旧 journal 作为审计证据。
-首次准入命令为：
-
-```bash
-python -m scripts.server.audit_dataset_admission \
-  --root /data/yilangliu/a_share_research/elanquant \
-  --out /data/yilangliu/a_share_research/elanquant/runs/admission/extended-v2.json
-```
-
-该路径已存在时命令会拒绝覆盖；新数据版本必须使用新的数据根、回执名和对应矩阵配置。
-训练或封存服务失败时，先读取对应 terminal/日志；修复后创建新的不可变 run/release id，
-不得覆盖旧 checkpoint、旧回执或旧 release。
-
-## SQLite 备份与单进程迁移
-
-涉及表结构变更时，禁止 API 和 Worker 同时执行 `ALTER TABLE`。先保留恢复点，再由
-一个 Python 进程运行 `Database.initialize()`：
+结构变更必须先停 API/Worker、备份，再由单进程迁移：
 
 ```bash
 systemctl --user stop elanquant-api elanquant-worker
-PYTHONPATH=backend/src ../app-venv/bin/python scripts/server/migrate_app_database.py \
-  --database /data/yilangliu/a_share_research/elanquant/artifacts/elanquant.sqlite3 \
-  --backup-dir /data/yilangliu/a_share_research/elanquant/backups \
+PYTHONPATH=backend/src .venv/bin/python scripts/server/migrate_app_database.py \
+  --database "$ELANQUANT_ROOT/artifacts/elanquant.sqlite3" \
+  --backup-dir "$ELANQUANT_ROOT/backups" \
   --confirm-services-stopped
 systemctl --user start elanquant-api elanquant-worker
 ```
 
-命令使用 SQLite backup API 生成权限 0600 的恢复点，然后单进程执行迁移；只有
-`integrity_check=ok` 且 `foreign_key_violations=0` 才返回 PASS。启动后再只读检查
-`/system/status`、`/runs`、`/paper/summary`。
+只有 `integrity_check=ok`、外键检查为 0、旧账本哈希不变时才完成。不要手工修改或删除
+历史订单。
 
-迁移只会保存新证据的表结构，不会伪造旧 run 当时没有持久化的
-`data_health` 和双 split 评估。因此部署这一版后，须在 GPU 研究任务全部结束时
-安全执行一次同日 force 研究 run；同日首次 paper publication 保持冻结，新 run
-必须标记 `SKIPPED_EXISTING_FROZEN_RUN`。验收时必须确认：
+## 发布前门禁
 
-- latest run 的 `data_health` 非空；
-- Small 三格每格都有 `validation_2025` 和 `test_viewed_2026`；
-- 旧订单集合、数量和 source run 不变；
-- 新 run 的 data/model/tokenizer/config/code/evaluation hash 在 API 和页面可见。
+```bash
+python -m pytest -q
+ruff check backend/src tests scripts
+PYTHONPATH=backend/src pyright --pythonpath .venv/bin/python backend/src scripts/research
+python -m compileall -q backend/src tests scripts
 
-不要手工修改或删掉历史订单。若旧信号日已混入多个 source run，迁移只增加
-`LEGACY_MIXED_RUNS` 警告并保留原数据；回滚时停止两个服务，恢复整份备份数据库，
-不能只回退某几张表。
-
-## 官方 Demo 方法对齐版历史回测
-
-这条轨道不由网页按钮触发，也不写 SQLite。它与 Top3 线上模拟产品并存：
-
-```text
-2025标准化信号（Small official-ft, sample_count=5）
-  -> Qlib Top50/Drop5/Hold5 连续回测
-2026已开封且修正 future-support conditioning 的样本外诊断
-  -> Qlib 同参数连续回测
-同一两组封存信号 -> Qlib Top3/Drop1/Hold5 事后敏感性回测
-  -> 四格逐日持仓 sidecar
-  -> releases/historical-backtest-catalog-v5.json
-  -> GET /api/v1/research/backtests
-  -> GET /api/v1/research/backtests/{id}/holdings?session=YYYY-MM-DD
+npm --prefix frontend test -- --run
+npm --prefix frontend run lint
+npm --prefix frontend run build
 ```
 
-信号生成和回测必须使用各自新的 transient systemd unit，输出目录存在时拒绝覆盖。
-pyqlib固定为0.9.7，其安装元数据、RECORD和源码树哈希进入回执；Kronos仓库没有固定
-Qlib版本，因此这是为了可审计而增加的基础设施决定。发布前运行
-`scripts/server/audit_paper_boundary.py` 封存 recommendation/paper 各表的行数与哈希，
-发布后用 `--compare` 重算；任一表改变都会让发布失败。
+还必须检查：
 
-API服务需设置：
-
-```text
-ELANQUANT_HISTORICAL_BACKTEST_CATALOG=/data/yilangliu/a_share_research/elanquant/releases/historical-backtest-catalog-v5.json
-```
-
-目录缺失时页面显示“服务器生成中”；目录、回执或逐日曲线任一哈希不一致时 API 返回
-503，不得回退到模拟数据。新轨只允许 GET，不添加 POST、重试或每日自动调度。
-
-Top3 历史组合与四格持仓由
-`scripts/server/finalize_historical_top3_variant.sh` 一次性生成。脚本先写参数锁，再顺序
-重放 2025/2026 的 Top50 与 Top3；Top50 指标若不等于旧封存回执，或任一持仓文件、
-sidecar、paper boundary、`releases/current` 校验失败，catalog v5 不得发布。最终 run
-文件权限为 0440、目录为 0550。
-
-2026 补跑不重训模型，不覆盖 2025 产物。它必须先生成不可变
-analysis lock，锁定已有 Small official-ft checkpoint、mean 主信号和完整策略参数，
-再以全新 run id 执行 `scripts/server/finalize_official_demo_final_test_2026.sh`。
-发布后目录必须精确包含 2025 checkpoint-selection validation 和已修正的
-2026 opened out-of-sample diagnostic
-两个 entry；`releases/current`、SQLite Top3 账本和旧 2025 回执的哈希必须保持不变。
-独立审计通过后，将最终 run 文件收紧为 0440、目录为 0550，catalog 为
-0440，然后再运行一次完整审计。中途失败的 r0–r3 只是 `ABORTED`
-审计证据，不进入 catalog，不得被人工当成可发布结果。
+- API/Worker 只绑定 loopback，恶意 Host 被拒绝；
+- active profile、设备、Small/Base 与 execution receipt 一致；
+- 新数据、matrix、evaluation、historical catalog 全部 canonical hash 通过；
+- Top50/Top3 同模型共享同一个 signal/provider hash；
+- 旧 release、在线模拟账本和历史订单未被新研究任务改写；
+- 桌面与 390px 页面无横向溢出、console error，键盘焦点可见。
 
 ## 常见故障
 
-- `nc -zvw5 10.24.1.91 22` 不通：校园 VPN/路由问题；再使用 EasyConnect 技能检查。
-- 22 端口通但 SSH permission denied：VPN 已正常，只需重新建立交互式 ControlMaster。
-- `DATA_INCOMPLETE`：查看在线 snapshot manifest 的排除原因；不得沿用昨天推荐冒充今天。
-- Worker 失败：网页明确重试；不要直接改 SQLite 或删除运行目录。
-- GPU 常驻：正常空闲时应接近 0 MiB；研究子进程退出后若仍占用，先查 PID 和日志。
+- `UNAVAILABLE`：能力门未通过；安装正确 runtime 或选择真实可用设备，不要解除门禁。
+- `DATA_INCOMPLETE`：查看 snapshot/admission 排除原因，不能沿用昨天结果冒充今天。
+- Worker 拒绝 profile：网页提交到了不同部署位置；连接对应实例，而不是修改 job。
+- GPU 常驻：空闲时应接近 0；检查研究子进程 PID 与日志。
+- SSH 端口可达但认证失败：这是认证问题，不是路由问题；重新建立用户自己的安全会话。

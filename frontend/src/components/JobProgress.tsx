@@ -41,6 +41,7 @@ export function JobProgress({ job, compact = false }: { job: Job; compact?: bool
         <span>数据日 {job.as_of || '确认中'}</span>
         <span>{Math.round(job.progress * 100)}%</span>
       </div>
+      <small className="progress-note">进度表示已完成阶段占全部阶段的比例，不是预计剩余时间。</small>
 
       {job.message ? <p className="job-progress__message">{job.message}</p> : null}
 

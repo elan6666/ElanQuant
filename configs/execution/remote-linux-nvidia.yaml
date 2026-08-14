@@ -1,0 +1,11 @@
+schema_version: elanquant_execution_profile_v1
+id: remote-linux-nvidia
+visibility: public
+operating_systems: [Linux]
+architectures: [x86_64, aarch64]
+allowed_devices: [cuda]
+default_device: cuda
+allowed_releases: [small, base]
+default_release: small
+research_only_releases: [base]
+require_explicit_base: true

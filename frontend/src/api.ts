@@ -3,6 +3,7 @@ import type {
   DashboardSnapshot,
   DataHealth,
   EvaluationSplit,
+  ExecutionProfile,
   ExperimentCell,
   ForecastPoint,
   HistoricalBacktest,
@@ -103,8 +104,22 @@ const optionalStrings = (value: unknown, path: string): string[] =>
 const optionalArray = (value: unknown, path: string): unknown[] =>
   value === undefined || value === null ? [] : array(value, path)
 
+const executionProfileIds = [
+  'local-apple-silicon',
+  'remote-linux-nvidia',
+  'legacy-yilangliu',
+] as const
+
+const parseExecutionProfile = (value: unknown, path: string): ExecutionProfile =>
+  enumValue(value, executionProfileIds, path)
+
 const parseSystem = (value: unknown): SystemStatus => {
   const item = object(value, 'system')
+  const activeProfile =
+    item.execution_profile === undefined || item.execution_profile === null
+      ? 'legacy-yilangliu'
+      : parseExecutionProfile(item.execution_profile, 'system.execution_profile')
+  const activeLocation = activeProfile === 'local-apple-silicon' ? 'local' : 'remote'
   return {
     service_state:
       item.service_state === undefined
@@ -116,6 +131,20 @@ const parseSystem = (value: unknown): SystemStatus => {
     inference_as_of: nullableString(item.inference_as_of, 'system.inference_as_of'),
     active_job_id: nullableString(item.active_job_id, 'system.active_job_id'),
     primary_model: optionalString(item.primary_model, 'system.primary_model'),
+    active_execution_profile: activeProfile,
+    default_execution_location: activeLocation,
+    execution_profiles: {
+      local: {
+        available: activeLocation === 'local',
+        profile_id: activeLocation === 'local' ? activeProfile : null,
+        reason: activeLocation === 'local' ? null : '请从本机 profile 启动 ElanQuant',
+      },
+      remote: {
+        available: activeLocation === 'remote',
+        profile_id: activeLocation === 'remote' ? activeProfile : null,
+        reason: activeLocation === 'remote' ? null : '请从远程 profile 启动 ElanQuant',
+      },
+    },
     warnings: optionalStrings(item.warnings, 'system.warnings'),
   }
 }
@@ -167,6 +196,10 @@ const parseJob = (value: unknown, path: string): Job => {
   return {
     id: string(item.id, `${path}.id`),
     kind: item.kind === undefined ? 'update_infer' : enumValue(item.kind, ['update_infer'], `${path}.kind`),
+    execution_profile:
+      item.execution_profile === undefined || item.execution_profile === null
+        ? 'legacy-yilangliu'
+        : parseExecutionProfile(item.execution_profile, `${path}.execution_profile`),
     state,
     stage,
     requested_at: string(item.created_at ?? item.requested_at, `${path}.created_at`),
@@ -304,6 +337,7 @@ const parseScore = (value: unknown, path: string): StockScore => {
     name: optionalString(item.name, `${path}.name`) ?? symbol,
     score: number(item.score, `${path}.score`),
     forecast_return: number(item.forecast_return, `${path}.forecast_return`),
+    reference_price: optionalNumber(item.reference_price, `${path}.reference_price`),
     coverage: optionalNumber(item.coverage, `${path}.coverage`),
     input_completeness: optionalNumber(
       item.input_completeness ?? item.coverage,
@@ -1016,7 +1050,7 @@ const requireLiteralBoolean = <T extends boolean>(
   return expected
 }
 
-const parseReceipt = (value: unknown): SubmitJobReceipt => {
+const parseReceipt = (value: unknown, requestedProfile: ExecutionProfile): SubmitJobReceipt => {
   const item = object(value, 'receipt')
   const nestedJob = item.job === undefined ? null : object(item.job, 'receipt.job')
   return {
@@ -1025,6 +1059,13 @@ const parseReceipt = (value: unknown): SubmitJobReceipt => {
       item.created === undefined
         ? optionalBoolean(item.coalesced, false, 'receipt.coalesced')
         : !boolean(item.created, 'receipt.created'),
+    execution_profile:
+      item.execution_profile === undefined && nestedJob?.execution_profile === undefined
+        ? requestedProfile
+        : parseExecutionProfile(
+            item.execution_profile ?? nestedJob?.execution_profile,
+            'receipt.execution_profile',
+          ),
   }
 }
 
@@ -1168,23 +1209,32 @@ export const createApiClient = (): ApiClient => ({
     return parsed
   },
 
-  async submitUpdateInfer(signal) {
+  async submitUpdateInfer(profile, signal) {
     return parseReceipt(
       await requestJson('/api/v1/jobs/update-infer', {
         method: 'POST',
         signal,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ force: false }),
+        body: JSON.stringify({ force: false, execution_profile: profile }),
       }),
+      profile,
     )
   },
 
   async retryJob(id, signal) {
-    return parseReceipt(
-      await requestJson(`/api/v1/jobs/${encodeURIComponent(id)}/retry`, {
-        method: 'POST',
-        signal,
-      }),
-    )
+    const raw = await requestJson(`/api/v1/jobs/${encodeURIComponent(id)}/retry`, {
+      method: 'POST',
+      signal,
+    })
+    const item = object(raw, 'receipt')
+    const nestedJob = item.job === undefined ? null : object(item.job, 'receipt.job')
+    const profile =
+      item.execution_profile === undefined && nestedJob?.execution_profile === undefined
+        ? 'legacy-yilangliu'
+        : parseExecutionProfile(
+            item.execution_profile ?? nestedJob?.execution_profile,
+            'receipt.execution_profile',
+          )
+    return parseReceipt(raw, profile)
   },
 })

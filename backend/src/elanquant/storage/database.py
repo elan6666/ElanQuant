@@ -24,7 +24,11 @@ CREATE TABLE IF NOT EXISTS jobs (
     finished_at TEXT,
     error_code TEXT,
     error_summary TEXT,
-    run_id TEXT
+    run_id TEXT,
+    execution_profile TEXT NOT NULL DEFAULT 'legacy-yilangliu',
+    model_release TEXT NOT NULL DEFAULT 'small',
+    requested_device TEXT NOT NULL DEFAULT 'cuda',
+    execution_receipt_json TEXT
 );
 CREATE INDEX IF NOT EXISTS jobs_status_created_idx ON jobs(status, created_at);
 
@@ -279,6 +283,17 @@ class Database:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as connection:
             connection.executescript(SCHEMA)
+            job_columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(jobs)").fetchall()
+            }
+            for name, definition in (
+                ("execution_profile", "TEXT NOT NULL DEFAULT 'legacy-yilangliu'"),
+                ("model_release", "TEXT NOT NULL DEFAULT 'small'"),
+                ("requested_device", "TEXT NOT NULL DEFAULT 'cuda'"),
+                ("execution_receipt_json", "TEXT"),
+            ):
+                if name not in job_columns:
+                    connection.execute(f"ALTER TABLE jobs ADD COLUMN {name} {definition}")
             model_columns = {
                 row["name"]
                 for row in connection.execute("PRAGMA table_info(model_versions)").fetchall()

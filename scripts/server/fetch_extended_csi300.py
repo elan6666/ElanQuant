@@ -95,6 +95,14 @@ def main() -> int:
     parser.add_argument("--start", default="20110101")
     parser.add_argument("--end", required=True)
     parser.add_argument("--interval", type=float, default=0.35)
+    parser.add_argument(
+        "--exclude-incomplete-membership-snapshots",
+        action="store_true",
+        help=(
+            "Keep incomplete provider responses in the raw file inventory but exclude "
+            "those dates from the usable CSI300 membership stream."
+        ),
+    )
     args = parser.parse_args()
 
     out = args.out_root.resolve()
@@ -153,10 +161,22 @@ def main() -> int:
     weights = pd.concat(weight_frames, ignore_index=True)
     if weights.duplicated(["trade_date", "con_code"]).any():
         raise RuntimeError("duplicate index membership rows")
-    member_counts = weights.groupby("trade_date")["con_code"].nunique()
-    if member_counts.min() != 300 or member_counts.max() != 300:
-        bad = member_counts[(member_counts != 300)].head().to_dict()
+    provider_member_counts = weights.groupby("trade_date")["con_code"].nunique()
+    incomplete_membership_snapshots = {
+        str(day): int(count)
+        for day, count in provider_member_counts.items()
+        if int(count) != 300
+    }
+    if incomplete_membership_snapshots and not args.exclude_incomplete_membership_snapshots:
+        bad = dict(list(incomplete_membership_snapshots.items())[:5])
         raise RuntimeError(f"membership snapshots are not exactly 300: {bad}")
+    if incomplete_membership_snapshots:
+        weights = weights.loc[
+            ~weights["trade_date"].astype(str).isin(incomplete_membership_snapshots)
+        ].copy()
+    member_counts = weights.groupby("trade_date")["con_code"].nunique()
+    if member_counts.empty or member_counts.min() != 300 or member_counts.max() != 300:
+        raise RuntimeError("no complete 300-member CSI300 snapshot stream is available")
     codes = sorted(weights["con_code"].unique())
 
     endpoints: dict[str, tuple[str, ...]] = {
@@ -194,6 +214,8 @@ def main() -> int:
                     "requested_end": args.end,
                     "latest_closed_session": latest_closed,
                     "membership_codes": len(codes),
+                    "incomplete_membership_snapshots": incomplete_membership_snapshots,
+                    "incomplete_membership_policy": "EXCLUDED_FROM_USABLE_STREAM",
                     "completed_codes": offset,
                     "provider": "Tushare-compatible proxy at http://jiaoch.site",
                     "credential_in_artifact": False,
@@ -213,6 +235,8 @@ def main() -> int:
         "membership_codes": len(codes),
         "membership_count_min": int(member_counts.min()),
         "membership_count_max": int(member_counts.max()),
+        "incomplete_membership_snapshots": incomplete_membership_snapshots,
+        "incomplete_membership_policy": "EXCLUDED_FROM_USABLE_STREAM",
         "provider": "Tushare-compatible proxy at http://jiaoch.site",
         "transport_caveat": "Provider tutorial proxy uses plain HTTP.",
         "unit_contract": {

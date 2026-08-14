@@ -2,18 +2,18 @@
 
 ## Objective
 
-Deliver ElanQuant as a trustworthy learning project and auditable daily A-share
-research workflow, from official Kronos reproduction through strict-PIT paper
-trading and a usable full-stack interface.
+Deliver ElanQuant as a reproducible, auditable Kronos A-share research product
+that another technical user can run locally or on their own GPU server without
+depending on the owner's private infrastructure.
 
 ## Key Results
 
-1. Freeze six cells across Small and Base: zero-shot, official-style
-   extended-data fine-tune, and strict-PIT fine-tune, each with
-   code/data/config/weight hashes and common-support split receipts.
-2. Materialize and audit the agreed extended daily OHLCVA dataset from
-   2011-01-01 through the latest closed session, with 2025 validation and 2026
-   viewed evaluation separated by label-aware boundaries.
+1. Freeze four active cells across Small and Base: official zero-shot and new
+   official-date-aligned fine-tune, with code/data/config/weight hashes and
+   immutable training receipts; retire strict-PIT from public product selectors.
+2. Materialize and audit raw train/validation/test slices aligned to the pinned
+   Kronos demo dates through a frozen latest close, with 101-row training
+   windows, mature T+10 evaluation anchors and explicit ROLLING_TEST_VIEWED state.
 3. Complete the first workflow from `Update data and run inference` through a
    durable background job, ranked stocks, run/data evidence, and a dated paper
    order proposal that cannot be mutated by same-session force reruns.
@@ -21,15 +21,17 @@ trading and a usable full-stack interface.
    inference smoke/full gates without storing restricted artifacts in Git.
 5. Complete three evidence-led iterations and a current ship review with clear
    limitations and operating instructions.
-6. Correct the evaluation hierarchy: retain 2025 as training validation and
-   checkpoint-selection evidence; preserve the initially leaked 2026 artifact
-   as a diagnostic, publish a corrected opened out-of-sample diagnostic, and
-   reserve a future untouched window for the next true final test.
+6. Publish model evaluation separately from strategy backtesting: IC/RankIC use
+   only matured rolling-test labels, while Top50/Drop5/Hold5 and
+   Top3/Drop1/Hold5 share the exact same sample-count-five standardized signals.
 7. Render every sealed historical curve point, including negative values and
    the zero baseline, without SVG clipping on desktop or mobile.
-8. Publish a fail-closed 2×2 historical matrix—Top50 and Top3/Drop1/Hold5 over
-   2025 and corrected opened 2026—while proving all online paper tables and the
-   Small release remain unchanged.
+8. Admit local Apple Silicon and configurable remote Linux/NVIDIA execution
+   profiles with equivalent model-evidence identity, device-specific smoke
+   receipts and Small default/Base opt-in resource gates.
+9. Provide a zero-to-running public path: official weight download, BYO
+   CSV/Parquet import, optional user-owned Tushare adapter, bootstrap/doctor,
+   concise README and no private paths, credentials or generated artifacts.
 
 ## Baseline
 

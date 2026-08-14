@@ -21,7 +21,6 @@ from elanquant.contracts.historical_matrix import (
     validate_matrix_lock,
     validate_signal_receipt,
 )
-
 from elanquant.contracts.official_demo import (
     EXPECTED_EXECUTION,
     PRIMARY_SIGNAL,

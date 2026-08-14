@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 
 import { Badge } from '../components/Badge'
 import { EmptyState } from '../components/EmptyState'
+import { MetricHelp } from '../components/MetricHelp'
 import { formatMoney, formatPercent, shortHash } from '../format'
 import type {
   HistoricalBacktest,
@@ -22,11 +23,10 @@ const signals: { id: OfficialDemoSignal; label: string; detail: string }[] = [
 const modelCells: { id: HistoricalModelCell; label: string; detail: string }[] = [
   { id: 'small-zero-shot', label: 'Small · Zero-shot', detail: '官方预训练权重' },
   { id: 'small-official-ft', label: 'Small · Official FT', detail: '作者风格微调' },
-  { id: 'small-strict-pit', label: 'Small · Strict PIT', detail: '严格PIT微调' },
   { id: 'base-zero-shot', label: 'Base · Zero-shot', detail: '官方预训练权重' },
   { id: 'base-official-ft', label: 'Base · Official FT', detail: '作者风格微调' },
-  { id: 'base-strict-pit', label: 'Base · Strict PIT', detail: '严格PIT微调' },
 ]
+const publicModelIds = new Set<HistoricalModelCell>(modelCells.map((model) => model.id))
 
 const deviationTranslations: Record<string, string> = {
   "Uses the admitted extended validation_2025 split, not the author's fixed dates.":
@@ -75,10 +75,11 @@ export function HistoricalBacktestPage({
     'official_top50',
   )
   const [selectedModel, setSelectedModel] = useState<HistoricalModelCell>('small-official-ft')
-  const activeModel = backtests.some((entry) => entry.model_cell_id === selectedModel)
+  const publicBacktests = backtests.filter((entry) => publicModelIds.has(entry.model_cell_id))
+  const activeModel = publicBacktests.some((entry) => entry.model_cell_id === selectedModel)
     ? selectedModel
-    : (backtests[0]?.model_cell_id ?? 'small-official-ft')
-  const modelBacktests = backtests.filter((entry) => entry.model_cell_id === activeModel)
+    : (publicBacktests[0]?.model_cell_id ?? 'small-official-ft')
+  const modelBacktests = publicBacktests.filter((entry) => entry.model_cell_id === activeModel)
   const activeSplit = modelBacktests.some((entry) => entry.evaluation_split === selectedSplit)
     ? selectedSplit
     : 'validation_2025'
@@ -101,11 +102,11 @@ export function HistoricalBacktestPage({
         <div>
           <span className="eyebrow">04 / Official-demo method</span>
           <h1>历史组合 <span className="title-phrase">对照回测</span></h1>
-          <p>六个模型版本分别使用自己的预测信号，交叉查看两个评估期与 Top50 / Top3 组合。结果只作研究比较，不自动选模或改动在线账户。</p>
+          <p>四个公开模型版本分别使用自己的预测信号，交叉查看两个评估期与 Top50 / Top3 组合。结果只作研究比较，不自动选模或改动在线账户。</p>
         </div>
         <div className="identity-card identity-card--backtest">
           <span>轨道身份</span>
-          <strong>6 MODELS × 2 SPLITS × 2 PORTFOLIOS</strong>
+          <strong>4 MODELS × 2 SPLITS × 2 PORTFOLIOS</strong>
           <small>历史 Qlib 模拟 · 只读回执 · 不生成在线订单</small>
         </div>
       </header>
@@ -131,8 +132,8 @@ export function HistoricalBacktestPage({
             </div>
             <div className="historical-model-cards" role="group" aria-label="历史回测模型版本">
               {modelCells.map((model) => {
-                const present = backtests.some((entry) => entry.model_cell_id === model.id)
-                const item = backtests.find(
+                const present = publicBacktests.some((entry) => entry.model_cell_id === model.id)
+                const item = publicBacktests.find(
                   (entry) =>
                     entry.model_cell_id === model.id &&
                     entry.evaluation_split === activeSplit &&
@@ -154,7 +155,7 @@ export function HistoricalBacktestPage({
                 )
               })}
             </div>
-            <p className="historical-strategy-disclosure">Small / Base 与三种训练轨道互相独立；页面不会把某一格的信号或收益复制给其他模型。</p>
+            <p className="historical-strategy-disclosure">Small / Base 与两种公开对照轨互相独立；页面不会把某一格的信号或收益复制给其他模型。</p>
           </section>
           <div className="backtest-split-tabs" role="group" aria-label="历史回测评估分区">
             {([
@@ -278,6 +279,17 @@ function BacktestEvidence({
         <div className={`metric ${primary.excess_return_with_cost >= 0 ? 'metric--positive' : 'metric--negative'}`}><span>含费超额</span><strong>{formatPercent(primary.excess_return_with_cost)}</strong><small>策略 − 基准 − 成本</small></div>
         <div className="metric metric--negative"><span>最大回撤</span><strong>{formatPercent(primary.max_drawdown_with_cost)}</strong><small>mean 主信号</small></div>
       </section>
+
+      <MetricHelp
+        items={[
+          { term: '累计收益', description: '评估期内每日策略收益的算术累加；不是模拟账户净值。' },
+          { term: '沪深300同期', description: '与策略相同评估区间内，沪深300每日收益的算术累加。' },
+          { term: '含费超额', description: '策略累计收益减去基准累计收益，并计入交易成本。' },
+          { term: '最大回撤', description: '累计收益曲线从历史峰值到之后最低点的最大跌幅。' },
+          { term: '信息比率', description: '含费超额收益相对其波动的比率，用于比较风险调整后的表现。' },
+          { term: '日均换手', description: '每日成交金额相对组合资产的平均比例。' },
+        ]}
+      />
 
       <section className="content-section backtest-chart-section">
         <div className="section-heading">
@@ -463,6 +475,14 @@ function HistoricalHoldingsViewer({
             <div><span>策略目标</span><strong>{backtest.strategy.topk} 只</strong></div>
             <p>{snapshot.holdings.length === backtest.strategy.topk ? '实际持仓数与策略目标一致。' : '实际持仓数与目标不同；可交易性、涨跌停与最少持有约束都可能造成偏离。'}</p>
           </div>
+          <MetricHelp
+            title="持仓数字怎么算"
+            items={[
+              { term: '数量', description: '该交易日封存的模拟持股数量。' },
+              { term: '权重', description: '单只股票市值 ÷ 当日组合总市值。' },
+              { term: '市值', description: '封存持股数量乘以回测采用的当日估值价格。' },
+            ]}
+          />
           {snapshot.holdings.length ? (
             <div className="holdings-table-wrap">
               <table className="holdings-table">

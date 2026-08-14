@@ -21,7 +21,6 @@ from elanquant.contracts.historical_variants import (
     validate_holdings_records,
     validate_variant_lock,
 )
-
 from elanquant.contracts.official_demo import canonical_hash, sha256_file, validate_signal_receipt
 
 

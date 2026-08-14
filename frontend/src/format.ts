@@ -28,6 +28,14 @@ export const formatMoney = (value: number): string =>
     maximumFractionDigits: 0,
   }).format(value)
 
+export const formatPrice = (value: number): string =>
+  new Intl.NumberFormat('zh-CN', {
+    style: 'currency',
+    currency: 'CNY',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value)
+
 export const shortHash = (value: string | null | undefined): string =>
   value ? `${value.slice(0, 8)}…${value.slice(-6)}` : '—'
 

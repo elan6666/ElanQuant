@@ -24,10 +24,16 @@ dev = [
   "ruff>=0.8,<1",
   "pyright>=1.1.390,<2",
 ]
+repro = [
+  "huggingface-hub>=0.34,<1",
+  "pandas>=2.2,<3",
+  "pyarrow>=17,<25",
+]
 
 [project.scripts]
 elanquant-api = "elanquant.api.app:main"
 elanquant-worker = "elanquant.orchestration.worker:main"
+elanquant = "elanquant.repro.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["backend/src/elanquant"]

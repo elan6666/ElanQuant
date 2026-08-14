@@ -1,18 +1,41 @@
 ---
 schema_version: 1
 mode: auto
-project_kind: greenfield
-stage: delivered
-current_workflow: byte-deliver
-next_workflow: none
-review_verdict: ship
-iteration_count: 3
+project_kind: existing_codebase
+stage: building
+current_workflow: byte-build
+next_workflow: byte-build
+review_verdict: pending
+iteration_count: 0
 harness_status: ready
 hard_blocked: false
-updated_at: 2026-08-13T20:40:00+08:00
+updated_at: 2026-08-14T15:54:00+08:00
 ---
 
 # Current State
+
+Byte Auto has resumed with an owner-approved model/data reset and portability
+goal. The active target is Small/Base zero-shot plus newly trained official-style
+fine-tunes using the pinned Kronos raw slices: train 2011-01-01..2022-12-31,
+validation 2022-09-01..2024-06-30, rolling test 2024-04-01..a frozen latest
+closed session, and backtest 2024-07-01..that same freeze. Top50/Drop5/Hold5 and
+Top3/Drop1/Hold5 must consume the same sample-count-five standardized-space
+signals. The rolling test is permanently labelled viewed after publication;
+only anchors with a matured ten-session target enter IC/RankIC metrics.
+
+The old strict-PIT release remains running while the replacement is built, but
+is now a retirement candidate rather than an active future product version. It
+will be removed from public selectors only after the new official-style release
+passes data, training, evaluation, backtest and online smoke gates. Existing
+checkpoints and receipts are preserved read-only as superseded evidence; no
+physical deletion is authorized.
+
+The same model evidence must run under two execution profiles: local Apple
+Silicon (Small default, Base explicit high-resource option) and a configurable
+remote Linux/NVIDIA server. Public reproduction must provide official-weight
+download receipts, BYO CSV/Parquet import, optional user-owned Tushare adapter,
+device preflight/smoke tests and a concise README without exposing the owner's
+server, VPN, token, raw data or generated artifacts.
 
 Plan 010 is complete: both sealed Top50 historical tracks now sit beside an
 isolated Qlib historical Top3/Drop1/Hold5 portfolio-sensitivity variant for
@@ -44,15 +67,17 @@ unchanged while publishing current run evidence.
 
 ## Goal
 
-Deliver an auditable Top50-versus-historical-Top3 comparison across the existing
-2025/2026 historical evidence, with immutable server receipts, a clear read-only
-UI and no change to online Top3 or real brokerage boundaries.
+Deliver a reproducible ElanQuant reset with official-date-aligned Small/Base
+fine-tuning, mature rolling-test evaluation, Top50 and Top3 historical studies,
+local/remote inference profiles, third-party bootstrap/data/weight workflows,
+and a simpler evidence-led web product while preserving the no-broker boundary.
 
 ## Open blockers
 
-None. Top3/Drop1/Hold5 is frozen as a post-hoc sensitivity variant. Research
-execution is server-only and must not overwrite existing artifacts or use the
-opened result for selection.
+No current hard blocker. Public redistribution of newly fine-tuned A-share
+weights remains gated on data-license evidence; this does not block publishing
+the source, official-weight downloader or BYO-data reproduction recipe. Apple
+MPS and Base-local labels remain unavailable until device smoke gates pass.
 
 ## Harness
 
@@ -65,5 +90,6 @@ Base formal and six-cell catalog reviews are SHIP with no P0/P1.
 
 ## Next
 
-No required work remains. Future untouched data is reserved for a genuinely
-new evaluation rather than tuning against the opened 2026 window.
+Refresh research/specs and executable plans, implement the portable data and
+execution foundation, then start immutable server data materialization and
+Small/Base training while frontend, README and local-profile work continue.

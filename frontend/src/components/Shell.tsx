@@ -1,6 +1,6 @@
 import type { ServiceState } from '../types'
 
-export type PageKey = 'overview' | 'jobs' | 'research' | 'backtest' | 'ranking' | 'paper' | 'methods'
+export type PageKey = 'overview' | 'jobs' | 'research' | 'backtest' | 'ranking' | 'paper'
 
 const navItems: { key: PageKey; label: string; index: string }[] = [
   { key: 'overview', label: '总览', index: '01' },
@@ -9,7 +9,6 @@ const navItems: { key: PageKey; label: string; index: string }[] = [
   { key: 'backtest', label: '历史回测', index: '04' },
   { key: 'ranking', label: '股票排名', index: '05' },
   { key: 'paper', label: '模拟账户', index: '06' },
-  { key: 'methods', label: '方法说明', index: '07' },
 ]
 
 interface ShellProps {
@@ -73,7 +72,7 @@ export function Shell({
           <div className="topbar__connection">
             <span className={`connection-dot connection-dot--${serviceState}`} aria-hidden="true" />
             <span>{serviceLabel[serviceState]}</span>
-            <small>通过 EasyConnect + SSH 隧道访问</small>
+            <small>本机与远程服务使用同一研究协议</small>
           </div>
           <button className="text-button" type="button" onClick={onRefresh} disabled={refreshing}>
             {refreshing ? '刷新中…' : '刷新状态'}

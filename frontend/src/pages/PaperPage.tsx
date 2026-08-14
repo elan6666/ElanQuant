@@ -1,6 +1,7 @@
 import { Badge } from '../components/Badge'
 import { EmptyState } from '../components/EmptyState'
 import { Metric } from '../components/Metric'
+import { MetricHelp } from '../components/MetricHelp'
 import { formatMoney, formatPercent, paperDecisionLabel, paperDecisionReason } from '../format'
 import type { PaperAccount, PaperSummary } from '../types'
 
@@ -22,6 +23,17 @@ export function PaperPage({ account, summary }: { account: PaperAccount | null; 
             <Metric label="持仓市值" value={formatMoney(account.market_value)} detail={`${account.positions.length} 只持仓`} />
             <Metric label="累计收益" value={formatPercent(account.total_return)} detail={`初始资金 ${formatMoney(account.initial_cash)}`} tone={(account.total_return ?? 0) >= 0 ? 'positive' : 'negative'} />
           </section>
+
+          <MetricHelp
+            items={[
+              { term: '账户总资产', description: '可用现金加当前持仓市值。' },
+              { term: '现金占比', description: '可用现金 ÷ 账户总资产。' },
+              { term: '累计收益', description: '当前总资产 ÷ 初始资金 − 1。' },
+              { term: '最大回撤', description: '已发布账户净值从历史峰值到之后最低点的最大跌幅。' },
+              { term: '累计毛换手', description: '累计成交金额 ÷ 初始资金。' },
+              { term: '账户净值 NAV', description: '每 1 元初始资金对应的当前账户价值。' },
+            ]}
+          />
 
           {summary ? (
             <section className="content-section paper-tearsheet">

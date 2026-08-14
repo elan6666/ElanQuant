@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 import uuid
 from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
+from elanquant.contracts.portable_runtime import (
+    DEVICES,
+    PROFILE_IDS,
+    RELEASES,
+    validate_execution_receipt,
+)
 from elanquant.storage.database import Database
 
 TERMINAL_STATUSES = {"SUCCEEDED", "FAILED", "DATA_INCOMPLETE"}
@@ -29,10 +36,24 @@ class JobStore:
         self.database = database
 
     def submit_update_infer(
-        self, target_session: date | str | None = None, *, force: bool = False
+        self,
+        target_session: date | str | None = None,
+        *,
+        force: bool = False,
+        execution_profile: str = "legacy-yilangliu",
+        model_release: str = "small",
+        requested_device: str = "cuda",
     ) -> tuple[dict[str, object], bool]:
+        if execution_profile not in PROFILE_IDS:
+            raise ValueError("Unknown execution profile")
+        if model_release not in RELEASES:
+            raise ValueError("Unknown model release")
+        if requested_device not in DEVICES:
+            raise ValueError("Unknown execution device")
         session = str(target_session) if target_session is not None else default_requested_session()
-        base_key = f"UPDATE_INFER:{session}"
+        base_key = (
+            f"UPDATE_INFER:{session}:{execution_profile}:{model_release}:{requested_device}"
+        )
         now = utc_now()
         job_id = str(uuid.uuid4())
         idempotency_key = f"{base_key}:force:{job_id}" if force else base_key
@@ -43,10 +64,20 @@ class JobStore:
                     """
                     INSERT INTO jobs (
                         id, idempotency_key, job_type, requested_session, status,
-                        stage, progress, message, created_at
-                    ) VALUES (?, ?, 'UPDATE_INFER', ?, 'QUEUED', 'QUEUED', 0, ?, ?)
+                        stage, progress, message, created_at, execution_profile,
+                        model_release, requested_device
+                    ) VALUES (?, ?, 'UPDATE_INFER', ?, 'QUEUED', 'QUEUED', 0, ?, ?, ?, ?, ?)
                     """,
-                    (job_id, idempotency_key, session, "Job accepted", now),
+                    (
+                        job_id,
+                        idempotency_key,
+                        session,
+                        "Job accepted",
+                        now,
+                        execution_profile,
+                        model_release,
+                        requested_device,
+                    ),
                 )
                 self._insert_event(connection, job_id, "QUEUED", "QUEUED", 0, "Job accepted", now)
                 connection.commit()
@@ -91,8 +122,9 @@ class JobStore:
                 """
                 INSERT INTO jobs (
                     id, idempotency_key, job_type, requested_session, status, stage,
-                    progress, message, attempt, parent_job_id, created_at
-                ) VALUES (?, ?, ?, ?, 'QUEUED', 'QUEUED', 0, ?, ?, ?, ?)
+                    progress, message, attempt, parent_job_id, created_at,
+                    execution_profile, model_release, requested_device
+                ) VALUES (?, ?, ?, ?, 'QUEUED', 'QUEUED', 0, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     new_id,
@@ -103,18 +135,62 @@ class JobStore:
                     attempt,
                     job_id,
                     now,
+                    parent["execution_profile"],
+                    parent["model_release"],
+                    parent["requested_device"],
                 ),
             )
             self._insert_event(connection, new_id, "QUEUED", "QUEUED", 0, "Retry accepted", now)
             connection.commit()
         return self.get(new_id)
 
-    def claim_next(self) -> dict[str, object] | None:
+    def peek_next(self) -> dict[str, object] | None:
         with self.database.connect() as connection:
-            connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
                 "SELECT * FROM jobs WHERE status = 'QUEUED' ORDER BY created_at, id LIMIT 1"
             ).fetchone()
+            return None if row is None else self._job_dict(connection, row)
+
+    def record_execution_receipt(self, job_id: str, receipt: dict[str, object]) -> None:
+        validated = validate_execution_receipt(receipt)
+        with self.database.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+            if row is None:
+                connection.rollback()
+                raise KeyError(job_id)
+            if row["status"] != "QUEUED":
+                connection.rollback()
+                raise ValueError("Execution capability may only be recorded before claim")
+            if (
+                validated["profile_id"] != row["execution_profile"]
+                or validated["model_release"] != row["model_release"]
+                or validated["requested_device"] != row["requested_device"]
+            ):
+                connection.rollback()
+                raise ValueError("Execution receipt disagrees with frozen job identity")
+            connection.execute(
+                "UPDATE jobs SET execution_receipt_json = ? WHERE id = ? AND status = 'QUEUED'",
+                (
+                    json.dumps(
+                        validated, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+                    ),
+                    job_id,
+                ),
+            )
+            connection.commit()
+
+    def claim_next(self, job_id: str | None = None) -> dict[str, object] | None:
+        with self.database.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if job_id is None:
+                row = connection.execute(
+                    "SELECT * FROM jobs WHERE status = 'QUEUED' ORDER BY created_at, id LIMIT 1"
+                ).fetchone()
+            else:
+                row = connection.execute(
+                    "SELECT * FROM jobs WHERE id = ? AND status = 'QUEUED'", (job_id,)
+                ).fetchone()
             if row is None:
                 connection.commit()
                 return None
@@ -296,6 +372,10 @@ class JobStore:
         connection: sqlite3.Connection, row: sqlite3.Row, *, include_events: bool = True
     ) -> dict[str, object]:
         result = dict(row)
+        receipt_json = result.pop("execution_receipt_json", None)
+        result["execution_receipt"] = (
+            None if receipt_json is None else validate_execution_receipt(json.loads(receipt_json))
+        )
         if include_events:
             result["events"] = [
                 {**dict(event), "id": str(event["id"])}

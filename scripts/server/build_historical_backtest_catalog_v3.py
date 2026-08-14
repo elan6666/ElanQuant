@@ -25,7 +25,6 @@ from elanquant.contracts.historical_variants import (
     validate_historical_catalog,
     validate_holdings_receipt,
 )
-
 from elanquant.contracts.official_demo import (
     FINAL_TEST_STRATEGY_ID,
     PRIMARY_SIGNAL,

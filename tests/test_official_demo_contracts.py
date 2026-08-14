@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from elanquant.contracts.official_demo import (
     ANALYSIS_LOCK_SCHEMA,
     BACKTEST_SCHEMA,

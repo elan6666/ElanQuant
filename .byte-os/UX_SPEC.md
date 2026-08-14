@@ -1,51 +1,58 @@
-# UX Specification
-
-## Core journey
-
-`Connect VPN/SSH tunnel → open dashboard → inspect data/model status → press
-Update data and run inference → follow durable stages → inspect data/experiment
-evidence and ranking explanation → inspect frozen paper orders/account/history`.
-The independent historical journey is `open Historical Backtest → confirm Top3
-is retained → inspect sealed Top50 curve/metrics/parameters/deviations`; it has
-no action button.
-
-## Pages
-
-- Overview: latest closed/data/inference dates, data health, primary model,
-  warnings and action.
-- Jobs: stage timeline, events, retries, duplicate/coalesced identity.
-- Research: Small/Base six cells, 2025 validation vs 2026 `TEST_VIEWED`, sample
-  support, zero-shot delta, run lineage and diff.
-- Historical Backtest: explicit separation from the online Top3 account,
-  corrected opened-2026 default with an explicit 2025 validation switch, and
-  two strategy cards for official Top50 and historical Qlib Top3. A three-line
-  mean chart compares both strategies with SH000300; the selected card controls
-  parameters, four-signal metrics, hashes and deviations. Missing evidence is a
-  waiting state; tampered evidence is unavailable rather than approximated.
-- Ranking: searchable/keyboard scores, ten-day signal, input completeness,
-  previous rank, three-track spread, eligibility and paper decision.
-- Stock detail: signal/model comparison and run evidence; do not draw a
-  forecast band until an auditable per-session distribution exists.
-- Paper account: cash, positions, intents, fills/rejections, NAV/gaps,
-  sample-aware metrics and explicit Top-3 no-order reasons.
-- Methods: plain-language full-stack, model, PIT, signal, execution and dual-track explanation.
-
-## States
-
-- Empty: explain first run and show no fabricated result.
-- Loading: polling indicator without blocking navigation.
-- Running: current stage and durable job ID; safe-to-close message.
-- Data incomplete: exact field/session/coverage failure; no recommendation.
-- Failed/interrupted: immutable failure and explicit retry.
-- Success: as-of, model/data hashes, viewed/online status, next action.
-- Stale: last result remains historical and is never relabeled current.
+# UX Specification — ElanQuant v1
 
 ## Navigation
 
-Persistent left/top navigation with research-risk notice. Primary action exists
-only on Overview. Training controls are absent.
+Six pages: Overview, Jobs, Experiment Matrix, Historical Backtest, Stock Ranking
+and Paper Account. Methods is removed; its durable explanations move to README.
 
-## First run
+## Overview
 
-Explain VPN requirement, SSH tunnel command, manual update semantics, no real
-account, and why latest online predictions are not yet scored.
+- Heading: `更新数据，生成今天的研究结果`.
+- Compact execution-profile selector above the single action.
+- Local/remote labels describe running location, never a different model.
+- Main surface shows dates, status and action only; hashes live in `查看审计信息` details.
+- No VPN, SSH, Worker, SQLite, linger or AI-style slogan in the product path.
+
+## Jobs
+
+- Plain task progress, result number and local/remote badge.
+- No architecture explanation. A submitted task says the page may be left and checked later.
+
+## Experiment matrix
+
+- Four visible cards: Small/Base x official zero-shot/official fine-tune.
+- Strict-PIT never appears as a selectable card.
+- RankIC, Pearson IC, Top10 realized return, sample rows and cross-sections have
+  visible definitions and units. Viewed test is descriptive, never called best.
+
+## Historical backtest
+
+- Four public model selectors and Top50/Top3 portfolio selector.
+- Only released evidence is selectable; no fallback to a retired strict cell.
+- Cumulative return, benchmark, excess, drawdown, cost and turnover state their
+  exact arithmetic/denominator semantics.
+- Sealed daily holdings remain available with amount, value and portfolio weight.
+
+## Ranking
+
+- Rename signal to `10日预测涨跌`.
+- Explain `mean(predicted closes for next 10 sessions) / current close - 1`.
+- Example wording: 2.04% means predicted ten-day average close is 2.04% above
+  current close; it is neither realized return nor probability.
+- Show current reference price and derived predicted average when available.
+- Input completeness and model-score spread include denominator/definition;
+  raw per-model scores remain collapsed by default.
+
+## First-run/reproduction
+
+- One small README link below the main action.
+- Missing profile is disabled and labelled not configured.
+- Synthetic demo, zero-shot and full reproduction live in README/CLI, not new pages.
+
+## Accessibility/responsiveness
+
+- Definitions are visible text or keyboard-operable details, never hover/title only.
+- 1440: compact Hero, four-card matrix, no unnecessary operational cards.
+- 390: six bottom-nav items >=44px, two profile buttons >=44px, four model cards 2x2,
+  tables scroll internally and page width never overflows.
+- Focus is visible and browser console has no errors.

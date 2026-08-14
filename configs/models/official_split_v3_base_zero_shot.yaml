@@ -1,0 +1,13 @@
+schema_version: elanquant_kronos_cell_config_v3
+cell_id: base-zero-shot
+run_id: kronos-base-zero-shot-official-split-v3-20260814
+training_mode: zero_shot
+upstream_commit: 67b630e67f6a18c9e9be918d9b4337c960db1e9a
+tokenizer: NeoQuasar/Kronos-Tokenizer-base
+predictor: NeoQuasar/Kronos-base
+raw_slices: {train: [2011-01-01, 2022-12-31], validation: [2022-09-01, 2024-06-30], test_viewed: [2024-04-01, FROZEN_LATEST]}
+lookback: 90
+predict: 10
+sample_count: 5
+used_for_selection: false
+promotion_eligible: false

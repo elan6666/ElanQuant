@@ -4,8 +4,6 @@ import csv
 import json
 from pathlib import Path
 
-from fastapi.testclient import TestClient
-
 from elanquant.api.app import create_app
 from elanquant.contracts.official_demo import (
     BACKTEST_SCHEMA,
@@ -19,6 +17,7 @@ from elanquant.contracts.official_demo import (
     sha256_file,
 )
 from elanquant.settings import Settings
+from fastapi.testclient import TestClient
 
 
 def settings(tmp_path: Path) -> Settings:

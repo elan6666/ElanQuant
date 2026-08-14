@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react'
 import { Badge } from '../components/Badge'
 import { EmptyState } from '../components/EmptyState'
-import { formatNumber, formatPercent, paperDecisionLabel, paperDecisionReason, shortHash } from '../format'
+import { MetricHelp } from '../components/MetricHelp'
+import { formatNumber, formatPercent, formatPrice, paperDecisionLabel, paperDecisionReason, shortHash } from '../format'
 import type { ResearchRun, StockScore } from '../types'
 
 const emptyScores: StockScore[] = []
@@ -51,11 +52,20 @@ export function RankingPage({ run }: { run: ResearchRun | null }) {
         <small>{visible.length} / {run.scores.length} 只</small>
       </section>
 
+      <MetricHelp
+        title="这些数字怎么读"
+        items={[
+          { term: '10日预测涨跌', description: '未来10个预测收盘价的平均值 ÷ 当前收盘价 − 1；不是已实现收益，也不是上涨概率。' },
+          { term: '输入数据完整度', description: '本次后端准入要求中，已经满足的输入项所占比例；100% 表示要求齐全。' },
+          { term: '模型评分差距', description: '参与本次排名的模型评分最高值减最低值；越小表示评分更接近，不是概率或置信区间。' },
+        ]}
+      />
+
       {selectedStock ? <section className="ranking-layout">
         <div className="ranking-table-wrap">
           <table className="ranking-table">
             <thead>
-              <tr><th>排名</th><th>股票</th><th>10日信号</th><th>上次排名</th><th>输入完整性</th><th>资格</th></tr>
+              <tr><th>排名</th><th>股票</th><th>10日预测涨跌</th><th>上次排名</th><th>输入数据完整度</th><th>资格</th></tr>
             </thead>
             <tbody>
               {visible.map((stock) => (
@@ -104,20 +114,45 @@ function StockDetail({ stock, run }: { stock: StockScore; run: ResearchRun }) {
   const min = Math.min(...values)
   const max = Math.max(...values)
   const range = max - min || 1
+  const predictedAveragePrice =
+    stock.reference_price === null
+      ? null
+      : stock.reference_price * (1 + stock.forecast_return)
   return (
     <aside className="stock-detail">
-      <div className="stock-detail__head"><div><span className="eyebrow">#{stock.rank} / {stock.symbol}</span><h2>{stock.name}</h2></div><strong className={stock.forecast_return >= 0 ? 'positive' : 'negative'}>{formatPercent(stock.forecast_return)}</strong></div>
+      <div className="stock-detail__head">
+        <div><span className="eyebrow">#{stock.rank} / {stock.symbol}</span><h2>{stock.name}</h2></div>
+        <div className="forecast-return-summary">
+          <span>10日预测涨跌</span>
+          <strong className={stock.forecast_return >= 0 ? 'positive' : 'negative'}>{formatPercent(stock.forecast_return)}</strong>
+        </div>
+      </div>
+      <p className="signal-explanation">
+        {formatPercent(stock.forecast_return)} 表示预测的10日平均收盘价比当前收盘价
+        {stock.forecast_return >= 0 ? '高' : '低'} {formatPercent(Math.abs(stock.forecast_return))}；不是已实现收益，也不是上涨概率。
+      </p>
+      {stock.reference_price !== null && predictedAveragePrice !== null ? (
+        <div className="forecast-denominator">
+          <span>当前收盘价 <b>{formatPrice(stock.reference_price)}</b></span>
+          <span>预测10日平均价约 <b>{formatPrice(predictedAveragePrice)}</b></span>
+        </div>
+      ) : (
+        <p className="forecast-denominator">公式：未来10个预测收盘价平均值 ÷ 当前收盘价 − 1</p>
+      )}
       <p>{stock.explanation}</p>
       <div className="stock-facts">
-        <div><span>上次严格排名</span><b>{stock.previous_rank === null ? '首次出现' : `#${stock.previous_rank}`}</b></div>
-        <div><span>三轨分数分歧</span><b>{formatNumber(stock.model_spread, 4)}</b></div>
+        <div><span>上次排名</span><b>{stock.previous_rank === null ? '首次出现' : `#${stock.previous_rank}`}</b></div>
+        <div><span>模型评分差距</span><b>{formatNumber(stock.model_spread, 4)}</b></div>
         <div><span>Top 3资格</span><b>{stock.selected_top3 ? '已入选' : '未入选'}</b></div>
         <div><span>模拟账本决策</span><b>{paperDecisionLabel(stock.paper_decision)}</b></div>
       </div>
       {stock.paper_reason ? <p className="decision-reason">{paperDecisionReason(stock.paper_decision, stock.paper_reason)}</p> : null}
-      <div className="model-compare">
-        {Object.entries(stock.model_scores).map(([model, score]) => <div key={model}><span>{model}</span><b>{formatNumber(score, 4)}</b></div>)}
-      </div>
+      <details className="raw-score-details">
+        <summary>查看各模型原始分数</summary>
+        <div className="model-compare">
+          {Object.entries(stock.model_scores).map(([model, score]) => <div key={model}><span>{model}</span><b>{formatNumber(score, 4)}</b></div>)}
+        </div>
+      </details>
       {stock.forecast.length > 0 ? (
         <div className="forecast-chart" role="img" aria-label="未来十日预测均值与区间">
           <div className="forecast-chart__grid" />

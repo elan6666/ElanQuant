@@ -87,3 +87,35 @@ the official holding constraint. The variant reuses exact sealed signals and
 providers, is permanently non-selection/non-promotion, and is not equivalent to
 the online Top3 paper account. Qlib trading constraints may make actual holdings
 temporarily differ from the nominal target of three.
+
+## 2026-08-14 — Official-date-aligned model reset
+
+The active replacement experiment uses the pinned Kronos demo raw slices:
+train 2011-01-01..2022-12-31, validation 2022-09-01..2024-06-30, rolling test
+2024-04-01..a frozen latest close and backtest 2024-07-01..that same freeze.
+Raw overlap supplies lookback context and must not be interpreted as overlapping
+labels. The training Dataset consumes 90 context + 10 target + 1 row, runs all
+30 epochs and selects best checkpoints by validation loss.
+
+## 2026-08-14 — Viewed rolling test and shared strategy signal
+
+Only anchors whose complete ten-session target is available enter IC/RankIC.
+Latest online signals may be published before their targets mature but remain
+unscoreable. Once results are inspected the rolling test is TEST_VIEWED and may
+not drive model, primary-signal or strategy-parameter changes. Official Top50
+50/5/Hold5 and the explicit Top3 3/1/Hold5 extension consume the same
+sample-count-five standardized-space mean signal.
+
+## 2026-08-14 — Retire, do not erase, superseded evidence
+
+The old strict-PIT release is removed from the future public selection surface
+only after the new official-style replacement passes. Its checkpoints,
+receipts, database lineage and historical artifacts remain read-only and are
+labelled RETIRED_SUPERSEDED; physical deletion is not authorized.
+
+## 2026-08-14 — Execution profile is not model identity
+
+Local Apple Silicon and remote Linux/NVIDIA are execution profiles for the same
+sealed model evidence. Small is the local default and Base is explicit opt-in.
+Public configuration never contains the owner's campus host, VPN, username,
+token or absolute server paths.

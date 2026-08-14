@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>io.elanquant.worker</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>@ELANQUANT_APP_PYTHON@</string>
+    <string>-m</string>
+    <string>elanquant.orchestration.worker</string>
+  </array>
+  <key>WorkingDirectory</key><string>@ELANQUANT_ROOT@</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>ELANQUANT_CONFIG</key><string>@ELANQUANT_CONFIG@</string>
+    <key>ELANQUANT_EXECUTION_PROFILE</key><string>local-apple-silicon</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+  <key>StandardOutPath</key><string>@ELANQUANT_LOG_ROOT@/worker.log</string>
+  <key>StandardErrorPath</key><string>@ELANQUANT_LOG_ROOT@/worker-error.log</string>
+  <key>Umask</key><integer>63</integer>
+</dict>
+</plist>

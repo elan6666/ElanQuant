@@ -1,0 +1,11 @@
+schema_version: elanquant_execution_profile_v1
+id: local-apple-silicon
+visibility: public
+operating_systems: [Darwin]
+architectures: [arm64, aarch64]
+allowed_devices: [mps, cpu]
+default_device: mps
+allowed_releases: [small, base]
+default_release: small
+research_only_releases: [base]
+require_explicit_base: true

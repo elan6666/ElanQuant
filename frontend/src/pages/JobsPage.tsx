@@ -8,7 +8,7 @@ export function JobsPage({ jobs, submitting, onRetry }: { jobs: Job[]; submittin
   if (jobs.length === 0) {
     return (
       <PageFrame>
-        <EmptyState title="还没有服务器任务" description="任务只由总览页的主按钮创建。提交后可关闭浏览器；VPN断连存活能力需先通过服务器linger部署验证。" />
+        <EmptyState title="还没有任务" description="从总览启动一次推理后，任务会显示在这里。" />
       </PageFrame>
     )
   }
@@ -19,7 +19,7 @@ export function JobsPage({ jobs, submitting, onRetry }: { jobs: Job[]; submittin
         <JobProgress job={jobs[0]!} />
         <div className="job-history">
           <div className="section-heading">
-            <div><span className="eyebrow">Durable history</span><h2>不可变任务记录</h2></div>
+            <div><span className="eyebrow">History</span><h2>历史任务</h2></div>
             <span className="count-label">{jobs.length} JOBS</span>
           </div>
           {jobs.map((job) => (
@@ -28,7 +28,8 @@ export function JobsPage({ jobs, submitting, onRetry }: { jobs: Job[]; submittin
                 <code>{job.id}</code>
                 <strong>{stageLabel[job.stage]}</strong>
                 <span>{formatDateTime(job.requested_at)} · {job.as_of || '交易日待确认'}</span>
-                {job.run_id ? <small>OUTPUT RUN · {job.run_id}</small> : null}
+                <small>运行位置 · {job.execution_profile === 'local-apple-silicon' ? '本机' : '远程服务器'}</small>
+                {job.run_id ? <small>结果编号 · {job.run_id}</small> : null}
               </div>
               <div className="history-row__state">
                 <Badge state={job.state}>{jobStateLabel[job.state]}</Badge>
@@ -66,8 +67,8 @@ function PageFrame({ children }: { children: React.ReactNode }) {
     <>
       <header className="page-heading">
         <span className="eyebrow">02 / Jobs</span>
-        <h1>任务与运行阶段</h1>
-        <p>网页只负责提交和查看；服务器Worker独立领取任务。断开VPN前，部署页必须已确认linger和断连恢复测试通过。</p>
+        <h1>任务进度</h1>
+        <p>这里显示每次更新的进度和结果。</p>
       </header>
       {children}
     </>

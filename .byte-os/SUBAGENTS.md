@@ -1,32 +1,31 @@
-# Subagent Strategy and Ledger
+# Subagent Strategy
 
-## Mode
+## Current run
 
-On for Byte Auto. The initial bounded tracks were integrated; the owner then
-requested parallel Base research and product optimization. Root retains source
-integration, live database migration, product deployment and delivery verdict.
+- Mode: on
+- Integrator: root
+- Date: 2026-08-14
 
-## Completed tracks
+## Exploration completed
 
-| Agent | Scope | Result |
-|---|---|---|
-| `app_architecture` | Durable API/Worker/SQLite/paper architecture and implementation | Main agent aligned API envelopes and added the real research pipeline. |
-| `kronos_official` | Official repo/paper/weights/config evidence and frontend | Main agent removed the platform-only dependency and completed frontend checks. |
-| `pit_simulation` | Strict PIT data and A-share simulated execution | Main agent added live limit constraints and server orchestration. |
+- `base_receipt_audit`: official split/training/evaluation/backtest migration.
+- `live_product_review`: portable runtime, data/weight/bootstrap and packaging audit.
+- `design_qa_review`: web simplification, metric semantics and responsive acceptance.
 
-## Plan 010 active tracks
+All exploration was read-only. The root resolved one conflict: despite legacy
+six-cell evidence, the new active v1 matrix is exactly four cells
+(Small/Base x zero-shot/official-ft); no new strict-PIT training is in scope.
 
-| Agent | Scope | Boundary |
-|---|---|---|
-| `base_receipt_audit` | Historical Top3 contract, pre-result lock, runner, catalog/audit scripts and focused tests | New isolated files only; no server result, inference, SQLite, old artifact or frontend change. |
-| `live_product_review` | GET-only API/settings integration and focused API tests | No contract/runner/frontend overlap and no live mutation. |
-| `design_qa_review` | Historical page 2×2 comparison UX, runtime decoder and frontend tests | Frontend-only; no backend/server artifact change. |
+## Implementation ownership
 
-Detailed handoffs remain under `.byte-os/subagents/`.
+| Agent | Plan | Allowed write scope | Non-goals |
+|---|---|---|---|
+| base_receipt_audit | 011 | new versioned official-split research contracts/scripts/configs and focused research tests | no backend API/frontend/docs; no server execution; no strict-PIT v1 cell |
+| live_product_review | 012 | backend runtime/settings/jobs/API/database, deploy profile templates and focused backend tests | no frontend/research scripts/README; no server restart |
+| design_qa_review | 014 | frontend/src and frontend tests | no backend/API invention; no README |
+| root | 013 + integration | CLI public data/weights/bootstrap/package/docs/Byte OS, merge, server execution and delivery | no destructive artifact deletion |
 
-## Policy
+## Handoff contract
 
-Implementation remains plan-owned and disjoint while GPU jobs are active.
-Review agents stay read-only. No agent may expose credentials, change VPN
-routes, edit sibling legacy projects, replace the Small production release, or
-publish generated research artifacts to Git.
+Every agent returns Scope, Allowed files, Files inspected, Files changed,
+Verification, Result, Risks and Handoff. Root reviews diffs and reruns integrated gates.
