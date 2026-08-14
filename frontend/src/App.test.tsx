@@ -219,7 +219,7 @@ describe('ElanQuant dashboard states', () => {
     expect(screen.queryByRole('button', { name: /Strict PIT/ })).not.toBeInTheDocument()
   })
 
-  it('compares the exact historical 2x2 matrix without conflating online Top3', async () => {
+  it('hides archived validation and diagnostic backtests from the product surface', async () => {
     render(
       <App
         client={clientFor(
@@ -250,19 +250,9 @@ describe('ElanQuant dashboard states', () => {
     )
     fireEvent.click(await screen.findByRole('button', { name: '历史回测' }))
     expect(screen.getByRole('heading', { name: /历史组合.*对照回测/ })).toBeInTheDocument()
-    expect(screen.getByText('在线 Top3 模拟账户')).toBeInTheDocument()
-    expect(screen.getByText(/历史 Top3 不等同在线 Top3/)).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /Strict PIT/ })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /官方对齐 Top50/ })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByText(/2026 已开封样本外诊断/)).toBeInTheDocument()
-    expect(screen.getByRole('img', { name: /官方对齐Top50、历史Qlib Top3与沪深300/ })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /2026 已开封样本外诊断/ }))
-    fireEvent.click(screen.getByRole('button', { name: /历史 Qlib Top3/ }))
-    expect(screen.getByText(/2026 窗口已开封.*不用于选模/)).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: '历史 Top3 组合参数' })).toBeInTheDocument()
-    expect(screen.getByText('2 – 4 只，中位数 3')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /2025 训练验证/ }))
-    expect(screen.getByText(/2025 已在查看后构建.*不用于选模/)).toBeInTheDocument()
+    expect(screen.getByText('官方分割回测尚未发布')).toBeInTheDocument()
+    expect(screen.queryByText(/2026 已开封样本外诊断/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/2025 训练验证/)).not.toBeInTheDocument()
   })
 
   it('routes the removed methods hash back to overview', async () => {
@@ -290,30 +280,48 @@ describe('ElanQuant dashboard states', () => {
       />,
     )
     fireEvent.click(await screen.findByRole('button', { name: '历史回测' }))
-    expect(screen.getByText('官方对齐回测正在服务器生成')).toBeInTheDocument()
+    expect(screen.getByText('官方分割回测尚未发布')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Strict PIT/ })).not.toBeInTheDocument()
   })
 
   it('loads sealed holdings by keyboard-accessible session and keeps legacy empty state honest', async () => {
+    const top50: HistoricalBacktest = {
+      ...finalTestHistoricalBacktest,
+      id: 'official-v3-holdings-top50',
+      track_kind: 'OFFICIAL_SPLIT_V3_MODEL_MATRIX',
+      evaluation_split: 'test_viewed_official_v3',
+      comparison_group_id: 'official-split-v3-top50-top3-v1',
+      result_role: 'OPENED_ROLLING_TEST_MODEL_STRATEGY_DIAGNOSTIC',
+      source_backtest_id: null,
+    }
+    const top3: HistoricalBacktest = {
+      ...finalTestHistoricalTop3Backtest,
+      id: 'official-v3-holdings-top3',
+      track_kind: 'OFFICIAL_SPLIT_V3_MODEL_MATRIX',
+      evaluation_split: 'test_viewed_official_v3',
+      comparison_group_id: 'official-split-v3-top50-top3-v1',
+      result_role: 'OPENED_ROLLING_TEST_MODEL_STRATEGY_DIAGNOSTIC',
+      source_backtest_id: top50.id,
+    }
     const client = clientFor(snapshot({
-      historical_backtests: [finalTestHistoricalBacktest, finalTestHistoricalTop3Backtest],
+      historical_backtests: [top50, top3],
       historical_backtest_available: true,
       historical_backtest_series: {
-        [finalTestHistoricalBacktest.id]: [
+        [top50.id]: [
           { session: '2026-07-28', strategy: 0.03, benchmark: 0.02, excess: 0.01, strategy_nav: 1.03, benchmark_nav: 1.02 },
           { session: '2026-07-29', strategy: 0.04, benchmark: 0.03, excess: 0.01, strategy_nav: 1.04, benchmark_nav: 1.03 },
         ],
-        [finalTestHistoricalTop3Backtest.id]: [
+        [top3.id]: [
           { session: '2026-07-28', strategy: 0.05, benchmark: 0.02, excess: 0.03, strategy_nav: 1.05, benchmark_nav: 1.02 },
           { session: '2026-07-29', strategy: 0.06, benchmark: 0.03, excess: 0.03, strategy_nav: 1.06, benchmark_nav: 1.03 },
         ],
       },
     }))
     client.getHistoricalHoldings = vi.fn(async (backtestId: string, session?: string) => {
-      if (backtestId === finalTestHistoricalBacktest.id) return null
+      if (backtestId === top50.id) return null
       const selected = session ?? '2026-07-29'
       return {
-        backtest_id: finalTestHistoricalTop3Backtest.id,
+        backtest_id: top3.id,
         available: true,
         signal: 'mean',
         empty: false,
@@ -344,7 +352,7 @@ describe('ElanQuant dashboard states', () => {
     fireEvent.change(sessionSelect, { target: { value: '2026-07-28' } })
     await waitFor(() => expect(screen.getByText('900')).toBeInTheDocument())
     expect(client.getHistoricalHoldings).toHaveBeenCalledWith(
-      finalTestHistoricalTop3Backtest.id,
+      top3.id,
       '2026-07-28',
       expect.any(AbortSignal),
     )

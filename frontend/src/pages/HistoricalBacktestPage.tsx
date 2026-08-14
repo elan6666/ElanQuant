@@ -68,16 +68,17 @@ export function HistoricalBacktestPage({
     signal?: AbortSignal,
   ) => Promise<HistoricalHoldingsSnapshot | null>
 }) {
-  const [selectedSplit, setSelectedSplit] = useState<
-    'validation_2025' | 'test_viewed_2026' | 'test_viewed_official_v3'
-  >('test_viewed_official_v3')
+  const selectedSplit = 'test_viewed_official_v3' as const
   const [selectedStrategy, setSelectedStrategy] = useState<HistoricalStrategyVariant>(
     'official_top50',
   )
   const [selectedModel, setSelectedModel] = useState<HistoricalModelCell>('small-official-ft')
-  const publicBacktests = backtests.filter((entry) => publicModelIds.has(entry.model_cell_id))
-  const officialSplitV3 = publicBacktests.some(
-    (entry) => entry.evaluation_split === 'test_viewed_official_v3',
+  // Older validation/opened-diagnostic receipts remain sealed for audit, but
+  // this product surface shows only the current official-date-split study.
+  const publicBacktests = backtests.filter(
+    (entry) =>
+      publicModelIds.has(entry.model_cell_id) &&
+      entry.evaluation_split === 'test_viewed_official_v3',
   )
   const activeModel = publicBacktests.some((entry) => entry.model_cell_id === selectedModel)
     ? selectedModel
@@ -105,18 +106,12 @@ export function HistoricalBacktestPage({
         <div>
           <span className="eyebrow">04 / Official-demo method</span>
           <h1>历史组合 <span className="title-phrase">对照回测</span></h1>
-          <p>
-            {officialSplitV3
-              ? '四个公开模型版本分别使用自己的预测信号，在官方日期分割的 Rolling Test 上比较 Top50 / Top3 组合。结果只作已查看测试的研究比较，不用于选模或改动在线账户。'
-              : '四个公开模型版本分别使用自己的预测信号，交叉查看两个评估期与 Top50 / Top3 组合。结果只作研究比较，不自动选模或改动在线账户。'}
-          </p>
+          <p>四个公开模型版本分别使用自己的预测信号，在官方日期分割的 Rolling Test 上比较 Top50 / Top3 组合。结果只作已查看测试的研究比较，不用于选模或改动在线账户。</p>
         </div>
         <div className="identity-card identity-card--backtest">
           <span>轨道身份</span>
           <strong>
-            {officialSplitV3
-              ? '4 MODELS × 1 ROLLING TEST × 2 PORTFOLIOS'
-              : '4 MODELS × 2 SPLITS × 2 PORTFOLIOS'}
+            4 MODELS × 1 ROLLING TEST × 2 PORTFOLIOS
           </strong>
           <small>历史 Qlib 模拟 · 只读回执 · 不生成在线订单</small>
         </div>
@@ -131,8 +126,8 @@ export function HistoricalBacktestPage({
 
       {!available || !backtest ? (
         <EmptyState
-          title="官方对齐回测正在服务器生成"
-          description="Top3 仍可正常使用。只有标准化信号、Qlib回测和哈希回执全部通过后，本页才会展示结果。"
+          title="官方分割回测尚未发布"
+          description="旧验证和诊断回执不会显示在这里。只有当前官方分割的标准化信号、Qlib 回测和哈希回执全部通过后，本页才会展示结果。"
         />
       ) : (
         <>
@@ -168,25 +163,8 @@ export function HistoricalBacktestPage({
             </div>
             <p className="historical-strategy-disclosure">Small / Base 与两种公开对照轨互相独立；页面不会把某一格的信号或收益复制给其他模型。</p>
           </section>
-          <div className="backtest-split-tabs" role="group" aria-label="历史回测评估分区">
-            {([
-              ['test_viewed_official_v3', '官方分割 Rolling Test（已查看）'],
-              ['test_viewed_2026', '2026 已开封样本外诊断（已修正）'],
-              ['validation_2025', '2025 训练验证 / checkpoint 选择'],
-            ] as const).map(([split, label]) => {
-              const present = modelBacktests.some((entry) => entry.evaluation_split === split)
-              return (
-                <button
-                  type="button"
-                  aria-pressed={backtest.evaluation_split === split}
-                  disabled={!present}
-                  key={split}
-                  onClick={() => setSelectedSplit(split)}
-                >
-                  {label}
-                </button>
-              )
-            })}
+          <div className="backtest-split-tabs" aria-label="历史回测评估分区">
+            <span>官方分割 Rolling Test（已查看）</span>
           </div>
           <section className="historical-strategy-picker" aria-labelledby="historical-strategy-heading">
             <div className="section-heading">
@@ -249,8 +227,6 @@ function BacktestEvidence({
   ) => Promise<HistoricalHoldingsSnapshot | null>
 }) {
   const primary = backtest.metrics.mean
-  const finalTest = backtest.evaluation_split !== 'validation_2025'
-  const officialSplitV3 = backtest.evaluation_split === 'test_viewed_official_v3'
   const historicalTop3 = backtest.strategy_variant_id === 'historical_top3'
   const selectedSeries = historicalTop3 ? top3Series : officialSeries
   const positionCounts = selectedSeries
@@ -270,24 +246,12 @@ function BacktestEvidence({
         <Badge tone="success">
           {historicalTop3
             ? 'POST-HOC / NON-SELECTION'
-            : officialSplitV3
-              ? 'ROLLING TEST / VIEWED / NON-SELECTION'
-              : finalTest
-              ? 'CORRECTED / OOS 2026 / OPENED'
-              : 'TRAINING VALIDATION / 2025'}
+            : 'ROLLING TEST / VIEWED / NON-SELECTION'}
         </Badge>
         <strong>
           {historicalTop3
-            ? finalTest
-              ? officialSplitV3
-                ? '官方 Rolling Test 已查看；这是组合层的事后诊断，不用于选模'
-                : '2026 窗口已开封；这是组合层的事后诊断，不用于选模'
-              : '2025 已在查看后构建；这是事后敏感性分析，不用于选模'
-            : officialSplitV3
-              ? '官方日期分割的 Rolling Test 已查看；只报告冻结结果，不用于选模或上线提升'
-              : finalTest
-              ? '已修正未来成分/缺行条件；窗口已开封，只作样本外诊断，不是新的盲测'
-              : '这一段参与 validation loss 和 best checkpoint 选择，不是最终测试'}
+            ? '官方 Rolling Test 已查看；这是组合层的事后诊断，不用于选模'
+            : '官方日期分割的 Rolling Test 已查看；只报告冻结结果，不用于选模或上线提升'}
         </strong>
         <span>标准化分数不是预测收益率；历史 Qlib Top3 不等同在线 Top3 账户。</span>
       </div>
@@ -312,7 +276,7 @@ function BacktestEvidence({
 
       <section className="content-section backtest-chart-section">
         <div className="section-heading">
-          <div><span className="eyebrow">Primary signal / mean</span><h2>{finalTest ? '2026 已开封样本外诊断曲线' : '2025 训练验证曲线'}</h2></div>
+          <div><span className="eyebrow">Primary signal / mean</span><h2>官方分割 Rolling Test 曲线</h2></div>
           <span className="count-label">{selectedSeries.length} SESSIONS</span>
         </div>
         <BacktestChart officialPoints={officialSeries} top3Points={top3Series} />

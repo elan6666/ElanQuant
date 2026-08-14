@@ -409,8 +409,8 @@ h1, h2, h3 { font-family: "Iowan Old Style", "Baskerville", "Songti SC", "STSong
 .hero h1 { color: #332f2b; letter-spacing: -.055em; line-height: 1.01; }
 .hero h1 em { color: var(--red); }
 .hero__copy p { color: #6f675f; font-size: 16px; }
-.hero__action { border-left-color: #cfc3b5; }
-.hero__action-index { color: #9b8c7e; }
+.hero__action { border-left-color: #bcae9f; }
+.hero__action-index { color: #735e4e; font-weight: 700; }
 .primary-action {
   color: #fffaf4;
   background: var(--red);
@@ -418,7 +418,16 @@ h1, h2, h3 { font-family: "Iowan Old Style", "Baskerville", "Songti SC", "STSong
   box-shadow: 0 9px 24px rgba(193,95,60,.2);
 }
 .primary-action:hover:not(:disabled) { background: #ad5133; transform: translateY(-2px); }
-.hero__action > small { color: #776e65; }
+.hero__action > small { color: #584f47; font-size: 12px; font-weight: 500; }
+.execution-location {
+  color: #2f2925;
+  background: rgba(255, 253, 248, .78);
+  border-color: #a8917f;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.5);
+}
+.execution-location span { color: #695e54; font-size: 10px; font-weight: 700; }
+.execution-location strong { color: #2f2925; font-size: 15px; }
+.execution-location small { color: #5b5047; font-size: 11px; font-weight: 600; }
 .receipt-note { color: #8b432d; background: rgba(255,253,248,.68); border-color: rgba(193,95,60,.25); border-radius: 10px; }
 
 .risk-strip { margin-top: 12px; background: transparent; border: 0; gap: 8px; }
@@ -609,7 +618,7 @@ h1, h2, h3 { font-family: "Iowan Old Style", "Baskerville", "Songti SC", "STSong
 .chart-legend__top3::before { background: repeating-linear-gradient(to right, #a66b20 0 8px, transparent 8px 12px); }
 .chart-legend__benchmark::before { background: repeating-linear-gradient(to right, var(--cyan) 0 3px, transparent 3px 5px); }
 .chart-legend small { margin-left: auto; color: #82776e; }
-.backtest-split-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 18px; padding: 6px; border: 1px solid var(--line); border-radius: 14px; background: rgba(255,253,248,.72); }
+.backtest-split-tabs { margin-bottom: 18px; padding: 13px 16px; border: 1px solid #cbbfb2; border-radius: 14px; background: #3c342f; color: #fffaf4; text-align: center; font: 700 11px/1.35 Inter, sans-serif; letter-spacing: .04em; }
 .backtest-split-tabs button { min-height: 44px; border: 0; border-radius: 10px; background: transparent; color: #615850; font: 600 11px/1.35 Inter, sans-serif; cursor: pointer; }
 .backtest-split-tabs button[aria-pressed="true"] { background: var(--ink); color: #fffaf4; box-shadow: 0 7px 18px rgba(45,39,35,.14); }
 .backtest-split-tabs button:disabled { cursor: not-allowed; opacity: .42; }
