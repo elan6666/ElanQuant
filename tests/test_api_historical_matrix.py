@@ -5,7 +5,6 @@ import hashlib
 import json
 from pathlib import Path
 
-from elanquant.api.app import create_app
 from elanquant.contracts.historical_matrix import (
     BACKTEST_SCHEMA,
     CATALOG_SCHEMA,
@@ -15,9 +14,11 @@ from elanquant.contracts.historical_matrix import (
     VARIANTS,
     backtest_id,
 )
+from fastapi.testclient import TestClient
+
+from elanquant.api.app import create_app
 from elanquant.contracts.official_demo import EXPECTED_EXECUTION, SIGNALS, canonical_hash
 from elanquant.settings import Settings
-from fastapi.testclient import TestClient
 
 SHA = "a" * 64
 

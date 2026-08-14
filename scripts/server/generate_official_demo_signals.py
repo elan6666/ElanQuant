@@ -31,6 +31,7 @@ from elanquant.contracts.historical_matrix import (
 from elanquant.contracts.historical_matrix import (
     validate_signal_receipt as validate_matrix_signal_receipt,
 )
+
 from elanquant.contracts.official_demo import (
     FINAL_TEST_SIGNAL_SCHEMA,
     FINAL_TEST_STRATEGY_ID,

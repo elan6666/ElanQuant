@@ -7,7 +7,6 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from elanquant.api.app import create_app
 from elanquant.cli import doctor, smoke
 from elanquant.contracts.portable_runtime import validate_execution_receipt
 from elanquant.execution import (
@@ -18,11 +17,13 @@ from elanquant.execution import (
     require_capability,
     sanitized_subprocess_environment,
 )
+from fastapi.testclient import TestClient
+
+from elanquant.api.app import create_app
 from elanquant.orchestration.jobs import JobStore
 from elanquant.orchestration.worker import Worker
 from elanquant.settings import PROJECT_ROOT, Settings
 from elanquant.storage.database import Database
-from fastapi.testclient import TestClient
 
 PROFILES_ROOT = PROJECT_ROOT / "configs/execution"
 
@@ -76,7 +77,7 @@ def test_profiles_are_canonical_and_base_is_explicit_research_only() -> None:
         remote.validate_request("small", "cpu")
 
 
-def test_public_default_is_local_while_legacy_units_freeze_private_profile(
+def test_public_default_is_local_and_units_are_portable_templates(
     tmp_path: Path,
 ) -> None:
     settings = Settings(
@@ -87,10 +88,16 @@ def test_public_default_is_local_while_legacy_units_freeze_private_profile(
     assert settings.execution_profile == "local-apple-silicon"
     assert settings.model_release == "small"
     assert settings.execution_device == "mps"
-    for unit_name in ("elanquant-api.service", "elanquant-worker.service"):
+    for unit_name in ("elanquant-api.service.in", "elanquant-worker.service.in"):
         unit = (PROJECT_ROOT / "deploy/systemd" / unit_name).read_text(encoding="utf-8")
-        assert "ELANQUANT_EXECUTION_PROFILE=legacy-yilangliu" in unit
-        assert "ELANQUANT_MODEL_RELEASE=small" in unit
+        assert "@ELANQUANT_EXECUTION_PROFILE@" in unit
+        assert "@ELANQUANT_ENV_FILE@" in unit
+        assert "/data/yilangliu" not in unit
+    legacy = (PROJECT_ROOT / "deploy/profiles/legacy-yilangliu.env.in").read_text(
+        encoding="utf-8"
+    )
+    assert "ELANQUANT_EXECUTION_PROFILE=legacy-yilangliu" in legacy
+    assert "ELANQUANT_MODEL_RELEASE=small" in legacy
 
 
 def test_execution_receipt_never_silently_falls_back_and_detects_tampering() -> None:

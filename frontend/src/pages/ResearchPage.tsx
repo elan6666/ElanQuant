@@ -74,9 +74,9 @@ export function ResearchPage({ run, catalog, catalogAvailable, runs, diff }: Res
           <p>比较官方预训练权重与官方方式微调；2025 用于选择，2026 只描述结果。</p>
         </div>
         <div className="identity-card">
-          <span>当前在线主轨</span>
-          <strong>{run ? `${run.as_of} / ${run.model_id}` : '尚无正式回执'}</strong>
-          <small>在线版本独立封存；完成 Base 不会自动替换 Small。</small>
+          <span>当前在线版本</span>
+          <strong>{run ? `${run.as_of} / 已封存` : '尚无正式回执'}</strong>
+          <small>精确模型身份保留在审计回执中；完成 Base 不会自动替换在线版本。</small>
         </div>
       </header>
 
@@ -219,7 +219,7 @@ function RunEvidence({ runs, diff }: { runs: RunSummary[]; diff: RunDiff | null 
             </div>
           ) : null}
           </>
-        ) : <p className="muted">{diff?.reason === 'STRICT_RANK_COVERAGE_INCOMPLETE' ? '两次严格PIT排名的共同覆盖不足，已阻止空比较。' : '只有一次完成运行，暂时无法比较。'}</p>}
+        ) : <p className="muted">{diff?.reason === 'STRICT_RANK_COVERAGE_INCOMPLETE' ? '两次封存排名的共同覆盖不足，已阻止空比较。' : '只有一次完成运行，暂时无法比较。'}</p>}
         <p className="micro-copy">这里只描述排名变化，不把同日重算说成“模型提升”。</p>
       </div>
     </section>

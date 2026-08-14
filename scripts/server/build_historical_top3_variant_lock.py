@@ -20,6 +20,7 @@ from elanquant.contracts.historical_variants import (
     VARIANT_LOCK_SCHEMA_V2,
     validate_variant_lock,
 )
+
 from elanquant.contracts.official_demo import (
     EXPECTED_EXECUTION,
     MODEL_CELL,

@@ -14,8 +14,8 @@ import numpy as np
 import pandas as pd
 import run_historical_top3_variant as backtest_helper
 from elanquant.contracts.historical_variants import HOLDINGS_COLUMNS, validate_holdings_records
-from elanquant.contracts.official_demo import EXPECTED_EXECUTION, SIGNALS
 
+from elanquant.contracts.official_demo import EXPECTED_EXECUTION, SIGNALS
 from scripts.research import official_split_v3 as contract_module
 from scripts.research.official_split_v3 import (
     ACTIVE_CELLS,

@@ -37,6 +37,7 @@ from elanquant.contracts.historical_variants import (
     validate_variant_backtest_receipt,
     validate_variant_lock,
 )
+
 from elanquant.contracts.official_demo import (
     EXPECTED_EXECUTION,
     EXPECTED_STRATEGY,

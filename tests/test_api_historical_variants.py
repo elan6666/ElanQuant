@@ -4,10 +4,11 @@ import csv
 import json
 from pathlib import Path
 
-import elanquant.api.app as api
 import pytest
-from elanquant.settings import Settings
 from fastapi.testclient import TestClient
+
+import elanquant.api.app as api
+from elanquant.settings import Settings
 
 SPLITS = {
     "validation_2025": (

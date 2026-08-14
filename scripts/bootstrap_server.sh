@@ -21,7 +21,8 @@ python3 -m venv "$APP_VENV"
 cd "$SOURCE"
 "$APP_VENV/bin/python" -m pytest -q
 "$APP_VENV/bin/ruff" check backend/src scripts tests
-"$APP_VENV/bin/pyright" --pythonpath "$APP_VENV/bin/python" backend/src scripts/research
+PYTHONPATH="$SOURCE/backend/src" \
+  "$APP_VENV/bin/pyright" --pythonpath "$APP_VENV/bin/python" backend/src scripts/research
 "$APP_VENV/bin/python" -m compileall -q backend/src scripts tests
 
 cd "$SOURCE/frontend"

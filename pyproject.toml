@@ -53,5 +53,6 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 [tool.pyright]
 include = ["backend/src", "scripts/research"]
 exclude = ["scripts/server"]
+extraPaths = ["backend/src"]
 pythonVersion = "3.11"
 typeCheckingMode = "standard"

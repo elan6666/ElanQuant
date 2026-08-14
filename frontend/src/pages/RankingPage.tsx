@@ -139,7 +139,7 @@ function StockDetail({ stock, run }: { stock: StockScore; run: ResearchRun }) {
       ) : (
         <p className="forecast-denominator">公式：未来10个预测收盘价平均值 ÷ 当前收盘价 − 1</p>
       )}
-      <p>{stock.explanation}</p>
+      <p>封存主模型用于本次排名；多模型评分差距只作解释，不代表置信区间。</p>
       <div className="stock-facts">
         <div><span>上次排名</span><b>{stock.previous_rank === null ? '首次出现' : `#${stock.previous_rank}`}</b></div>
         <div><span>模型评分差距</span><b>{formatNumber(stock.model_spread, 4)}</b></div>

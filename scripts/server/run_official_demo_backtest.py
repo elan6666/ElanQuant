@@ -20,6 +20,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+
 from elanquant.contracts.official_demo import (
     BACKTEST_SCHEMA,
     EXPECTED_EXECUTION,

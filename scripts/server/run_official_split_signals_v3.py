@@ -16,8 +16,8 @@ import evaluate_and_infer as evaluation_helper
 import generate_official_demo_signals as signal_helper
 import numpy as np
 import pandas as pd
-from elanquant.contracts.official_demo import SIGNALS, standardized_close_signals
 
+from elanquant.contracts.official_demo import SIGNALS, standardized_close_signals
 from scripts.research import official_split_v3 as contract_module
 from scripts.research.official_split_v3 import (
     ACTIVE_CELLS,
