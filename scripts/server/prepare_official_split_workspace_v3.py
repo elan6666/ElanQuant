@@ -76,6 +76,12 @@ def main() -> int:
     runtime_config = destination / "finetune" / "config.py"
     shutil.copy2(config_source, runtime_config)
 
+    dataset_source = (
+        root / "source" / "scripts" / "server" / "official_split_dataset_adapter_v3.py"
+    )
+    runtime_dataset = destination / "finetune" / "dataset.py"
+    shutil.copy2(dataset_source, runtime_dataset)
+
     runtime_utility = destination / "finetune" / "utils" / "training_utils.py"
     source = runtime_utility.read_text(encoding="utf-8")
     if source.count(DDP_BEFORE) != 1:
@@ -90,11 +96,13 @@ def main() -> int:
         "workspace_tree_sha256": tree_hash(destination),
         "config_source_sha256": sha256(config_source),
         "runtime_config_sha256": sha256(runtime_config),
-        "dataset_sha256": sha256(destination / "finetune" / "dataset.py"),
+        "dataset_source_sha256": sha256(dataset_source),
+        "dataset_sha256": sha256(runtime_dataset),
         "ddp_runtime_patch_sha256": sha256(runtime_utility),
         "deviations": [
             "filesystem paths are supplied by ElanQuant environment variables",
             "LOCAL_RANK is bound before NCCL initialization for RTX 5090 DDP",
+            "sample index enumeration is supplied by a sealed causal global-calendar artifact",
         ],
     }
     if receipt["config_source_sha256"] != receipt["runtime_config_sha256"]:

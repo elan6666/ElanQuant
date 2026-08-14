@@ -22,6 +22,7 @@ from scripts.research import official_split_v3 as contract_module
 from scripts.research.official_split_v3 import (
     ACTIVE_CELLS,
     SIGNAL_SCHEMA,
+    TEST_ELIGIBILITY_FILE,
     canonical_hash,
     validate_analysis_lock,
     validate_dataset_admission,
@@ -55,6 +56,7 @@ def global_candidates(
     calendar: pd.DatetimeIndex,
     start: pd.Timestamp,
     end: pd.Timestamp,
+    eligibility: dict[str, set[pd.Timestamp]],
 ) -> list[tuple[str, tuple[pd.Timestamp, ...], tuple[pd.Timestamp, ...]]]:
     eligible_positions = [
         position
@@ -65,8 +67,11 @@ def global_candidates(
     for code in sorted(data):
         available = {pd.Timestamp(stamp) for stamp in data[code].index}
         for position in eligible_positions:
+            anchor = pd.Timestamp(calendar[position])
             context = tuple(calendar[position - 89 : position + 1])
-            if all(stamp in available for stamp in context):
+            if anchor in eligibility.get(code, set()) and all(
+                stamp in available for stamp in context
+            ):
                 candidates.append(
                     (code, context, tuple(calendar[position + 1 : position + 11]))
                 )
@@ -152,7 +157,21 @@ def main() -> int:
         "split_contract"
     ]["calendar_sha256"]:
         raise RuntimeError("global exchange timestamps differ from admitted split")
-    candidates = global_candidates(data, calendar, start, end)
+    eligibility_path = args.dataset_manifest.parent / TEST_ELIGIBILITY_FILE
+    if (
+        sha256(eligibility_path)
+        != manifest["files"][TEST_ELIGIBILITY_FILE]["sha256"]
+    ):
+        raise RuntimeError("test eligibility artifact differs from admitted bytes")
+    eligibility_raw = read_object(eligibility_path)
+    eligibility = {
+        str(code): {pd.Timestamp(day) for day in days}
+        for code, days in eligibility_raw.items()
+        if isinstance(days, list)
+    }
+    if len(eligibility) != len(eligibility_raw):
+        raise RuntimeError("test eligibility payload is invalid")
+    candidates = global_candidates(data, calendar, start, end, eligibility)
     if not candidates:
         raise RuntimeError("no mature TEST_VIEWED candidates")
     candidate_identity = [
@@ -178,6 +197,7 @@ def main() -> int:
     model = Kronos.from_pretrained(predictor_path).to(args.device).eval()
     signal_rows: list[dict[str, object]] = []
     label_rows: list[dict[str, object]] = []
+    carried_future_close_rows = 0
     with torch.no_grad():
         for batch_start in range(0, len(candidates), SERIES_BATCH):
             batch = candidates[batch_start : batch_start + SERIES_BATCH]
@@ -190,6 +210,7 @@ def main() -> int:
                 context = frame.loc[list(context_dates)]
                 normalized = signal_helper.normalized_context(context)
                 future_close = frame["close"].reindex(future_dates)
+                carried_future_close_rows += int(future_close.isna().sum())
                 carried = pd.concat(
                     [
                         pd.Series([float(context.iloc[-1]["close"])]),
@@ -296,6 +317,8 @@ def main() -> int:
         },
         "metrics": metrics,
         "signals": list(SIGNALS),
+        "label_policy": "NEXT_10_GLOBAL_SESSIONS_LAST_CLOSE_CARRY_ON_MISSING",
+        "carried_future_close_rows": carried_future_close_rows,
     }
     receipt["receipt_hash"] = canonical_hash(receipt)
     validate_signal_receipt(receipt)

@@ -20,7 +20,7 @@ SYNTHETIC_CLOSES = (100.0, 101.5, 100.75, 103.0, 104.25, 103.5, 105.0)
 
 
 def synthetic_smoke_report(settings: Settings) -> dict[str, object]:
-    doctor = doctor_report(settings)
+    doctor = doctor_report(settings, scope="capability")
     execution = doctor["execution"]
     assert isinstance(execution, dict)
     require_capability(execution)

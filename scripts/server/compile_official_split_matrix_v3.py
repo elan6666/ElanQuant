@@ -20,6 +20,7 @@ from scripts.research.official_split_v3 import (
     validate_matrix,
     validate_retirement_receipt,
     validate_split_receipt,
+    validate_training_audit,
     validate_training_terminal,
 )
 
@@ -48,8 +49,23 @@ def atomic_new(path: Path, payload: dict[str, Any]) -> None:
     os.replace(temporary, path)
 
 
-def compile_matrix(root: Path, source: dict[str, Any], split_path: Path) -> dict[str, Any]:
+def compile_matrix(
+    root: Path,
+    source: dict[str, Any],
+    split_path: Path,
+    dataset_manifest_path: Path,
+    dataset_admission_path: Path,
+    weights_receipt_path: Path,
+    training_audit_path: Path,
+) -> dict[str, Any]:
     split = validate_split_receipt(read_object(split_path))
+    audit = validate_training_audit(read_object(training_audit_path))
+    if (
+        audit["dataset_manifest_sha256"] != sha256(dataset_manifest_path)
+        or audit["dataset_admission_sha256"] != sha256(dataset_admission_path)
+        or audit["official_weights_receipt_sha256"] != sha256(weights_receipt_path)
+    ):
+        raise RuntimeError("training audit does not bind matrix inputs")
     rows = source.get("cells")
     if not isinstance(rows, list):
         raise RuntimeError("matrix source must contain cells")
@@ -72,6 +88,10 @@ def compile_matrix(root: Path, source: dict[str, Any], split_path: Path) -> dict
                 raise RuntimeError("predictor did not consume the sealed tokenizer")
             if tokenizer["data_manifest_sha256"] != predictor["data_manifest_sha256"]:
                 raise RuntimeError("training stages used different datasets")
+            for stage, path in (("tokenizer", tokenizer_path), ("predictor", predictor_path)):
+                audit_stage = audit["stages"][f"{cell_id}:{stage}"]
+                if audit_stage["terminal_sha256"] != sha256(path):
+                    raise RuntimeError("matrix terminal differs from training audit")
             row.update(
                 {
                     "tokenizer_sha256": tokenizer["checkpoint_sha256"],
@@ -98,6 +118,10 @@ def compile_matrix(root: Path, source: dict[str, Any], split_path: Path) -> dict
         "upstream_commit": UPSTREAM_COMMIT,
         "split_receipt_sha256": sha256(split_path),
         "split_receipt_hash": split["receipt_hash"],
+        "dataset_manifest_sha256": sha256(dataset_manifest_path),
+        "dataset_admission_sha256": sha256(dataset_admission_path),
+        "official_weights_receipt_sha256": sha256(weights_receipt_path),
+        "training_audit_sha256": sha256(training_audit_path),
         "cells": sorted(cells, key=lambda item: str(item["id"])),
     }
     payload["receipt_hash"] = canonical_hash(payload)
@@ -110,12 +134,24 @@ def main() -> int:
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--split-receipt", type=Path, required=True)
+    parser.add_argument("--dataset-manifest", type=Path, required=True)
+    parser.add_argument("--dataset-admission", type=Path, required=True)
+    parser.add_argument("--weights-receipt", type=Path, required=True)
+    parser.add_argument("--training-audit", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--retirement-source", type=Path, required=True)
     parser.add_argument("--retirement-out", type=Path, required=True)
     args = parser.parse_args()
     root = args.root.resolve()
-    matrix = compile_matrix(root, read_object(args.source), args.split_receipt.resolve())
+    matrix = compile_matrix(
+        root,
+        read_object(args.source),
+        args.split_receipt.resolve(),
+        args.dataset_manifest.resolve(),
+        args.dataset_admission.resolve(),
+        args.weights_receipt.resolve(),
+        args.training_audit.resolve(),
+    )
     if tuple(row["id"] for row in matrix["cells"]) != ACTIVE_CELLS:
         raise RuntimeError("compiler did not produce exact active matrix")
     retirement = read_object(args.retirement_source)

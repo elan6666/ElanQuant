@@ -265,6 +265,7 @@ def publish_official_v3(tmp_path: Path) -> tuple[Settings, list[dict[str, object
             "schema_version": OFFICIAL_V3_HISTORICAL_SCHEMA,
             "status": "PASS",
             "generated_at": "2026-08-14T00:00:00+00:00",
+            "artifact_root": tmp_path.as_posix(),
             "analysis_lock_sha256": "a" * 64,
             "provider_receipt_sha256": "c" * 64,
             "entries": entries,

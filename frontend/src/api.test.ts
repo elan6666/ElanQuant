@@ -387,6 +387,54 @@ describe('API runtime contract', () => {
     expect(new Set(snapshot.historical_backtests.map((entry) => entry.model_cell_id)).size).toBe(6)
   })
 
+  it('accepts the exact official-v3 four-model by two-strategy rolling matrix', async () => {
+    const models = [
+      'small-zero-shot',
+      'small-official-ft',
+      'base-zero-shot',
+      'base-official-ft',
+    ] as const
+    const matrix = models.flatMap((model) => {
+      const top50Id = `official-v3-${model}-official_top50`
+      return [
+        {
+          ...finalTestHistoricalBacktest,
+          id: top50Id,
+          track_kind: 'OFFICIAL_SPLIT_V3_MODEL_MATRIX',
+          model_cell_id: model,
+          evaluation_split: 'test_viewed_official_v3',
+          comparison_group_id: 'official-split-v3-top50-top3-v1',
+          result_role: 'OPENED_ROLLING_TEST_MODEL_STRATEGY_DIAGNOSTIC',
+          selection_eligible: false,
+          used_for_selection: false,
+          source_backtest_id: null,
+        },
+        {
+          ...finalTestHistoricalTop3Backtest,
+          id: `official-v3-${model}-historical_top3`,
+          track_kind: 'OFFICIAL_SPLIT_V3_MODEL_MATRIX',
+          model_cell_id: model,
+          evaluation_split: 'test_viewed_official_v3',
+          comparison_group_id: 'official-split-v3-top50-top3-v1',
+          result_role: 'OPENED_ROLLING_TEST_MODEL_STRATEGY_DIAGNOSTIC',
+          selection_eligible: false,
+          used_for_selection: false,
+          source_backtest_id: top50Id,
+        },
+      ]
+    })
+    stubHistoricalCatalog(matrix)
+
+    const snapshot = await createApiClient().getSnapshot()
+    expect(snapshot.historical_backtests).toHaveLength(8)
+    expect(new Set(snapshot.historical_backtests.map((entry) => entry.model_cell_id))).toEqual(
+      new Set(models),
+    )
+    expect(new Set(snapshot.historical_backtests.map((entry) => entry.evaluation_split))).toEqual(
+      new Set(['test_viewed_official_v3']),
+    )
+  })
+
   it('rejects a partial new matrix instead of rendering a misleading comparison', async () => {
     stubHistoricalCatalog([
       historicalBacktest,

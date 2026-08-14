@@ -38,6 +38,7 @@ EVALUATION_SCHEMA = "elanquant_kronos_rolling_evaluation_v3"
 HISTORICAL_SCHEMA = "elanquant_kronos_historical_catalog_v3"
 RETIREMENT_SCHEMA = "elanquant_kronos_strict_retirement_v1"
 TERMINAL_SCHEMA = "elanquant_training_terminal_v3"
+TRAINING_AUDIT_SCHEMA = "elanquant_training_fidelity_audit_v1"
 
 ACTIVE_CELLS = (
     "base-official-ft",
@@ -73,6 +74,16 @@ DATASET_FILES = {
     "validation": "official/val_data.pkl",
     "test_viewed": "official/test_data.pkl",
 }
+TRAINING_INDEX_FILES = {
+    "train": "official/train_indices.pkl",
+    "validation": "official/val_indices.pkl",
+}
+TEST_ELIGIBILITY_FILE = "official/test_eligible_anchors.json"
+DATASET_ARTIFACTS = (
+    *DATASET_FILES.values(),
+    *TRAINING_INDEX_FILES.values(),
+    TEST_ELIGIBILITY_FILE,
+)
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
@@ -314,7 +325,7 @@ def validate_dataset_manifest(payload: Mapping[str, Any]) -> dict[str, Any]:
     if int(value.get("consumed_membership_snapshot_count", 0)) <= 0:
         raise ContractError("no complete membership snapshot was consumed")
     files = value.get("files")
-    if not isinstance(files, Mapping) or set(files) != set(DATASET_FILES.values()):
+    if not isinstance(files, Mapping) or set(files) != set(DATASET_ARTIFACTS):
         raise ContractError("dataset file inventory is not exact")
     for identity, entry in files.items():
         if not isinstance(entry, Mapping) or not isinstance(entry.get("bytes"), int):
@@ -325,6 +336,12 @@ def validate_dataset_manifest(payload: Mapping[str, Any]) -> dict[str, Any]:
     _sha(value.get("raw_manifest_sha256"), "raw_manifest_sha256")
     _sha(value.get("membership_availability_sha256"), "membership_availability_sha256")
     _sha(value.get("materializer_code_sha256"), "materializer_code_sha256")
+    _sha(value.get("training_index_sha256"), "training_index_sha256")
+    _sha(value.get("test_eligibility_sha256"), "test_eligibility_sha256")
+    if value.get("future_symbol_row_conditioning") is not False:
+        raise ContractError("dataset eligibility may not depend on future symbol rows")
+    if value.get("training_window_policy") != "GLOBAL_CONSECUTIVE_SESSIONS_ANCHOR_MEMBERSHIP":
+        raise ContractError("training window policy mismatch")
     return value
 
 
@@ -401,6 +418,53 @@ def validate_training_terminal(payload: Mapping[str, Any], *, cell_id: str) -> d
     return value
 
 
+def validate_training_audit(payload: Mapping[str, Any]) -> dict[str, Any]:
+    value = _sealed(payload, TRAINING_AUDIT_SCHEMA)
+    if value.get("upstream_commit") != UPSTREAM_COMMIT:
+        raise ContractError("training audit upstream mismatch")
+    for field in (
+        "workspace_receipt_sha256",
+        "official_weights_receipt_sha256",
+        "dataset_manifest_sha256",
+        "dataset_admission_sha256",
+        "training_runner_sha256",
+        "terminal_builder_sha256",
+        "runtime_config_sha256",
+        "dataset_adapter_sha256",
+        "train_tokenizer_sha256",
+        "train_predictor_sha256",
+        "ddp_runtime_patch_sha256",
+    ):
+        _sha(value.get(field), field)
+    stages = value.get("stages")
+    expected = {
+        f"{cell}:{stage}" for cell in TRAINED_CELLS for stage in ("tokenizer", "predictor")
+    }
+    if not isinstance(stages, Mapping) or set(stages) != expected:
+        raise ContractError("training audit stages are not exact")
+    for identity, row in stages.items():
+        if not isinstance(row, Mapping):
+            raise ContractError(f"training audit stage invalid: {identity}")
+        for field in (
+            "terminal_sha256",
+            "log_sha256",
+            "summary_sha256",
+            "checkpoint_sha256",
+            "input_tokenizer_sha256",
+            "input_predictor_sha256",
+        ):
+            _sha(row.get(field), f"{identity}.{field}")
+        if (
+            row.get("epochs_observed") != list(range(1, 31))
+            or row.get("world_size") != 2
+            or row.get("finished_marker_count") != 1
+            or not isinstance(row.get("best_validation_loss"), (int, float))
+            or not math.isfinite(float(row["best_validation_loss"]))
+        ):
+            raise ContractError(f"training runtime evidence incomplete: {identity}")
+    return value
+
+
 def validate_matrix(payload: Mapping[str, Any]) -> dict[str, Any]:
     value = _sealed(payload, MATRIX_SCHEMA)
     if value.get("upstream_commit") != UPSTREAM_COMMIT:
@@ -432,7 +496,14 @@ def validate_matrix(payload: Mapping[str, Any]) -> dict[str, Any]:
             _sha(row.get("predictor_terminal_sha256"), "predictor_terminal_sha256")
             if row.get("predictor_input_tokenizer_sha256") != row.get("tokenizer_sha256"):
                 raise ContractError("predictor is not linked to its trained tokenizer")
-    _sha(value.get("split_receipt_sha256"), "split_receipt_sha256")
+    for field in (
+        "split_receipt_sha256",
+        "dataset_manifest_sha256",
+        "dataset_admission_sha256",
+        "official_weights_receipt_sha256",
+        "training_audit_sha256",
+    ):
+        _sha(value.get(field), field)
     return value
 
 
@@ -494,6 +565,13 @@ def validate_signal_receipt(payload: Mapping[str, Any]) -> dict[str, Any]:
         "candidate_set_sha256",
     ):
         _sha(value.get(field), field)
+    if (
+        value.get("label_policy")
+        != "NEXT_10_GLOBAL_SESSIONS_LAST_CLOSE_CARRY_ON_MISSING"
+        or not isinstance(value.get("carried_future_close_rows"), int)
+        or int(value["carried_future_close_rows"]) < 0
+    ):
+        raise ContractError("signal label policy or carry count missing")
     support = value.get("support")
     if not isinstance(support, Mapping):
         raise ContractError("signal support missing")
@@ -580,10 +658,12 @@ def validate_evaluation(payload: Mapping[str, Any]) -> dict[str, Any]:
     if observed_cells != ACTIVE_CELLS:
         raise ContractError("evaluation must contain the exact four active cells")
     assert isinstance(entries, list)
+    candidate_hashes: set[str] = set()
     for row in entries:
         if row.get("mature_targets_only") is not True:
             raise ContractError("evaluation contains immature targets")
         _sha(row.get("signal_sha256"), "signal_sha256")
+        candidate_hashes.add(_sha(row.get("candidate_set_sha256"), "candidate_set_sha256"))
         metrics = row.get("metrics")
         if not isinstance(metrics, Mapping) or not metrics:
             raise ContractError("evaluation metrics missing")
@@ -592,11 +672,18 @@ def validate_evaluation(payload: Mapping[str, Any]) -> dict[str, Any]:
             for item in metrics.values()
         ):
             raise ContractError("evaluation metrics must be finite")
+    if len(candidate_hashes) != 1:
+        raise ContractError("evaluation cells do not share one candidate set")
     return value
 
 
 def validate_historical_catalog(payload: Mapping[str, Any]) -> dict[str, Any]:
     value = _sealed(payload, HISTORICAL_SCHEMA)
+    if not isinstance(value.get("generated_at"), str) or not value["generated_at"]:
+        raise ContractError("historical catalog generation time is missing")
+    artifact_root = value.get("artifact_root")
+    if not isinstance(artifact_root, str) or not artifact_root.startswith("/"):
+        raise ContractError("historical catalog artifact root must be absolute")
     entries = value.get("entries")
     if not isinstance(entries, list) or len(entries) != 8:
         raise ContractError("historical catalog must contain exactly eight entries")

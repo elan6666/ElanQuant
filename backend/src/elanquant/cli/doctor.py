@@ -15,7 +15,9 @@ from elanquant.execution import (
 from elanquant.settings import Settings
 
 
-def doctor_report(settings: Settings) -> dict[str, object]:
+def doctor_report(settings: Settings, *, scope: str = "service") -> dict[str, object]:
+    if scope not in {"capability", "service"}:
+        raise ValueError("doctor scope must be capability or service")
     profile = load_execution_profile(
         settings.execution_profile, settings.execution_profiles_root
     )
@@ -35,9 +37,15 @@ def doctor_report(settings: Settings) -> dict[str, object]:
         "matrix_receipt_exists": settings.matrix_receipt.is_file(),
         "evaluation_receipt_exists": settings.evaluation_receipt.is_file(),
     }
+    readiness_complete = all(checks.values())
+    status = str(receipt["status"])
+    if status == "PASS" and scope == "service" and not readiness_complete:
+        status = "INCOMPLETE"
     report: dict[str, object] = {
         "schema_version": "elanquant_doctor_report_v1",
-        "status": receipt["status"],
+        "status": status,
+        "scope": scope,
+        "capability_status": receipt["status"],
         "check_only": True,
         "profile_visibility": profile.visibility,
         "execution": receipt,
@@ -68,12 +76,15 @@ def add_doctor_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--profile")
     parser.add_argument("--release", choices=("small", "base"))
     parser.add_argument("--device", choices=("cpu", "mps", "cuda"))
+    parser.add_argument("--scope", choices=("capability", "service"), default="service")
 
 
 def run_doctor_command(args: argparse.Namespace) -> int:
-    report = doctor_report(_settings_from_args(args))
+    report = doctor_report(_settings_from_args(args), scope=args.scope)
     print(json.dumps(report, ensure_ascii=False, sort_keys=True))
-    return 0 if report["status"] == "PASS" else 1
+    if report["status"] == "PASS":
+        return 0
+    return 2 if report["status"] == "INCOMPLETE" else 1
 
 
 def main(argv: Sequence[str] | None = None) -> None:

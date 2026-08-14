@@ -6,6 +6,8 @@ build-backend = "hatchling.build"
 name = "elanquant"
 version = "0.1.0"
 description = "Auditable A-share Kronos research and paper-trading system"
+readme = "README.md"
+license = { file = "LICENSE" }
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115,<1",
@@ -29,6 +31,15 @@ repro = [
   "pandas>=2.2,<3",
   "pyarrow>=17,<25",
 ]
+inference = [
+  "einops==0.8.1",
+  "huggingface-hub>=0.34,<1",
+  "numpy>=1.26,<3",
+  "pandas>=2.2,<3",
+  "safetensors>=0.6,<1",
+  "torch>=2,<3",
+  "tqdm>=4.67,<5",
+]
 
 [project.scripts]
 elanquant-api = "elanquant.api.app:main"
@@ -37,6 +48,13 @@ elanquant = "elanquant.repro.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["backend/src/elanquant"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"README.md" = "elanquant/resources/README.md"
+"THIRD_PARTY_NOTICES.md" = "elanquant/resources/THIRD_PARTY_NOTICES.md"
+"configs" = "elanquant/resources/configs"
+"docs" = "elanquant/resources/docs"
+"examples" = "elanquant/resources/examples"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

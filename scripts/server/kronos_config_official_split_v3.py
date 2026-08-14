@@ -23,7 +23,10 @@ class Config:
         self.val_time_range = ["2022-09-01", "2024-06-30"]
         self.test_time_range = ["2024-04-01", self.dataset_end_time]
         self.backtest_time_range = ["2024-07-01", self.dataset_end_time]
-        self.dataset_path = f"{root}/data/processed/official-split-v3/official"
+        self.dataset_path = os.environ.get(
+            "ELANQUANT_DATASET_PATH",
+            f"{root}/data/processed/official-split-v3/official",
+        )
         self.clip = 5.0
         self.epochs = 30
         self.log_interval = 100

@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -86,6 +87,7 @@ def main() -> int:
                 "model_cell_id": cell,
                 "mature_targets_only": True,
                 "signal_sha256": signal_receipt["signals_sha256"],
+                "candidate_set_sha256": signal_receipt["candidate_set_sha256"],
                 "signal_receipt_path": signal_receipt_path.resolve().relative_to(root).as_posix(),
                 "signal_receipt_sha256": sha256(signal_receipt_path),
                 "support": signal_receipt["support"],
@@ -137,6 +139,7 @@ def main() -> int:
                     "summary": backtest["metrics"][backtest["primary_signal"]],
                 }
             )
+    generated_at = datetime.now(UTC).isoformat()
     evaluation: dict[str, Any] = {
         "schema_version": EVALUATION_SCHEMA,
         "status": "PASS",
@@ -144,6 +147,7 @@ def main() -> int:
         "test_status": "TEST_VIEWED",
         "used_for_selection": False,
         "promotion_eligible": False,
+        "generated_at": generated_at,
         "entries": evaluation_entries,
     }
     evaluation["receipt_hash"] = canonical_hash(evaluation)
@@ -151,6 +155,8 @@ def main() -> int:
     historical: dict[str, Any] = {
         "schema_version": HISTORICAL_SCHEMA,
         "status": "PASS",
+        "generated_at": generated_at,
+        "artifact_root": root.as_posix(),
         "analysis_lock_sha256": lock_sha,
         "provider_receipt_sha256": lock["provider_receipt_sha256"],
         "entries": historical_entries,

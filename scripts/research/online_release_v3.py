@@ -6,9 +6,11 @@ import hashlib
 import json
 import re
 from collections.abc import Mapping
+from pathlib import PurePosixPath
 from typing import Any
 
 RELEASE_SCHEMA = "elanquant_official_split_online_release_v3"
+METHOD_LOCK_SCHEMA = "elanquant_official_split_online_method_lock_v3"
 INFERENCE_SCHEMA = "elanquant_official_split_online_inference_v3"
 PRIMARY_MODELS = {
     "small": "small-official-ft",
@@ -45,6 +47,42 @@ def _sha(value: object, name: str) -> str:
     return value
 
 
+def validate_method_lock(payload: Mapping[str, Any]) -> dict[str, Any]:
+    value = dict(payload)
+    claimed = value.pop("receipt_hash", None)
+    if (
+        value.get("schema_version") != METHOD_LOCK_SCHEMA
+        or value.get("status") != "PASS"
+        or claimed != canonical_hash(value)
+    ):
+        raise OnlineReleaseError("online method lock is not sealed PASS")
+    for field in (
+        "training_matrix_sha256",
+        "online_runner_sha256",
+        "online_contract_sha256",
+    ):
+        _sha(value.get(field), field)
+    viewed_root = value.get("viewed_results_root")
+    if (
+        not isinstance(viewed_root, str)
+        or not viewed_root
+        or PurePosixPath(viewed_root).is_absolute()
+        or ".." in PurePosixPath(viewed_root).parts
+    ):
+        raise OnlineReleaseError("viewed results root must be a safe root-relative path")
+    if (
+        value.get("primary_models") != PRIMARY_MODELS
+        or value.get("selection_basis") != "PREDECLARED_OFFICIAL_FT_METHOD_IDENTITY"
+        or value.get("test_metrics_used_for_selection") is not False
+        or value.get("viewed_results_present_at_lock") is not False
+        or value.get("online_signal") != ONLINE_SIGNAL
+        or value.get("online_sampling") != ONLINE_SAMPLING
+    ):
+        raise OnlineReleaseError("online method lock firewall is invalid")
+    value["receipt_hash"] = claimed
+    return value
+
+
 def validate_release(payload: Mapping[str, Any]) -> dict[str, Any]:
     value = dict(payload)
     claimed = value.pop("receipt_hash", None)
@@ -59,6 +97,7 @@ def validate_release(payload: Mapping[str, Any]) -> dict[str, Any]:
     for field in (
         "training_matrix_sha256",
         "analysis_lock_sha256",
+        "online_method_lock_sha256",
         "rolling_evaluation_sha256",
         "historical_catalog_sha256",
         "online_runner_sha256",

@@ -7,6 +7,7 @@ import math
 import sqlite3
 from collections import Counter
 from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 from typing import Annotated, Any
 
 import uvicorn
@@ -44,18 +45,21 @@ from elanquant.orchestration.jobs import JobStore
 from elanquant.pipelines.paper import ACCOUNT_ID
 from elanquant.settings import Settings
 from elanquant.storage.database import Database
+from scripts.research import online_release_v3 as online_release_contract
 from scripts.research.official_split_v3 import (
     BACKTEST_SCHEMA as OFFICIAL_SPLIT_V3_BACKTEST_SCHEMA,
 )
 from scripts.research.official_split_v3 import (
     HISTORICAL_SCHEMA as OFFICIAL_SPLIT_V3_HISTORICAL_SCHEMA,
 )
+from scripts.research.official_split_v3 import validate_analysis_lock
 from scripts.research.official_split_v3 import (
     validate_backtest_receipt as validate_official_split_v3_backtest,
 )
 from scripts.research.official_split_v3 import (
     validate_historical_catalog as validate_official_split_v3_historical,
 )
+from scripts.research.online_release_v3 import validate_method_lock, validate_release
 
 HISTORICAL_CURVE_SEMANTICS = {
     "official": "Arithmetic cumulative sum of daily returns, matching qlib_test.py.",
@@ -92,10 +96,25 @@ def valid_sha256(value: object) -> bool:
 
 
 def official_split_v3_experiments(
-    payload: object, matrix_payload: object, evaluation_sha256: str
+    payload: object,
+    matrix_payload: object,
+    evaluation_sha256: str,
+    matrix_sha256: str,
+    release_payload: object,
 ) -> list[dict[str, object]]:
-    if not isinstance(payload, dict) or not isinstance(matrix_payload, dict):
+    if (
+        not isinstance(payload, dict)
+        or not isinstance(matrix_payload, dict)
+        or not isinstance(release_payload, dict)
+    ):
         raise RuntimeError("official-split-v3 catalog or matrix is not an object")
+    release = validate_release(release_payload)
+    if (
+        release.get("training_matrix_sha256") != matrix_sha256
+        or release.get("rolling_evaluation_sha256") != evaluation_sha256
+        or payload.get("analysis_lock_sha256") != release.get("analysis_lock_sha256")
+    ):
+        raise RuntimeError("official-split-v3 release/evaluation/matrix binding differs")
     expected = {
         f"{size}-{variant}"
         for size in ("small", "base")
@@ -133,7 +152,7 @@ def official_split_v3_experiments(
         raise RuntimeError("official-split-v3 evidence is not the exact four-cell matrix")
     cells = {str(row["id"]): row for row in matrix_cells}
     experiments: list[dict[str, object]] = []
-    common_support: tuple[int, int] | None = None
+    common_support: tuple[int, int, str] | None = None
     for entry in entries:
         model_id = str(entry["model_cell_id"])
         metrics, support = entry.get("metrics"), entry.get("support")
@@ -160,7 +179,10 @@ def official_split_v3_experiments(
             )
         ):
             raise RuntimeError(f"official-split-v3 identity is invalid: {model_id}")
-        signature = (rows, sections)
+        candidate_set_sha256 = entry.get("candidate_set_sha256")
+        if not valid_sha256(candidate_set_sha256):
+            raise RuntimeError(f"official-split-v3 candidate set is invalid: {model_id}")
+        signature = (rows, sections, str(candidate_set_sha256))
         if common_support is not None and signature != common_support:
             raise RuntimeError("official-split-v3 cells do not share common support")
         common_support = signature
@@ -170,7 +192,7 @@ def official_split_v3_experiments(
             "top10_mean_return": metrics["top10_mean_return"],
             "rows": rows,
             "cross_sections": sections,
-            "anchor_set_sha256": entry["signal_sha256"],
+            "anchor_set_sha256": candidate_set_sha256,
         }
         experiments.append(
             {
@@ -495,7 +517,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 catalog = validate_official_split_v3_historical(raw_catalog)
             else:
                 catalog = validate_historical_catalog(raw_catalog)
-            root = catalog_path.parent.parent.resolve()
+            root = (
+                Path(str(catalog["artifact_root"])).resolve()
+                if catalog.get("schema_version") == OFFICIAL_SPLIT_V3_HISTORICAL_SCHEMA
+                else catalog_path.parent.parent.resolve()
+            )
             loaded: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
             for entry in catalog["entries"]:
                 receipt_path = (root / str(entry["receipt_path"])).resolve()
@@ -951,15 +977,54 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 isinstance(payload, dict)
                 and payload.get("schema_version") == "elanquant_kronos_rolling_evaluation_v3"
             ):
+                release_root = active_settings.matrix_receipt.resolve().parent
+                manifest_path = release_root / "manifest.json"
+                method_lock_path = release_root / "online-method-lock.json"
+                analysis_lock_path = release_root / "analysis-lock.json"
+                historical_path = release_root / "historical-catalog.json"
                 matrix_payload = json.loads(
                     active_settings.matrix_receipt.read_text(encoding="utf-8")
                 )
-                experiments = official_split_v3_experiments(
-                    payload, matrix_payload, sha256_file(active_settings.research_catalog)
+                release_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+                method_lock = validate_method_lock(
+                    json.loads(method_lock_path.read_text(encoding="utf-8"))
                 )
-                return {"generated_at": None, "experiments": experiments}
+                analysis_lock = validate_analysis_lock(
+                    json.loads(analysis_lock_path.read_text(encoding="utf-8"))
+                )
+                release = validate_release(release_payload)
+                matrix_sha = sha256_file(active_settings.matrix_receipt)
+                if (
+                    release.get("online_method_lock_sha256") != sha256_file(method_lock_path)
+                    or release.get("analysis_lock_sha256") != sha256_file(analysis_lock_path)
+                    or release.get("historical_catalog_sha256") != sha256_file(historical_path)
+                    or method_lock.get("training_matrix_sha256") != matrix_sha
+                    or method_lock.get("online_runner_sha256")
+                    != release.get("online_runner_sha256")
+                    or method_lock.get("online_contract_sha256")
+                    != sha256_file(Path(str(online_release_contract.__file__)).resolve())
+                    or analysis_lock.get("matrix_sha256") != matrix_sha
+                    or method_lock.get("viewed_results_root")
+                    != analysis_lock.get("results_root")
+                ):
+                    raise RuntimeError("official-split-v3 active release chain is mismatched")
+                experiments = official_split_v3_experiments(
+                    payload,
+                    matrix_payload,
+                    sha256_file(active_settings.research_catalog),
+                    matrix_sha,
+                    release,
+                )
+                return {"generated_at": payload.get("generated_at"), "experiments": experiments}
             validated = validate_research_catalog(payload)
-        except (KeyError, RuntimeError, TypeError, ValueError) as error:
+        except (
+            KeyError,
+            OSError,
+            json.JSONDecodeError,
+            RuntimeError,
+            TypeError,
+            ValueError,
+        ) as error:
             raise HTTPException(
                 status_code=503, detail="Research catalog failed its receipt gate"
             ) from error

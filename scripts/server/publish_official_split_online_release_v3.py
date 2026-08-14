@@ -10,6 +10,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from scripts.research import online_release_v3 as online_contract_module
 from scripts.research.official_split_v3 import (
     validate_analysis_lock,
     validate_evaluation,
@@ -17,11 +18,9 @@ from scripts.research.official_split_v3 import (
     validate_matrix,
 )
 from scripts.research.online_release_v3 import (
-    ONLINE_SAMPLING,
-    ONLINE_SIGNAL,
-    PRIMARY_MODELS,
     RELEASE_SCHEMA,
     canonical_hash,
+    validate_method_lock,
     validate_release,
 )
 
@@ -49,6 +48,7 @@ def main() -> int:
     parser.add_argument("--release-id", required=True)
     parser.add_argument("--matrix", type=Path, required=True)
     parser.add_argument("--analysis-lock", type=Path, required=True)
+    parser.add_argument("--online-method-lock", type=Path, required=True)
     parser.add_argument("--evaluation", type=Path, required=True)
     parser.add_argument("--historical", type=Path, required=True)
     parser.add_argument("--online-runner", type=Path, required=True)
@@ -59,11 +59,17 @@ def main() -> int:
         raise RuntimeError("release output must be a new directory under root")
     matrix = validate_matrix(read_object(args.matrix))
     analysis_lock = validate_analysis_lock(read_object(args.analysis_lock))
+    method_lock = validate_method_lock(read_object(args.online_method_lock))
     evaluation = validate_evaluation(read_object(args.evaluation))
     historical = validate_historical_catalog(read_object(args.historical))
     matrix_sha = sha256(args.matrix)
     if (
         analysis_lock.get("matrix_sha256") != matrix_sha
+        or method_lock.get("training_matrix_sha256") != matrix_sha
+        or method_lock.get("online_runner_sha256") != sha256(args.online_runner)
+        or method_lock.get("online_contract_sha256")
+        != sha256(Path(str(online_contract_module.__file__)).resolve())
+        or method_lock.get("viewed_results_root") != analysis_lock.get("results_root")
         or evaluation.get("analysis_lock_sha256") != sha256(args.analysis_lock)
         or evaluation.get("analysis_lock_sha256") != historical.get("analysis_lock_sha256")
         or {str(row["model_cell_id"]) for row in evaluation["entries"]}
@@ -76,14 +82,15 @@ def main() -> int:
         "release_id": args.release_id,
         "training_matrix_sha256": matrix_sha,
         "analysis_lock_sha256": sha256(args.analysis_lock),
+        "online_method_lock_sha256": sha256(args.online_method_lock),
         "rolling_evaluation_sha256": sha256(args.evaluation),
         "historical_catalog_sha256": sha256(args.historical),
         "online_runner_sha256": sha256(args.online_runner),
-        "primary_models": PRIMARY_MODELS,
-        "selection_basis": "PREDECLARED_OFFICIAL_FT_METHOD_IDENTITY",
-        "test_metrics_used_for_selection": False,
-        "online_signal": ONLINE_SIGNAL,
-        "online_sampling": ONLINE_SAMPLING,
+        "primary_models": method_lock["primary_models"],
+        "selection_basis": method_lock["selection_basis"],
+        "test_metrics_used_for_selection": method_lock["test_metrics_used_for_selection"],
+        "online_signal": method_lock["online_signal"],
+        "online_sampling": method_lock["online_sampling"],
     }
     manifest["receipt_hash"] = canonical_hash(manifest)
     validate_release(manifest)
@@ -91,6 +98,7 @@ def main() -> int:
     temporary.mkdir(parents=True)
     shutil.copyfile(args.matrix, temporary / "training-matrix.json")
     shutil.copyfile(args.analysis_lock, temporary / "analysis-lock.json")
+    shutil.copyfile(args.online_method_lock, temporary / "online-method-lock.json")
     shutil.copyfile(args.evaluation, temporary / "rolling-evaluation.json")
     shutil.copyfile(args.historical, temporary / "historical-catalog.json")
     (temporary / "manifest.json").write_text(

@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import copy
+import json
+import sys
 from datetime import date, timedelta
+from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from scripts.research.official_split_v3 import (
@@ -17,6 +21,8 @@ from scripts.research.official_split_v3 import (
     SIGNAL_SCHEMA,
     SPLIT_SCHEMA,
     STRATEGIES,
+    TRAINED_CELLS,
+    TRAINING_AUDIT_SCHEMA,
     ContractError,
     build_split_receipt,
     canonical_hash,
@@ -29,7 +35,11 @@ from scripts.research.official_split_v3 import (
     validate_retirement_receipt,
     validate_signal_receipt,
     validate_split_receipt,
+    validate_training_audit,
 )
+from scripts.research.online_release_v3 import validate_method_lock
+from scripts.server import build_official_split_online_method_lock_v3 as method_lock_builder
+from scripts.server.materialize_official_split_dataset_v3 import consecutive_indices
 
 SHA = "a" * 64
 
@@ -82,6 +92,40 @@ def test_future_calendar_perturbation_cannot_change_frozen_receipt() -> None:
     assert split()["receipt_hash"] == original["receipt_hash"]
 
 
+def test_training_eligibility_uses_anchor_membership_not_future_membership() -> None:
+    calendar = pd.date_range("2024-01-01", periods=101, freq="B")
+    frame = pd.DataFrame(
+        {name: range(101) for name in ("open", "high", "low", "close", "vol", "amt")},
+        index=calendar,
+    )
+    anchor = pd.Timestamp(calendar[89])
+    member_map = {anchor: {"000001.SZ"}, pd.Timestamp(calendar[90]): set()}
+    rows = consecutive_indices(
+        frame,
+        pd.DatetimeIndex(calendar),
+        sorted(member_map),
+        member_map,
+        "000001.SZ",
+    )
+    assert rows == [("000001.SZ", 0)]
+
+
+def test_training_eligibility_rejects_gappy_global_window() -> None:
+    calendar = pd.date_range("2024-01-01", periods=101, freq="B")
+    frame = pd.DataFrame(
+        {name: range(100) for name in ("open", "high", "low", "close", "vol", "amt")},
+        index=calendar.delete(10),
+    )
+    anchor = pd.Timestamp(calendar[89])
+    assert consecutive_indices(
+        frame,
+        pd.DatetimeIndex(calendar),
+        [anchor],
+        {anchor: {"000001.SZ"}},
+        "000001.SZ",
+    ) == []
+
+
 def matrix() -> dict[str, object]:
     cells: list[dict[str, object]] = []
     for cell_id in ACTIVE_CELLS:
@@ -108,6 +152,10 @@ def matrix() -> dict[str, object]:
             "status": "PASS",
             "upstream_commit": "67b630e67f6a18c9e9be918d9b4337c960db1e9a",
             "split_receipt_sha256": SHA,
+            "dataset_manifest_sha256": SHA,
+            "dataset_admission_sha256": SHA,
+            "official_weights_receipt_sha256": SHA,
+            "training_audit_sha256": SHA,
             "cells": cells,
         }
     )
@@ -131,6 +179,91 @@ def test_active_matrix_is_exactly_four_cells_and_rejects_strict() -> None:
         validate_matrix(missing_path)
 
 
+def test_online_method_lock_builder_runs_only_before_viewed_results(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    matrix_path = tmp_path / "matrix.json"
+    runner_path = tmp_path / "online-runner.py"
+    viewed_root = tmp_path / "viewed-results"
+    output = tmp_path / "locks" / "online-method.json"
+    matrix_path.write_text(json.dumps(matrix()), encoding="utf-8")
+    runner_path.write_text("# frozen online runner\n", encoding="utf-8")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "build-online-method-lock",
+            "--root",
+            str(tmp_path),
+            "--matrix",
+            str(matrix_path),
+            "--online-runner",
+            str(runner_path),
+            "--viewed-results-root",
+            str(viewed_root),
+            "--out",
+            str(output),
+        ],
+    )
+    assert method_lock_builder.main() == 0
+    assert validate_method_lock(json.loads(output.read_text(encoding="utf-8")))[
+        "viewed_results_present_at_lock"
+    ] is False
+
+    viewed_root.mkdir()
+    monkeypatch.setattr(sys, "argv", [*sys.argv[:-1], str(tmp_path / "locks/second.json")])
+    with pytest.raises(RuntimeError, match="viewed results already exist"):
+        method_lock_builder.main()
+
+
+def test_training_audit_requires_exact_four_completed_stages() -> None:
+    stages = {}
+    for cell in TRAINED_CELLS:
+        for stage in ("tokenizer", "predictor"):
+            stages[f"{cell}:{stage}"] = {
+                field: SHA
+                for field in (
+                    "terminal_sha256",
+                    "log_sha256",
+                    "summary_sha256",
+                    "checkpoint_sha256",
+                    "input_tokenizer_sha256",
+                    "input_predictor_sha256",
+                )
+            }
+            stages[f"{cell}:{stage}"].update(
+                epochs_observed=list(range(1, 31)),
+                world_size=2,
+                finished_marker_count=1,
+                best_validation_loss=0.1,
+            )
+    payload = seal(
+        {
+            "schema_version": TRAINING_AUDIT_SCHEMA,
+            "status": "PASS",
+            "upstream_commit": "67b630e67f6a18c9e9be918d9b4337c960db1e9a",
+            "stages": stages,
+            **{
+                field: SHA
+                for field in (
+                    "workspace_receipt_sha256",
+                    "official_weights_receipt_sha256",
+                    "dataset_manifest_sha256",
+                    "dataset_admission_sha256",
+                    "training_runner_sha256",
+                    "terminal_builder_sha256",
+                    "runtime_config_sha256",
+                    "dataset_adapter_sha256",
+                    "train_tokenizer_sha256",
+                    "train_predictor_sha256",
+                    "ddp_runtime_patch_sha256",
+                )
+            },
+        }
+    )
+    assert len(validate_training_audit(payload)["stages"]) == 4
+
+
 def evaluation() -> dict[str, object]:
     return seal(
         {
@@ -139,11 +272,13 @@ def evaluation() -> dict[str, object]:
             "test_status": "TEST_VIEWED",
             "used_for_selection": False,
             "promotion_eligible": False,
+            "generated_at": "2026-08-14T00:00:00+00:00",
             "entries": [
                 {
                     "model_cell_id": cell,
                     "mature_targets_only": True,
                     "signal_sha256": SHA,
+                    "candidate_set_sha256": "c" * 64,
                     "metrics": {"rank_ic": 0.01, "rank_icir": 0.1},
                 }
                 for cell in ACTIVE_CELLS
@@ -172,7 +307,13 @@ def historical() -> dict[str, object]:
                 }
             )
     return seal(
-        {"schema_version": HISTORICAL_SCHEMA, "status": "PASS", "entries": entries}
+        {
+            "schema_version": HISTORICAL_SCHEMA,
+            "status": "PASS",
+            "generated_at": "2026-08-14T00:00:00+00:00",
+            "artifact_root": "/data/elanquant",
+            "entries": entries,
+        }
     )
 
 
@@ -186,6 +327,17 @@ def test_viewed_evaluation_and_same_signal_historical_catalog_validate() -> None
     )
     with pytest.raises(ContractError, match="cannot select"):
         validate_evaluation(selected)
+    mismatched_candidates = copy.deepcopy(evaluation())
+    mismatched_candidates["entries"][0]["candidate_set_sha256"] = "d" * 64
+    mismatched_candidates["receipt_hash"] = canonical_hash(
+        {
+            key: value
+            for key, value in mismatched_candidates.items()
+            if key != "receipt_hash"
+        }
+    )
+    with pytest.raises(ContractError, match="one candidate set"):
+        validate_evaluation(mismatched_candidates)
     different = copy.deepcopy(historical())
     different["entries"][0]["signal_sha256"] = "b" * 64
     different["receipt_hash"] = canonical_hash(
@@ -349,6 +501,8 @@ def signal_receipt() -> dict[str, object]:
             "test_status": "TEST_VIEWED",
             "used_for_selection": False,
             "promotion_eligible": False,
+            "label_policy": "NEXT_10_GLOBAL_SESSIONS_LAST_CLOSE_CARRY_ON_MISSING",
+            "carried_future_close_rows": 7,
             "support": {"rows": 300, "sessions": 1},
             "metrics": {"rank_ic": 0.01, "rows": 300},
             **{

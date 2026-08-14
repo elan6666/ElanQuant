@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from './App'
-import type { ApiClient, HistoricalHoldingsSnapshot } from './types'
+import type { ApiClient, ExperimentCell, HistoricalBacktest, HistoricalHoldingsSnapshot } from './types'
 import {
   finalTestHistoricalBacktest,
   finalTestHistoricalTop3Backtest,
@@ -52,6 +52,9 @@ describe('ElanQuant dashboard states', () => {
     render(<App client={client} />)
     fireEvent.click(await screen.findByRole('button', { name: /用本机更新并推理/ }))
     await waitFor(() => expect(client.submitUpdateInfer).toHaveBeenCalledWith('local-apple-silicon'))
+    expect(await screen.findByText(/本机已接受任务/)).toBeInTheDocument()
+    expect(screen.getByText('本机数据截止')).toBeInTheDocument()
+    expect(screen.queryByText('服务器数据截止')).not.toBeInTheDocument()
   })
 
   it('shows durable running progress and disables duplicate submission', async () => {
@@ -135,6 +138,85 @@ describe('ElanQuant dashboard states', () => {
     expect(screen.getByText('证据不足')).toBeInTheDocument()
     expect(screen.getByText('资金不足一手')).toBeInTheDocument()
     expect(screen.getByText(/不足以买入 A 股最小的 100 股整手/)).toBeInTheDocument()
+  })
+
+  it('uses rolling-test copy when the public four-cell catalog is official split v3', async () => {
+    const officialCells: ExperimentCell[] = (['small', 'base'] as const).flatMap((size) =>
+      (['zero_shot', 'official_style'] as const).map((track) => ({
+        ...passedSmallCell,
+        id: `${size}-${track}`,
+        model_size: size,
+        track,
+        evaluations: {
+          test_viewed_official_v3: {
+            rank_ic: 0.012,
+            pearson_ic: 0.009,
+            top10_mean_return: 0.003,
+            rows: 39_072,
+            cross_sections: 137,
+            anchor_set_sha256: 'c'.repeat(64),
+          },
+        },
+      })),
+    )
+    render(<App client={clientFor(snapshot({ research_catalog: officialCells, research_catalog_available: true }))} />)
+    fireEvent.click(await screen.findByRole('button', { name: '实验矩阵' }))
+    expect(screen.getByText(/Rolling Test 已查看，只描述冻结结果/)).toBeInTheDocument()
+    expect(screen.getAllByText('ROLLING TEST / TEST_VIEWED')).toHaveLength(4)
+    expect(screen.getByText(/Rolling Test RankIC 减去同规模零样本/)).toBeInTheDocument()
+    expect(screen.queryByText(/2025 用于选择/)).not.toBeInTheDocument()
+  })
+
+  it('renders the exact eight-entry official-v3 historical catalog across four models', async () => {
+    const models = ['small-zero-shot', 'small-official-ft', 'base-zero-shot', 'base-official-ft'] as const
+    const entries = models.flatMap((model) => {
+      const top50Id = `official-v3-${model}-official_top50`
+      return [
+        {
+          ...finalTestHistoricalBacktest,
+          id: top50Id,
+          track_kind: 'OFFICIAL_SPLIT_V3_MODEL_MATRIX',
+          model_cell_id: model,
+          evaluation_split: 'test_viewed_official_v3',
+          comparison_group_id: 'official-split-v3-top50-top3-v1',
+          result_role: 'OPENED_ROLLING_TEST_MODEL_STRATEGY_DIAGNOSTIC',
+          selection_eligible: false,
+          used_for_selection: false,
+          source_backtest_id: null,
+        },
+        {
+          ...finalTestHistoricalTop3Backtest,
+          id: `official-v3-${model}-historical_top3`,
+          track_kind: 'OFFICIAL_SPLIT_V3_MODEL_MATRIX',
+          model_cell_id: model,
+          evaluation_split: 'test_viewed_official_v3',
+          comparison_group_id: 'official-split-v3-top50-top3-v1',
+          result_role: 'OPENED_ROLLING_TEST_MODEL_STRATEGY_DIAGNOSTIC',
+          selection_eligible: false,
+          used_for_selection: false,
+          source_backtest_id: top50Id,
+        },
+      ]
+    }) as HistoricalBacktest[]
+    const points = Object.fromEntries(
+      entries.map((entry) => [
+        entry.id,
+        [
+          { session: '2024-07-01', strategy: 0, benchmark: 0, excess: 0, strategy_nav: 1, benchmark_nav: 1 },
+          { session: '2026-08-13', strategy: 0.02, benchmark: 0.01, excess: 0.01, strategy_nav: 1.02, benchmark_nav: 1.01 },
+        ],
+      ]),
+    )
+    render(<App client={clientFor(snapshot({ historical_backtests: entries, historical_backtest_available: true, historical_backtest_series: points }))} />)
+    fireEvent.click(await screen.findByRole('button', { name: '历史回测' }))
+    expect(screen.getByText('4 MODELS × 1 ROLLING TEST × 2 PORTFOLIOS')).toBeInTheDocument()
+    for (const label of ['Small · Zero-shot', 'Small · Official FT', 'Base · Zero-shot', 'Base · Official FT']) {
+      expect(screen.getByRole('button', { name: new RegExp(label) })).toBeEnabled()
+    }
+    fireEvent.click(screen.getByRole('button', { name: /Base · Zero-shot/ }))
+    fireEvent.click(screen.getByRole('button', { name: /历史 Qlib Top3/ }))
+    expect(screen.getByText(/官方 Rolling Test 已查看.*不用于选模/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Strict PIT/ })).not.toBeInTheDocument()
   })
 
   it('compares the exact historical 2x2 matrix without conflating online Top3', async () => {

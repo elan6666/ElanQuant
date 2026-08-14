@@ -100,7 +100,9 @@ export function OverviewPage({ snapshot, submitting, receipt, onSubmit }: Overvi
           <a className="reproduction-link" href="https://github.com/elan6666/ElanQuant#选择运行位置" rel="noreferrer" target="_blank">第一次使用？查看 README 复现指南 ↗</a>
           {receipt ? (
             <div className="receipt-note" role="status">
-              {receipt.coalesced ? '已复用正在运行的任务' : '服务器已接受任务'} · {receipt.job_id}
+              {receipt.coalesced
+                ? '已复用正在运行的任务'
+                : `${activeLocation === 'local' ? '本机' : '远程服务器'}已接受任务`} · {receipt.job_id}
             </div>
           ) : null}
         </div>
@@ -116,7 +118,7 @@ export function OverviewPage({ snapshot, submitting, receipt, onSubmit }: Overvi
 
       <section className="metric-grid">
         <Metric label="最近已验证数据日" value={formatSession(snapshot.system.latest_closed_session)} detail="来自封存快照；按钮刷新后才能确认市场最新性" />
-        <Metric label="服务器数据截止" value={formatSession(snapshot.system.data_as_of)} detail="完整性通过后才可推理" />
+        <Metric label={`${activeLocation === 'local' ? '本机' : '远程'}数据截止`} value={formatSession(snapshot.system.data_as_of)} detail="完整性通过后才可推理" />
         <Metric label="最近推理日期" value={formatSession(snapshot.system.inference_as_of)} detail={isStale ? '早于最近已验证快照' : '与最近已验证快照一致'} />
         <Metric label="当前研究版本" value={snapshot.system.primary_model ? '已封存' : '尚未选择'} detail="精确模型身份见下方审计信息" />
       </section>
@@ -167,7 +169,7 @@ export function OverviewPage({ snapshot, submitting, receipt, onSubmit }: Overvi
           <div className="section-heading">
             <div>
               <span className="eyebrow">Live job</span>
-              <h2>服务器正在工作</h2>
+              <h2>{activeJob.execution_profile === 'local-apple-silicon' ? '本机正在工作' : '远程服务器正在工作'}</h2>
             </div>
             <Badge state={activeJob.state}>{activeJob.state === 'queued' ? '等待开始' : '运行中'}</Badge>
           </div>
@@ -205,7 +207,7 @@ export function OverviewPage({ snapshot, submitting, receipt, onSubmit }: Overvi
               </details>
             </>
           ) : (
-            <EmptyState title="还没有推理结果" description="第一次点击主按钮后，服务器会生成真实结果；页面不会用示例数据冒充成功。" />
+            <EmptyState title="还没有推理结果" description="第一次点击主按钮后，已配置的运行位置会生成真实结果；页面不会用示例数据冒充成功。" />
           )}
       </section>
     </>

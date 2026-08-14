@@ -7,6 +7,7 @@ from elanquant.cli.doctor import add_doctor_arguments, run_doctor_command
 from elanquant.cli.smoke import add_smoke_arguments, run_smoke_command
 from elanquant.repro.bootstrap import add_bootstrap_parser
 from elanquant.repro.data import add_data_parser
+from elanquant.repro.infer import add_infer_parser
 from elanquant.repro.weights import add_weights_parser
 
 
@@ -15,6 +16,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     subparsers = parser.add_subparsers(dest="command", required=True)
     add_bootstrap_parser(subparsers)
     add_data_parser(subparsers)
+    add_infer_parser(subparsers)
     add_weights_parser(subparsers)
     doctor = subparsers.add_parser("doctor", help="Check a runtime profile without writing")
     add_doctor_arguments(doctor)

@@ -23,6 +23,9 @@ from elanquant.pipelines.paper import (
 )
 from elanquant.settings import Settings
 from elanquant.storage.database import Database
+from scripts.research import online_release_v3 as online_release_contract
+from scripts.research.official_split_v3 import validate_analysis_lock
+from scripts.research.online_release_v3 import validate_method_lock, validate_release
 
 StageCallback = Callable[[str, float, str, str | None], None]
 
@@ -120,12 +123,40 @@ def validate_publication_release(
     if schema == "elanquant_official_split_online_release_v3":
         historical_path = matrix_parent / "historical-catalog.json"
         analysis_lock_path = matrix_parent / "analysis-lock.json"
+        method_lock_path = matrix_parent / "online-method-lock.json"
+        validated_release = validate_release(manifest)
+        validated_analysis_lock = (
+            validate_analysis_lock(json.loads(analysis_lock_path.read_text(encoding="utf-8")))
+            if analysis_lock_path.is_file()
+            else None
+        )
+        validated_method_lock = (
+            validate_method_lock(json.loads(method_lock_path.read_text(encoding="utf-8")))
+            if method_lock_path.is_file()
+            else None
+        )
         v3_valid = (
             v3_valid
             and historical_path.is_file()
             and analysis_lock_path.is_file()
+            and validated_analysis_lock is not None
+            and validated_method_lock is not None
             and manifest.get("historical_catalog_sha256") == sha256(historical_path)
             and manifest.get("analysis_lock_sha256") == sha256(analysis_lock_path)
+            and manifest.get("online_method_lock_sha256") == sha256(method_lock_path)
+            and validated_method_lock.get("training_matrix_sha256") == matrix_sha256
+            and validated_method_lock.get("online_contract_sha256")
+            == sha256(Path(str(online_release_contract.__file__)).resolve())
+            and validated_method_lock.get("online_runner_sha256")
+            == validated_release.get("online_runner_sha256")
+            and validated_method_lock.get("primary_models")
+            == validated_release.get("primary_models")
+            and validated_method_lock.get("online_signal")
+            == validated_release.get("online_signal")
+            and validated_method_lock.get("online_sampling")
+            == validated_release.get("online_sampling")
+            and validated_method_lock.get("viewed_results_root")
+            == validated_analysis_lock.get("results_root")
         )
         canonical = dict(manifest)
         claimed = canonical.pop("receipt_hash", None)
@@ -205,12 +236,14 @@ def normalized_evaluation_evidence(
             raise RuntimeError(f"official-split-v3 metrics are incomplete: {model_id}")
         rows, sections = entry_support.get("rows"), entry_support.get("sessions")
         signal_sha = entry.get("signal_sha256")
+        candidate_sha = entry.get("candidate_set_sha256")
         if (
             not isinstance(rows, int)
             or rows <= 0
             or not isinstance(sections, int)
             or sections <= 0
             or not valid_sha256(signal_sha)
+            or not valid_sha256(candidate_sha)
         ):
             raise RuntimeError(f"official-split-v3 support is invalid: {model_id}")
         model_metrics = {
@@ -232,7 +265,7 @@ def normalized_evaluation_evidence(
         candidate = {
             "evaluated_rows": rows,
             "evaluated_cross_sections": sections,
-            "anchor_set_sha256": signal_sha,
+            "anchor_set_sha256": candidate_sha,
         }
         if existing is not None and existing != candidate:
             raise RuntimeError("official-split-v3 cells do not share common support")

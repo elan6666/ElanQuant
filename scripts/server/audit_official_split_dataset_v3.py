@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Recompute actual per-symbol official-split windows and seal admission."""
+"""Independently audit causal global-session windows and seal admission."""
 
 from __future__ import annotations
 
@@ -15,10 +15,11 @@ import pandas as pd
 from scripts.research.official_split_v3 import (
     ADMISSION_SCHEMA,
     DATASET_FILES,
-    INFERENCE_ROWS,
     LOOKBACK,
     PREDICT,
     RAW_RANGES,
+    TEST_ELIGIBILITY_FILE,
+    TRAINING_INDEX_FILES,
     TRAINING_ROWS,
     canonical_hash,
     validate_dataset_admission,
@@ -35,14 +36,9 @@ from scripts.server.build_extended_dataset import (
 FEATURES = ["open", "high", "low", "close", "vol", "amt"]
 
 
-def load_pickle(path: Path) -> dict[str, pd.DataFrame]:
+def load_pickle(path: Path) -> Any:
     with path.open("rb") as handle:
-        value: Any = pickle.load(handle)
-    if not isinstance(value, dict) or not value:
-        raise RuntimeError(f"dataset pickle is empty or invalid: {path}")
-    if any(not isinstance(frame, pd.DataFrame) for frame in value.values()):
-        raise RuntimeError(f"dataset pickle contains non-frame values: {path}")
-    return value
+        return pickle.load(handle)
 
 
 def main() -> int:
@@ -57,11 +53,9 @@ def main() -> int:
     raw_manifest = json.loads((raw / "manifest.json").read_text(encoding="utf-8"))
     verify_raw_manifest(raw, raw_manifest)
     manifest_path = dataset / "manifest.json"
-    manifest = validate_dataset_manifest(
-        json.loads(manifest_path.read_text(encoding="utf-8"))
-    )
+    manifest = validate_dataset_manifest(json.loads(manifest_path.read_text(encoding="utf-8")))
     if manifest["raw_manifest_sha256"] != sha256(raw / "manifest.json"):
-        raise RuntimeError("dataset does not bind the admitted raw manifest")
+        raise RuntimeError("dataset does not bind the raw manifest")
     for identity, entry in manifest["files"].items():
         path = dataset / identity
         if (
@@ -69,56 +63,61 @@ def main() -> int:
             or path.stat().st_size != entry["bytes"]
             or sha256(path) != entry["sha256"]
         ):
-            raise RuntimeError(f"dataset pickle hash/bytes mismatch: {identity}")
+            raise RuntimeError(f"dataset artifact changed: {identity}")
 
-    calendar = pd.read_csv(raw / "trade_cal.csv", dtype={"cal_date": str})
+    calendar_frame = pd.read_csv(raw / "trade_cal.csv", dtype={"cal_date": str})
     sessions = pd.DatetimeIndex(
         pd.to_datetime(
-            calendar.loc[calendar["is_open"].astype(int) == 1, "cal_date"],
+            calendar_frame.loc[calendar_frame["is_open"].astype(int) == 1, "cal_date"],
             format="%Y%m%d",
         )
     ).sort_values()
     frozen = pd.Timestamp(manifest["frozen_latest_session"])
     sessions = sessions[sessions <= frozen]
     weights = pd.concat(
-        [
-            pd.read_csv(path, dtype=str)
-            for path in sorted((raw / "index_weight").glob("*.csv"))
-        ],
+        [pd.read_csv(path, dtype=str) for path in sorted((raw / "index_weight").glob("*.csv"))],
         ignore_index=True,
     )
     weights["trade_date"] = pd.to_datetime(weights["trade_date"], format="%Y%m%d")
-    snapshot_counts = weights.groupby("trade_date")["con_code"].nunique().sort_index()
-    excluded_snapshots = {
-        str(pd.Timestamp(source_date).date()): int(count)
-        for source_date, count in snapshot_counts.items()
+    counts = weights.groupby("trade_date")["con_code"].nunique().sort_index()
+    excluded = {
+        str(pd.Timestamp(day).date()): int(count)
+        for day, count in counts.items()
         if int(count) != 300
     }
-    if (
-        raw_manifest.get("excluded_membership_snapshots") != excluded_snapshots
-        or raw_manifest.get("excluded_membership_snapshots_sha256")
-        != canonical_hash(excluded_snapshots)
-        or raw_manifest.get("partial_membership_forward_filled") is not False
-        or raw_manifest.get("excluded_snapshot_effect")
-        != "ignored; prior complete snapshot remains active"
-    ):
-        raise RuntimeError("raw membership exclusion receipt is incorrect")
-    if (
-        manifest["excluded_membership_snapshots"] != excluded_snapshots
-        or manifest["excluded_membership_snapshots_sha256"]
-        != canonical_hash(excluded_snapshots)
-    ):
-        raise RuntimeError("dataset membership exclusions differ from raw evidence")
-    complete_dates = set(snapshot_counts[snapshot_counts == 300].index)
-    complete_weights = weights[weights["trade_date"].isin(complete_dates)].copy()
-    member_map, availability = availability_lagged_memberships(sessions, complete_weights)
-    if (
-        not member_map
-        or any(len(members) != 300 for members in member_map.values())
-        or canonical_hash(availability) != manifest["membership_availability_sha256"]
-    ):
-        raise RuntimeError("consumed membership snapshots are not independently exact")
+    complete = weights[weights["trade_date"].isin(set(counts[counts == 300].index))].copy()
+    member_map, availability = availability_lagged_memberships(sessions, complete)
     member_dates = sorted(member_map)
+    if (
+        canonical_hash(availability) != manifest["membership_availability_sha256"]
+        or excluded != manifest["excluded_membership_snapshots"]
+        or any(len(value) != 300 for value in member_map.values())
+    ):
+        raise RuntimeError("membership reconstruction differs")
+
+    data = {
+        split: load_pickle(dataset / identity)
+        for split, identity in DATASET_FILES.items()
+    }
+    if any(not isinstance(value, dict) or not value for value in data.values()):
+        raise RuntimeError("dataset payload is invalid")
+    index_payload = {
+        split: load_pickle(dataset / identity)
+        for split, identity in TRAINING_INDEX_FILES.items()
+    }
+    eligibility = json.loads((dataset / TEST_ELIGIBILITY_FILE).read_text(encoding="utf-8"))
+    if not isinstance(eligibility, dict) or not eligibility:
+        raise RuntimeError("test eligibility is invalid")
+    index_identity = {
+        name: canonical_hash([[str(code), int(start)] for code, start in rows])
+        for name, rows in index_payload.items()
+    }
+    if (
+        canonical_hash(index_identity) != manifest["training_index_sha256"]
+        or canonical_hash(eligibility) != manifest["test_eligibility_sha256"]
+    ):
+        raise RuntimeError("eligible index identity mismatch")
+
     ranges = {
         "train": (pd.Timestamp(RAW_RANGES["train"][0]), pd.Timestamp(RAW_RANGES["train"][1])),
         "validation": (
@@ -129,82 +128,103 @@ def main() -> int:
     }
     coverage: dict[str, Any] = {}
     actual: dict[str, Any] = {}
-    for split_name, identity in DATASET_FILES.items():
-        payload = load_pickle(dataset / identity)
-        required = INFERENCE_ROWS if split_name == "test_viewed" else TRAINING_ROWS
-        rows: dict[str, Any] = {}
+    for split_name in ("train", "validation"):
+        frames = data[split_name]
+        raw_start, raw_end = ranges[split_name]
+        split_calendar = sessions[(sessions >= raw_start) & (sessions <= raw_end)]
+        per_symbol: dict[str, dict[str, Any]] = {}
         inputs: list[pd.Timestamp] = []
         anchors: list[pd.Timestamp] = []
-        target_ends: list[pd.Timestamp] = []
+        targets: list[pd.Timestamp] = []
         consumed: list[pd.Timestamp] = []
-        raw_start, raw_end = ranges[split_name]
-        for code, frame in sorted(payload.items()):
-            if list(frame.columns) != FEATURES:
-                raise RuntimeError(f"feature columns differ: {split_name}/{code}")
-            if not frame.index.is_unique or not frame.index.is_monotonic_increasing:
-                raise RuntimeError(f"dates are not unique/increasing: {split_name}/{code}")
-            outside_range = frame.index.min() < raw_start or frame.index.max() > raw_end
-            if len(frame) < required or outside_range:
-                raise RuntimeError(f"raw slice/window containment failed: {split_name}/{code}")
-            source = load_symbol(raw, code)
-            expected_dates = [
-                stamp
-                for stamp in source.loc[raw_start:raw_end].index
-                if code in latest_snapshot(member_dates, member_map, stamp)
-            ]
-            expected = source.loc[expected_dates, FEATURES]
-            pd.testing.assert_frame_equal(frame, expected, check_exact=True)
-            window_count = len(frame) - required + 1
-            inputs.append(pd.Timestamp(frame.index[0]))
-            first_anchor = pd.Timestamp(frame.index[LOOKBACK - 1])
-            last_start = len(frame) - required
-            last_anchor = pd.Timestamp(frame.index[last_start + LOOKBACK - 1])
-            last_target = pd.Timestamp(frame.index[last_start + LOOKBACK + PREDICT - 1])
-            symbol_anchors = pd.DatetimeIndex(
-                frame.index[LOOKBACK - 1 : last_start + LOOKBACK]
-            )
-            if len(symbol_anchors) != window_count:
-                raise RuntimeError(f"window enumeration mismatch: {split_name}/{code}")
-            anchors.extend(pd.Timestamp(stamp) for stamp in symbol_anchors)
-            target_ends.append(last_target)
-            if split_name != "test_viewed":
-                consumed.append(pd.Timestamp(frame.index[-1]))
-            rows[code] = {
-                "rows": len(frame),
-                "windows": window_count,
-                "first_input": str(pd.Timestamp(frame.index[0]).date()),
-                "first_anchor": str(first_anchor.date()),
-                "last_anchor": str(last_anchor.date()),
-                "last_target": str(last_target.date()),
-                "last_consumed": (
-                    str(pd.Timestamp(frame.index[-1]).date())
-                    if split_name != "test_viewed"
-                    else None
-                ),
-            }
-        backtest_anchors = [stamp for stamp in anchors if stamp >= pd.Timestamp("2024-07-01")]
+        reconstructed: list[tuple[str, int]] = []
+        for code, frame in sorted(frames.items()):
+            source = load_symbol(raw, code).loc[raw_start:raw_end, FEATURES]
+            pd.testing.assert_frame_equal(frame, source, check_exact=True)
+            positions = {pd.Timestamp(day): pos for pos, day in enumerate(frame.index)}
+            symbol_windows = 0
+            for offset in range(0, len(split_calendar) - TRAINING_ROWS + 1):
+                window = split_calendar[offset : offset + TRAINING_ROWS]
+                anchor = pd.Timestamp(window[LOOKBACK - 1])
+                start = positions.get(pd.Timestamp(window[0]))
+                if start is None or code not in latest_snapshot(member_dates, member_map, anchor):
+                    continue
+                observed = tuple(
+                    pd.Timestamp(day)
+                    for day in frame.index[start : start + TRAINING_ROWS]
+                )
+                if observed != tuple(pd.Timestamp(day) for day in window):
+                    continue
+                reconstructed.append((code, start))
+                symbol_windows += 1
+                inputs.append(pd.Timestamp(window[0]))
+                anchors.append(anchor)
+                targets.append(pd.Timestamp(window[LOOKBACK + PREDICT - 1]))
+                consumed.append(pd.Timestamp(window[-1]))
+            if symbol_windows:
+                per_symbol[code] = {"rows": len(frame), "windows": symbol_windows}
+        if reconstructed != index_payload[split_name]:
+            raise RuntimeError(f"eligible training indices differ: {split_name}")
         coverage[split_name] = {
-            "window_rows": required,
-            "symbols": len(rows),
-            "windows": sum(int(row["windows"]) for row in rows.values()),
-            "minimum_symbol_rows": min(int(row["rows"]) for row in rows.values()),
-            "maximum_symbol_rows": max(int(row["rows"]) for row in rows.values()),
-            "symbol_coverage_sha256": canonical_hash(rows),
-            "symbol_coverage": rows,
+            "window_rows": TRAINING_ROWS,
+            "symbols": len(per_symbol),
+            "windows": len(reconstructed),
+            "minimum_symbol_rows": min(row["rows"] for row in per_symbol.values()),
+            "maximum_symbol_rows": max(row["rows"] for row in per_symbol.values()),
+            "symbol_coverage_sha256": canonical_hash(per_symbol),
+            "symbol_coverage": per_symbol,
         }
         actual[split_name] = {
             "first_input": str(min(inputs).date()),
             "first_anchor": str(min(anchors).date()),
             "last_anchor": str(max(anchors).date()),
-            "last_target": str(max(target_ends).date()),
-            "last_consumed": str(max(consumed).date()) if consumed else None,
+            "last_target": str(max(targets).date()),
+            "last_consumed": str(max(consumed).date()),
         }
-        if split_name == "test_viewed":
-            if not backtest_anchors:
-                raise RuntimeError("test payload has no requested-range backtest signal")
-            actual[split_name]["actual_first_backtest_signal"] = str(
-                min(backtest_anchors).date()
-            )
+
+    test_start, test_end = ranges["test_viewed"]
+    test_calendar = sessions[(sessions >= test_start) & (sessions <= test_end)]
+    test_rows: dict[str, dict[str, Any]] = {}
+    anchors: list[pd.Timestamp] = []
+    for code, frame in sorted(data["test_viewed"].items()):
+        source = load_symbol(raw, code).loc[test_start:test_end, FEATURES]
+        pd.testing.assert_frame_equal(frame, source, check_exact=True)
+        available = {pd.Timestamp(day) for day in frame.index}
+        observed: list[str] = []
+        for position in range(LOOKBACK - 1, len(test_calendar)):
+            anchor = pd.Timestamp(test_calendar[position])
+            context = test_calendar[position - LOOKBACK + 1 : position + 1]
+            if (
+                code in latest_snapshot(member_dates, member_map, anchor)
+                and all(pd.Timestamp(day) in available for day in context)
+            ):
+                observed.append(str(anchor.date()))
+                anchors.append(anchor)
+        if observed != eligibility.get(code):
+            raise RuntimeError(f"test anchor eligibility differs: {code}")
+        test_rows[code] = {"rows": len(frame), "windows": len(observed)}
+    backtest = [day for day in anchors if day >= pd.Timestamp("2024-07-01")]
+    coverage["test_viewed"] = {
+        "window_rows": 100,
+        "symbols": len(test_rows),
+        "windows": len(anchors),
+        "minimum_symbol_rows": min(row["rows"] for row in test_rows.values()),
+        "maximum_symbol_rows": max(row["rows"] for row in test_rows.values()),
+        "symbol_coverage_sha256": canonical_hash(test_rows),
+        "symbol_coverage": test_rows,
+    }
+    actual["test_viewed"] = {
+        "first_input": str(test_start.date()),
+        "first_anchor": str(min(anchors).date()),
+        "last_anchor": str(max(anchors).date()),
+        "last_target": str(frozen.date()),
+        "last_consumed": None,
+        "actual_first_backtest_signal": str(min(backtest).date()),
+    }
+    if not actual["train"]["last_consumed"] < actual["validation"]["first_anchor"]:
+        raise RuntimeError("train/validation effective ranges overlap")
+    if not actual["validation"]["last_consumed"] < actual["test_viewed"]["first_anchor"]:
+        raise RuntimeError("validation/test effective ranges overlap")
     payload: dict[str, Any] = {
         "schema_version": ADMISSION_SCHEMA,
         "status": "PASS",
@@ -215,10 +235,13 @@ def main() -> int:
         "coverage": coverage,
         "actual_effective_ranges": actual,
         "membership_rows_reverified": True,
-        "excluded_membership_snapshots": excluded_snapshots,
-        "excluded_membership_snapshots_sha256": canonical_hash(excluded_snapshots),
+        "excluded_membership_snapshots": excluded,
+        "excluded_membership_snapshots_sha256": canonical_hash(excluded),
         "every_consumed_membership_snapshot_exactly_300": True,
         "pickle_content_recomputed": True,
+        "training_indices_recomputed": True,
+        "test_eligibility_recomputed": True,
+        "future_symbol_row_conditioning": False,
     }
     payload["receipt_hash"] = canonical_hash(payload)
     validate_dataset_admission(payload)

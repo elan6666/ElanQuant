@@ -12,6 +12,8 @@ __pycache__/
 .mypy_cache/
 *.py[cod]
 data/
+!examples/data/
+!examples/data/synthetic_daily.csv
 artifacts/
 runs/
 reports/generated/

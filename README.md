@@ -51,6 +51,15 @@ ElanQuant 是一个可审计的 A 股 Kronos 研究与模拟交易项目。当�
 
 ## 三种复现方式
 
+开始前请确认 Python 版本。ElanQuant 要求 Python 3.11 或更高版本；macOS 自带的
+`python3` 可能仍是 3.9，不能直接使用。
+
+```bash
+python3.12 --version   # 或 python3.11
+git --version
+node --version
+```
+
 ### A. 五分钟检查代码和界面
 
 不需要行情凭据，也不下载研究数据。使用仓库中的合成样例检查安装、数据契约与网页：
@@ -58,7 +67,7 @@ ElanQuant 是一个可审计的 A 股 Kronos 研究与模拟交易项目。当�
 ```bash
 git clone https://github.com/elan6666/ElanQuant.git
 cd ElanQuant
-python3 -m venv .venv
+python3.12 -m venv .venv
 . .venv/bin/activate
 python -m pip install -e '.[dev,repro]'
 
@@ -76,10 +85,18 @@ npm --prefix frontend run build
 ```
 
 合成数据仅用于验证管线，不会生成可解释为 A 股研究结果的指标。
+这一层构建网页代码，但不启动后端服务，也不执行 Kronos 模型。
 
-### B. 下载官方权重并运行零样本基线
+### B. 下载官方权重并运行单标的零样本预测
 
-先检查将要执行的步骤：
+模型推理需要 PyTorch 和 Kronos 官方依赖：
+
+```bash
+python -m pip install -e '.[repro,inference]'
+```
+
+先输出人类可读的准备计划。`bootstrap` 只下载和校验权重，不会把本机标记为
+已可推理：
 
 ```bash
 elanquant bootstrap --profile local-apple-silicon --release small --dry-run
@@ -94,26 +111,82 @@ elanquant bootstrap --profile remote-linux-nvidia --release base
 ```
 
 下载器只接受固定的官方 Tokenizer、Small、Base 仓库与文件清单，并为本地文件生成
-SHA-256 回执。`--offline` 模式只验证已有文件，不访问网络。bootstrap 当前先完成权重
-与基础目录准备；设备 doctor、数据准入和服务配置必须继续通过后才能标记为可推理。
+SHA-256 回执。`--offline` 模式只验证已有文件，不访问网络。
+
+下载并锁定官方 Kronos 源码：
 
 ```bash
-elanquant doctor --check-only --profile local-apple-silicon --release small --device mps
+git clone https://github.com/shiyu-coder/Kronos.git .elanquant/upstream/Kronos
+git -C .elanquant/upstream/Kronos checkout 67b630e67f6a18c9e9be918d9b4337c960db1e9a
+test "$(git -C .elanquant/upstream/Kronos rev-parse HEAD)" = \
+  67b630e67f6a18c9e9be918d9b4337c960db1e9a
+```
+
+先检查设备能力。`capability` 只证明设备可用；`service` 还会检查网页、研究环境与
+封存 release，缺失时返回退出码 2：
+
+```bash
+elanquant doctor --check-only --scope capability \
+  --profile local-apple-silicon --release small --device mps
 elanquant smoke --fixture synthetic --profile local-apple-silicon --release small --device mps
 ```
 
-synthetic smoke 只检查执行环境和证据链，明确不是 Kronos 模型推理。
+synthetic smoke 只检查执行环境和证据链，明确不是 Kronos 模型推理。真实零样本入口需要：
 
-### C. 用自己的数据复现微调与历史回测
+- 一份已通过 `elanquant data import` 的 CSV/Parquet；
+- 至少 90 行历史上下文；
+- 由用户自己的交易所日历给出的未来 10 个交易日。
+
+`future-sessions.csv` 只需一列 `session`，不得用简单工作日冒充 A 股交易日：
+
+```text
+session
+2026-08-14
+2026-08-17
+...
+```
+
+先 dry-run，再执行单标的官方权重预测：
+
+```bash
+elanquant infer zero-shot \
+  --input .elanquant/data/my-market.csv \
+  --instrument 000001.SZ \
+  --future-sessions future-sessions.csv \
+  --release small \
+  --device mps \
+  --output .elanquant/forecasts/000001.SZ.csv \
+  --dry-run
+
+elanquant infer zero-shot \
+  --input .elanquant/data/my-market.csv \
+  --instrument 000001.SZ \
+  --future-sessions future-sessions.csv \
+  --release small \
+  --device mps \
+  --output .elanquant/forecasts/000001.SZ.csv
+```
+
+输出回执记录上游 commit、权重回执、输入/输出哈希、设备和
+`mean(next_10_predicted_closes) / current_close - 1` 公式。这是单标的模型预测，
+不是股票推荐、完整 A 股排名或回测。
+
+### C. 完整微调与历史回测的当前边界
 
 1. 准备 CSV 或 Parquet。最少字段为
    `instrument,timestamp,open,high,low,close`；`volume,amount` 可选。
 2. 使用 `elanquant data import` 导入。CSV 与 Parquet 会归一化到同一契约并生成内容哈希。
-3. 构建官方日期切片并运行准入检查：训练/验证必须满足真实 101 行窗口，测试必须满足
+3. 在 Linux/NVIDIA 的源码 checkout 中构建官方日期切片并运行准入检查：训练/验证必须满足真实 101 行窗口，测试必须满足
    90 日上下文与成熟的未来 10 个交易日目标。
 4. 在 Linux/NVIDIA 服务器依次训练 Small、Base 的 Tokenizer 和 Predictor；每个阶段
    跑满 30 epoch，并封存 validation loss 选择的 best checkpoint。
 5. 四个模型分别生成自己的标准化空间信号，再分别运行 Top50 与 Top3 历史组合。
+
+这一层目前是仓库内 `scripts/server/` 的高级源码工作流，依赖用户自己的数据供应器、Qlib、
+GPU 调度和新的不可变 run 目录。它没有被打包成 `elanquant train` 一键命令；因此当前可公开
+复现的终点是数据契约、官方权重校验与单标零样本预测，不应把上述列表解读为已有的
+第三方一键全研究复现。服务器运维入口与手工门禁见 [运维手册](docs/OPERATIONS.md)和
+[研究协议](docs/RESEARCH_PROTOCOL.md)。
 
 项目不会把原始行情、处理数据、checkpoint 或权重提交到 Git。若使用 Tushare-compatible
 数据源，token 必须由用户自行保管；也可以提供自己的、返回兼容 DataFrame 的 `get_pro()`
@@ -145,7 +218,11 @@ npm --prefix frontend run build
 ```
 
 研究数据下载、微调、正式推理和历史回测应在研究服务器执行；本机可以运行源码检查、
-前端和通过准入的本地推理。服务器长任务由独立服务托管，不依赖浏览器持续打开。
+前端和上述单标官方权重推理。服务器长任务由独立服务托管，不依赖浏览器持续打开。
+
+构建出的 wheel 包含 Python CLI/API 源码、公开配置、文档和合成 fixture；不包含
+`scripts/server/`、Kronos 上游源码、PyTorch 设备运行时、行情、权重或训练产物。使用模型时
+必须显式安装 `inference` extra 并提供锁定的 Kronos checkout。
 
 ## 项目边界与来源
 

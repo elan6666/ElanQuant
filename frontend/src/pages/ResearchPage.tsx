@@ -64,6 +64,9 @@ export function ResearchPage({ run, catalog, catalogAvailable, runs, diff }: Res
         emptyCell(model, track),
     ),
   )
+  const officialSplitV3 = cells.some(
+    (cell) => cell.evaluations.test_viewed_official_v3 !== undefined,
+  )
 
   return (
     <>
@@ -71,7 +74,11 @@ export function ResearchPage({ run, catalog, catalogAvailable, runs, diff }: Res
         <div>
           <span className="eyebrow">03 / Experiment evidence</span>
           <h1>Small 与 Base <span className="title-phrase">四格对照</span></h1>
-          <p>比较官方预训练权重与官方方式微调；2025 用于选择，2026 只描述结果。</p>
+          <p>
+            {officialSplitV3
+              ? '比较官方预训练权重与官方方式微调；当前展示的 Rolling Test 已查看，只描述冻结结果。'
+              : '比较官方预训练权重与官方方式微调；2025 用于选择，2026 只描述结果。'}
+          </p>
         </div>
         <div className="identity-card">
           <span>当前在线版本</span>
@@ -94,7 +101,12 @@ export function ResearchPage({ run, catalog, catalogAvailable, runs, diff }: Res
           { term: 'RankIC（排名相关）', description: '预测排序与成熟的实际10日收益排序之间的相关性，范围为 -1 到 1。' },
           { term: 'Pearson IC（数值相关）', description: '预测值与成熟的实际10日收益之间的线性相关性，范围为 -1 到 1。' },
           { term: 'Top10 标签期收益', description: '每日预测前10只股票在成熟10日标签期内的平均实际收益。' },
-          { term: '对零样本 RankIC Δ', description: '本格验证 RankIC 减去同规模零样本验证 RankIC。' },
+          {
+            term: '对零样本 RankIC Δ',
+            description: officialSplitV3
+              ? '本格已查看 Rolling Test RankIC 减去同规模零样本的同期 RankIC；只作描述。'
+              : '本格验证 RankIC 减去同规模零样本验证 RankIC。',
+          },
         ]}
       />
 
@@ -133,7 +145,12 @@ export function ResearchPage({ run, catalog, catalogAvailable, runs, diff }: Res
         <span className="method-note__index">RULE / 01</span>
         <div>
           <h2>评估与上线是两件事</h2>
-          <p>2025 验证结果用于比较；2026 已查看结果只作描述。公开四格不会自动决定在线版本，也不构成投资有效性证明。</p>
+          <p>
+            {officialSplitV3
+              ? 'Rolling Test 已查看，不参与选模、调参或上线提升宣称。'
+              : '2025 验证结果用于比较；2026 已查看结果只作描述。'}
+            公开四格不会自动决定在线版本，也不构成投资有效性证明。
+          </p>
         </div>
       </section>
     </>

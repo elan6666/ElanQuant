@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import platform
 from collections.abc import Sequence
 from pathlib import Path
@@ -24,12 +25,17 @@ def bootstrap_plan(profile: str, release: str) -> dict[str, Any]:
         "profile": profile,
         "release": release,
         "compatibility": compatibility,
-        "stages": [
-            "doctor",
-            "official_weights",
-            "data_import_or_provider",
-            "synthetic_smoke",
-            "service_configuration",
+        "scope": "WEIGHTS_ONLY_NO_MODEL_INFERENCE",
+        "actions": [
+            "verify_profile_operating_system",
+            "fetch_and_verify_official_weights",
+            "write_partial_bootstrap_receipt",
+        ],
+        "deferred_requirements": [
+            "install_inference_runtime",
+            "checkout_pinned_kronos_source",
+            "import_user_owned_data",
+            "run_zero_shot_or_configure_service",
         ],
         "training_supported": profile == "remote-linux-nvidia",
     }
@@ -48,7 +54,8 @@ def add_bootstrap_parser(subparsers: Any) -> None:
 def run_bootstrap_command(args: argparse.Namespace) -> int:
     plan = bootstrap_plan(args.profile, args.release)
     if args.dry_run:
-        print(canonical_sha256(plan))
+        plan["plan_hash"] = canonical_sha256(plan)
+        print(json.dumps(plan, ensure_ascii=False, indent=2, sort_keys=True))
         return 0
     root = args.root.resolve()
     root.mkdir(parents=True, exist_ok=True)

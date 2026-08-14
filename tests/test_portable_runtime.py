@@ -339,10 +339,16 @@ def test_doctor_is_read_only_and_smoke_is_explicitly_not_model_inference(
     settings = active_settings(tmp_path)
     monkeypatch.setattr(doctor, "probe_system_capabilities", lambda _: capabilities())
     report = doctor.doctor_report(settings)
-    assert report["status"] == "PASS"
+    assert report["status"] == "INCOMPLETE"
+    assert report["capability_status"] == "PASS"
+    assert report["scope"] == "service"
+    assert not all(report["readiness"].values())
     assert report["check_only"] is True
     assert not settings.database_path.exists()
     assert "token" not in json.dumps(report).lower()
+
+    capability = doctor.doctor_report(settings, scope="capability")
+    assert capability["status"] == "PASS"
 
     smoke_report = smoke.synthetic_smoke_report(settings)
     assert smoke_report["status"] == "PASS"

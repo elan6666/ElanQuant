@@ -11,6 +11,15 @@ from elanquant.orchestration.jobs import JobStore
 from elanquant.pipelines import real
 from elanquant.settings import Settings
 from elanquant.storage.database import Database
+from scripts.research import online_release_v3
+from scripts.research.online_release_v3 import (
+    METHOD_LOCK_SCHEMA,
+    ONLINE_SAMPLING,
+    ONLINE_SIGNAL,
+    PRIMARY_MODELS,
+    RELEASE_SCHEMA,
+    canonical_hash,
+)
 from scripts.server import evaluate_and_infer
 
 
@@ -434,6 +443,84 @@ def test_small_publication_requires_one_hash_bound_release_manifest(tmp_path: Pa
     ] == "sealed-small"
     with pytest.raises(RuntimeError, match="invalid or mismatched"):
         real.validate_publication_release(settings, matrix_sha, "0" * 64)
+
+
+def test_v3_publication_requires_pre_result_online_method_lock(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    release = tmp_path / "release-v3"
+    release.mkdir()
+    matrix = release / "training-matrix.json"
+    evaluation = release / "rolling-evaluation.json"
+    analysis = release / "analysis-lock.json"
+    historical = release / "historical-catalog.json"
+    method_path = release / "online-method-lock.json"
+    matrix.write_text("matrix-v3", encoding="utf-8")
+    evaluation.write_text("evaluation-v3", encoding="utf-8")
+    analysis.write_text("{}", encoding="utf-8")
+    historical.write_text("historical-v3", encoding="utf-8")
+    matrix_sha = real.sha256(matrix)
+    evaluation_sha = real.sha256(evaluation)
+    runner_sha = "d" * 64
+    method: dict[str, object] = {
+        "schema_version": METHOD_LOCK_SCHEMA,
+        "status": "PASS",
+        "locked_at": "2026-08-14T00:00:00+00:00",
+        "training_matrix_sha256": matrix_sha,
+        "online_runner_sha256": runner_sha,
+        "online_contract_sha256": real.sha256(
+            Path(str(online_release_v3.__file__)).resolve()
+        ),
+        "primary_models": PRIMARY_MODELS,
+        "selection_basis": "PREDECLARED_OFFICIAL_FT_METHOD_IDENTITY",
+        "test_metrics_used_for_selection": False,
+        "viewed_results_root": "results/viewed-v3",
+        "viewed_results_present_at_lock": False,
+        "online_signal": ONLINE_SIGNAL,
+        "online_sampling": ONLINE_SAMPLING,
+    }
+    method["receipt_hash"] = canonical_hash(method)
+    method_path.write_text(json.dumps(method), encoding="utf-8")
+    monkeypatch.setattr(
+        real,
+        "validate_analysis_lock",
+        lambda _payload: {"results_root": "results/viewed-v3"},
+    )
+    manifest: dict[str, object] = {
+        "schema_version": RELEASE_SCHEMA,
+        "status": "PASS",
+        "release_id": "official-split-v3-test",
+        "training_matrix_sha256": matrix_sha,
+        "analysis_lock_sha256": real.sha256(analysis),
+        "online_method_lock_sha256": real.sha256(method_path),
+        "rolling_evaluation_sha256": evaluation_sha,
+        "historical_catalog_sha256": real.sha256(historical),
+        "online_runner_sha256": runner_sha,
+        "primary_models": PRIMARY_MODELS,
+        "selection_basis": "PREDECLARED_OFFICIAL_FT_METHOD_IDENTITY",
+        "test_metrics_used_for_selection": False,
+        "online_signal": ONLINE_SIGNAL,
+        "online_sampling": ONLINE_SAMPLING,
+    }
+    manifest["receipt_hash"] = canonical_hash(manifest)
+    (release / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    settings = Settings(
+        database_path=tmp_path / "db.sqlite3",
+        artifact_root=tmp_path / "runs",
+        frontend_dist=tmp_path / "dist",
+        matrix_receipt=matrix,
+        evaluation_receipt=evaluation,
+    )
+    assert real.validate_publication_release(settings, matrix_sha, evaluation_sha)[
+        "release_id"
+    ] == "official-split-v3-test"
+    method["viewed_results_present_at_lock"] = True
+    method["receipt_hash"] = canonical_hash(
+        {key: value for key, value in method.items() if key != "receipt_hash"}
+    )
+    method_path.write_text(json.dumps(method), encoding="utf-8")
+    with pytest.raises(RuntimeError, match="firewall"):
+        real.validate_publication_release(settings, matrix_sha, evaluation_sha)
 
 
 def test_runtime_selection_is_frozen_to_job_profile_release_and_device(tmp_path: Path) -> None:
