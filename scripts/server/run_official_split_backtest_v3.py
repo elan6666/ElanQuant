@@ -150,15 +150,20 @@ def main() -> int:
             else pd.Series(float("nan"), index=report.index)
         )
         net = report["return"] - report["cost"]
+        gross_excess = report["return"] - report["bench"]
         excess = report["return"] - report["bench"] - report["cost"]
         net_risk = risk_analysis(net, freq="1day")
         excess_risk = risk_analysis(excess, freq="1day")
         metrics[signal_name] = {
             "total_return_with_cost": float(net.sum()),
             "benchmark_return": float(report["bench"].sum()),
+            "excess_return_without_cost": float(gross_excess.sum()),
             "excess_return_with_cost": float(excess.sum()),
             "annualized_return_with_cost": backtest_helper.risk_value(
                 net_risk, "annualized_return", float(net.mean() * 252)
+            ),
+            "annualized_excess_return_with_cost": backtest_helper.risk_value(
+                excess_risk, "annualized_return", float(excess.mean() * 252)
             ),
             "information_ratio_with_cost": backtest_helper.risk_value(
                 excess_risk,

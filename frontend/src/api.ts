@@ -690,10 +690,14 @@ const parseHistoricalBacktest = (value: unknown, path: string): HistoricalBackte
     return null
   }
   const evaluationSplit = string(item.evaluation_split, `${path}.evaluation_split`)
-  if (evaluationSplit !== 'validation_2025' && evaluationSplit !== 'test_viewed_2026') {
+  if (
+    evaluationSplit !== 'validation_2025' &&
+    evaluationSplit !== 'test_viewed_2026' &&
+    evaluationSplit !== 'test_viewed_official_v3'
+  ) {
     throw new ApiContractError(`${path}.evaluation_split 不符合封存契约`)
   }
-  const finalTest = evaluationSplit === 'test_viewed_2026'
+  const finalTest = evaluationSplit !== 'validation_2025'
   const legacy = item.strategy_variant_id === undefined
   const strategyVariant = legacy
     ? 'official_top50'
@@ -705,11 +709,18 @@ const parseHistoricalBacktest = (value: unknown, path: string): HistoricalBackte
   const historicalTop3 = strategyVariant === 'historical_top3'
   const trackKind = enumValue(
     item.track_kind,
-    ['OFFICIAL_DEMO_METHOD_EXTENDED_PIT', 'HISTORICAL_MODEL_MATRIX'],
+    [
+      'OFFICIAL_DEMO_METHOD_EXTENDED_PIT',
+      'HISTORICAL_MODEL_MATRIX',
+      'OFFICIAL_SPLIT_V3_MODEL_MATRIX',
+    ],
     `${path}.track_kind`,
   )
-  const matrix = trackKind === 'HISTORICAL_MODEL_MATRIX'
-  const expectedRole = matrix
+  const matrix = trackKind !== 'OFFICIAL_DEMO_METHOD_EXTENDED_PIT'
+  const officialV3 = trackKind === 'OFFICIAL_SPLIT_V3_MODEL_MATRIX'
+  const expectedRole = officialV3
+    ? 'OPENED_ROLLING_TEST_MODEL_STRATEGY_DIAGNOSTIC'
+    : matrix
     ? finalTest
       ? 'POST_HOC_OPENED_MODEL_STRATEGY_DIAGNOSTIC'
       : 'POST_HOC_MODEL_STRATEGY_COMPARISON'
@@ -885,9 +896,10 @@ const parseHistoricalBacktestEnvelope = (
     object(entry, `historical_backtests.backtests[${index}]`).strategy_variant_id === undefined,
   )
   const matrix = entries.length === 24
+  const officialV3 = entries.length === 8
   if (
     !available ||
-    (legacy ? ![1, 2].includes(entries.length) : ![4, 24].includes(entries.length))
+    (legacy ? ![1, 2].includes(entries.length) : ![4, 8, 24].includes(entries.length))
   ) {
     throw new ApiContractError('historical_backtests 可用状态与封存条目不一致')
   }
@@ -910,10 +922,15 @@ const parseHistoricalBacktestEnvelope = (
           'base-official-ft',
           'base-strict-pit',
         ]
-      : ['small-official-ft']
+      : officialV3
+        ? ['small-zero-shot', 'small-official-ft', 'base-zero-shot', 'base-official-ft']
+        : ['small-official-ft']
+    const splits = officialV3
+      ? ['test_viewed_official_v3']
+      : ['validation_2025', 'test_viewed_2026']
     const expectedPairs = new Set(
       models.flatMap((model) =>
-        ['validation_2025', 'test_viewed_2026'].flatMap((split) =>
+        splits.flatMap((split) =>
           ['official_top50', 'historical_top3'].map(
             (variant) => `${model}:${split}:${variant}`,
           ),
@@ -923,7 +940,11 @@ const parseHistoricalBacktestEnvelope = (
     if (pairs.some((pair) => !expectedPairs.has(pair))) {
       throw new ApiContractError('historical_backtests 不是完整的 2×2 封存矩阵')
     }
-    const comparisonGroup = matrix ? 'six-model-top50-top3-v1' : 'top50-vs-top3-v1'
+    const comparisonGroup = matrix
+      ? 'six-model-top50-top3-v1'
+      : officialV3
+        ? 'official-split-v3-top50-top3-v1'
+        : 'top50-vs-top3-v1'
     if (backtests.some((entry) => entry.comparison_group_id !== comparisonGroup)) {
       throw new ApiContractError('historical_backtests comparison_group_id 不符合封存契约')
     }

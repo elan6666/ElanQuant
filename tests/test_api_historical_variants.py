@@ -9,6 +9,14 @@ from fastapi.testclient import TestClient
 
 import elanquant.api.app as api
 from elanquant.settings import Settings
+from scripts.research.official_split_v3 import (
+    BACKTEST_SCHEMA as OFFICIAL_V3_BACKTEST_SCHEMA,
+)
+from scripts.research.official_split_v3 import (
+    HISTORICAL_SCHEMA as OFFICIAL_V3_HISTORICAL_SCHEMA,
+)
+from scripts.research.official_split_v3 import STRATEGIES as OFFICIAL_V3_STRATEGIES
+from scripts.research.official_split_v3 import canonical_hash as official_v3_hash
 
 SPLITS = {
     "validation_2025": (
@@ -106,6 +114,165 @@ def metric() -> dict[str, float]:
         "total_cost": 0.001,
         "turnover_mean": 0.1,
     }
+
+
+def seal_official_v3(payload: dict[str, object]) -> dict[str, object]:
+    payload["receipt_hash"] = official_v3_hash(payload)
+    return payload
+
+
+def publish_official_v3(tmp_path: Path) -> tuple[Settings, list[dict[str, object]]]:
+    active = settings(tmp_path)
+    entries: list[dict[str, object]] = []
+    for model_cell in (
+        "small-zero-shot",
+        "small-official-ft",
+        "base-zero-shot",
+        "base-official-ft",
+    ):
+        signal_sha = api.hashlib.sha256(model_cell.encode()).hexdigest()
+        for variant in ("official_top50", "historical_top3"):
+            identifier = f"official-split-v3-{model_cell}-test-viewed-{variant}-v1"
+            output = tmp_path / "runs" / identifier
+            output.mkdir(parents=True)
+            daily = output / "daily-series.csv"
+            with daily.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=[
+                        "datetime",
+                        "signal",
+                        "return",
+                        "cost",
+                        "benchmark",
+                        "turnover",
+                        "position_count",
+                        "strategy_with_cost",
+                        "benchmark_curve",
+                        "excess_with_cost",
+                    ],
+                )
+                writer.writeheader()
+                for signal in ("last", "max", "mean", "min"):
+                    writer.writerow(
+                        {
+                            "datetime": "2026-08-13",
+                            "signal": signal,
+                            "return": "0.01",
+                            "cost": "0.001",
+                            "benchmark": "0.005",
+                            "turnover": "0.1",
+                            "position_count": "3",
+                            "strategy_with_cost": "0.009",
+                            "benchmark_curve": "0.005",
+                            "excess_with_cost": "0.004",
+                        }
+                    )
+            raw = output / "raw-report.csv"
+            raw.write_text("datetime,signal\n", encoding="utf-8")
+            holdings = output / "daily-holdings.csv"
+            write_holdings(holdings, 2026)
+            metrics = {signal: metric() for signal in ("mean", "last", "max", "min")}
+            receipt = seal_official_v3(
+                {
+                    "schema_version": OFFICIAL_V3_BACKTEST_SCHEMA,
+                    "status": "PASS",
+                    "id": identifier,
+                    "generated_at": "2026-08-14T00:00:00+00:00",
+                    "model_cell_id": model_cell,
+                    "evaluation_split": "test_viewed_official_v3",
+                    "strategy_variant_id": variant,
+                    "strategy": OFFICIAL_V3_STRATEGIES[variant],
+                    "execution": {
+                        "account": 100_000_000,
+                        "benchmark": "SH000300",
+                        "delay_execution": True,
+                        "deal_price": "open",
+                        "open_cost": 0.001,
+                        "close_cost": 0.0015,
+                        "min_cost": 5,
+                        "limit_threshold": 0.095,
+                    },
+                    "primary_signal": "mean",
+                    "sample_count": 5,
+                    "test_status": "TEST_VIEWED",
+                    "test_data_access": "VIEWED",
+                    "selection_eligible": False,
+                    "used_for_selection": False,
+                    "promotion_eligible": False,
+                    "online_paper_equivalent": False,
+                    "result_role": "OPENED_ROLLING_TEST_MODEL_STRATEGY_DIAGNOSTIC",
+                    "analysis_lock_sha256": "a" * 64,
+                    "source_signal_receipt_sha256": "b" * 64,
+                    "source_signal_sha256": signal_sha,
+                    "provider_receipt_sha256": "c" * 64,
+                    "backtest_code_sha256": "d" * 64,
+                    "qlib": {
+                        "version": "0.9.7",
+                        "metadata_sha256": "e" * 64,
+                        "record_sha256": "f" * 64,
+                        "source_tree_sha256": "1" * 64,
+                    },
+                    "curve_semantics": {
+                        "official": "additive",
+                        "derived": "compounded",
+                    },
+                    "deviations": ["test fixture"],
+                    "observability": {
+                        "turnover_exposed": True,
+                        "position_count_exposed": True,
+                    },
+                    "daily_series_path": daily.relative_to(tmp_path).as_posix(),
+                    "daily_series_sha256": api.sha256_file(daily),
+                    "raw_report_path": raw.relative_to(tmp_path).as_posix(),
+                    "raw_report_sha256": api.sha256_file(raw),
+                    "holdings_path": holdings.relative_to(tmp_path).as_posix(),
+                    "holdings_sha256": api.sha256_file(holdings),
+                    "support": {
+                        "signal_rows": 300,
+                        "sessions": 1,
+                        "signal_cross_sections": 1,
+                        "actual_start": "2026-08-13",
+                        "actual_end": "2026-08-13",
+                    },
+                    "metrics": metrics,
+                }
+            )
+            receipt_path = output / "backtest-receipt.json"
+            receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+            entries.append(
+                {
+                    "id": identifier,
+                    "model_cell_id": model_cell,
+                    "evaluation_split": "test_viewed_official_v3",
+                    "strategy_variant_id": variant,
+                    "strategy": OFFICIAL_V3_STRATEGIES[variant],
+                    "sample_count": 5,
+                    "test_status": "TEST_VIEWED",
+                    "used_for_selection": False,
+                    "promotion_eligible": False,
+                    "signal_sha256": signal_sha,
+                    "holdings_sha256": api.sha256_file(holdings),
+                    "receipt_path": receipt_path.relative_to(tmp_path).as_posix(),
+                    "receipt_sha256": api.sha256_file(receipt_path),
+                    "support": receipt["support"],
+                    "metrics": metrics,
+                    "summary": metrics["mean"],
+                }
+            )
+    catalog = seal_official_v3(
+        {
+            "schema_version": OFFICIAL_V3_HISTORICAL_SCHEMA,
+            "status": "PASS",
+            "generated_at": "2026-08-14T00:00:00+00:00",
+            "analysis_lock_sha256": "a" * 64,
+            "provider_receipt_sha256": "c" * 64,
+            "entries": entries,
+        }
+    )
+    active.historical_backtest_catalog.parent.mkdir(parents=True)
+    active.historical_backtest_catalog.write_text(json.dumps(catalog), encoding="utf-8")
+    return active, entries
 
 
 def publish_four(tmp_path: Path) -> tuple[Settings, list[dict[str, object]]]:
@@ -511,3 +678,42 @@ def test_holdings_empty_session_and_artifact_tamper(
     artifact_path.write_text("tampered", encoding="utf-8")
     assert client.get(f"/api/v1/research/backtests/{entry['id']}/holdings").status_code == 503
     assert client.get("/api/v1/research/backtests").status_code == 200
+
+
+def test_official_split_v3_exposes_exact_eight_series_and_holdings(tmp_path: Path) -> None:
+    active, entries = publish_official_v3(tmp_path)
+    client = TestClient(api.create_app(active))
+
+    response = client.get("/api/v1/research/backtests")
+    assert response.status_code == 200
+    backtests = response.json()["backtests"]
+    assert len(backtests) == 8
+    assert {
+        (item["model_cell_id"], item["strategy_variant_id"])
+        for item in backtests
+    } == {
+        (model, variant)
+        for model in (
+            "small-zero-shot",
+            "small-official-ft",
+            "base-zero-shot",
+            "base-official-ft",
+        )
+        for variant in ("official_top50", "historical_top3")
+    }
+    identifier = str(entries[0]["id"])
+    series = client.get(f"/api/v1/research/backtests/{identifier}/series?signal=mean")
+    assert series.status_code == 200
+    point = series.json()["points"][0]
+    assert point["session"] == "2026-08-13"
+    assert point["strategy"] == pytest.approx(0.009)
+    assert point["benchmark"] == pytest.approx(0.005)
+    assert point["excess"] == pytest.approx(0.004)
+    assert point["strategy_nav"] == pytest.approx(1.009)
+    assert point["benchmark_nav"] == pytest.approx(1.005)
+    assert point["turnover"] == pytest.approx(0.1)
+    assert point["position_count"] == 3.0
+    holdings = client.get(f"/api/v1/research/backtests/{identifier}/holdings")
+    assert holdings.status_code == 200
+    assert holdings.json()["selected_session"] == "2026-01-05"
+    assert holdings.json()["holdings"][0]["instrument"] == "600000.SH"

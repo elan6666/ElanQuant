@@ -44,6 +44,18 @@ from elanquant.orchestration.jobs import JobStore
 from elanquant.pipelines.paper import ACCOUNT_ID
 from elanquant.settings import Settings
 from elanquant.storage.database import Database
+from scripts.research.official_split_v3 import (
+    BACKTEST_SCHEMA as OFFICIAL_SPLIT_V3_BACKTEST_SCHEMA,
+)
+from scripts.research.official_split_v3 import (
+    HISTORICAL_SCHEMA as OFFICIAL_SPLIT_V3_HISTORICAL_SCHEMA,
+)
+from scripts.research.official_split_v3 import (
+    validate_backtest_receipt as validate_official_split_v3_backtest,
+)
+from scripts.research.official_split_v3 import (
+    validate_historical_catalog as validate_official_split_v3_historical,
+)
 
 HISTORICAL_CURVE_SEMANTICS = {
     "official": "Arithmetic cumulative sum of daily returns, matching qlib_test.py.",
@@ -77,6 +89,105 @@ def valid_sha256(value: object) -> bool:
         and len(value) == 64
         and all(character in "0123456789abcdef" for character in value.lower())
     )
+
+
+def official_split_v3_experiments(
+    payload: object, matrix_payload: object, evaluation_sha256: str
+) -> list[dict[str, object]]:
+    if not isinstance(payload, dict) or not isinstance(matrix_payload, dict):
+        raise RuntimeError("official-split-v3 catalog or matrix is not an object")
+    expected = {
+        f"{size}-{variant}"
+        for size in ("small", "base")
+        for variant in ("zero-shot", "official-ft")
+    }
+    for value, schema in (
+        (payload, "elanquant_kronos_rolling_evaluation_v3"),
+        (matrix_payload, "elanquant_kronos_four_cell_matrix_v3"),
+    ):
+        content = dict(value)
+        claimed = content.pop("receipt_hash", None)
+        if (
+            value.get("schema_version") != schema
+            or value.get("status") != "PASS"
+            or not valid_sha256(claimed)
+            or canonical_hash(content) != claimed
+        ):
+            raise RuntimeError(f"official-split-v3 evidence is not sealed: {schema}")
+    if (
+        payload.get("test_status") != "TEST_VIEWED"
+        or payload.get("used_for_selection") is not False
+        or payload.get("promotion_eligible") is not False
+    ):
+        raise RuntimeError("official-split-v3 evaluation firewall is invalid")
+    entries = payload.get("entries")
+    matrix_cells = matrix_payload.get("cells")
+    if (
+        not isinstance(entries, list)
+        or not all(isinstance(row, dict) for row in entries)
+        or {str(row.get("model_cell_id")) for row in entries} != expected
+        or not isinstance(matrix_cells, list)
+        or not all(isinstance(row, dict) for row in matrix_cells)
+        or {str(row.get("id")) for row in matrix_cells} != expected
+    ):
+        raise RuntimeError("official-split-v3 evidence is not the exact four-cell matrix")
+    cells = {str(row["id"]): row for row in matrix_cells}
+    experiments: list[dict[str, object]] = []
+    common_support: tuple[int, int] | None = None
+    for entry in entries:
+        model_id = str(entry["model_cell_id"])
+        metrics, support = entry.get("metrics"), entry.get("support")
+        cell = cells[model_id]
+        if not isinstance(metrics, dict) or not isinstance(support, dict):
+            raise RuntimeError(f"official-split-v3 metrics are missing: {model_id}")
+        if not all(
+            not isinstance(metrics.get(name), bool)
+            and isinstance(metrics.get(name), (int, float))
+            and math.isfinite(float(metrics[name]))
+            for name in ("rank_ic", "ic", "top10_mean_return")
+        ):
+            raise RuntimeError(f"official-split-v3 metrics are invalid: {model_id}")
+        rows, sections = support.get("rows"), support.get("sessions")
+        if (
+            not isinstance(rows, int)
+            or rows <= 0
+            or not isinstance(sections, int)
+            or sections <= 0
+            or not valid_sha256(entry.get("signal_sha256"))
+            or not all(
+                valid_sha256(cell.get(field))
+                for field in ("predictor_sha256", "tokenizer_sha256", "config_sha256")
+            )
+        ):
+            raise RuntimeError(f"official-split-v3 identity is invalid: {model_id}")
+        signature = (rows, sections)
+        if common_support is not None and signature != common_support:
+            raise RuntimeError("official-split-v3 cells do not share common support")
+        common_support = signature
+        split = {
+            "rank_ic": metrics["rank_ic"],
+            "pearson_ic": metrics["ic"],
+            "top10_mean_return": metrics["top10_mean_return"],
+            "rows": rows,
+            "cross_sections": sections,
+            "anchor_set_sha256": entry["signal_sha256"],
+        }
+        experiments.append(
+            {
+                "id": model_id,
+                "model_size": "small" if model_id.startswith("small-") else "base",
+                "track": "zero_shot" if model_id.endswith("zero-shot") else "official_style",
+                "state": "passed",
+                "rank_ic": metrics["rank_ic"],
+                "pearson_ic": metrics["ic"],
+                "top10_mean_return": metrics["top10_mean_return"],
+                "model_hash": cell["predictor_sha256"],
+                "receipt": evaluation_sha256,
+                "note": "Rolling test 已查看；只描述结果，不用于选模或上线提升。",
+                "evaluations": {"test_viewed_official_v3": split},
+            }
+        )
+    return sorted(experiments, key=lambda item: str(item["id"]))
 
 
 def validate_research_catalog(payload: object) -> dict[str, object]:
@@ -314,19 +425,34 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         split = receipt.get(
             "evaluation_split", entry.get("evaluation_split", entry.get("selection_split"))
         )
-        if split not in {"validation_2025", "test_viewed_2026"}:
+        if split not in {
+            "validation_2025",
+            "test_viewed_2026",
+            "test_viewed_official_v3",
+        }:
             raise RuntimeError("historical public split identity is invalid")
         top50 = receipt["strategy"].get("topk") == 50
-        matrix = receipt.get("schema_version") == HISTORICAL_MATRIX_BACKTEST_SCHEMA
+        matrix = receipt.get("schema_version") in {
+            HISTORICAL_MATRIX_BACKTEST_SCHEMA,
+            OFFICIAL_SPLIT_V3_BACKTEST_SCHEMA,
+        }
         source_backtest_id = None
         comparison_group_id = "top50-vs-top3-v1"
         if matrix:
-            comparison_group_id = "six-model-top50-top3-v1"
+            comparison_group_id = (
+                "official-split-v3-top50-top3-v1"
+                if receipt.get("schema_version") == OFFICIAL_SPLIT_V3_BACKTEST_SCHEMA
+                else "six-model-top50-top3-v1"
+            )
             if not top50:
-                source_backtest_id = historical_matrix_backtest_id(
-                    str(receipt["model_cell_id"]),
-                    str(split),
-                    "official_top50",
+                source_backtest_id = (
+                    str(receipt["id"]).replace("historical_top3", "official_top50")
+                    if receipt.get("schema_version") == OFFICIAL_SPLIT_V3_BACKTEST_SCHEMA
+                    else historical_matrix_backtest_id(
+                        str(receipt["model_cell_id"]),
+                        str(split),
+                        "official_top50",
+                    )
                 )
         elif not top50:
             source_backtest_id = receipt.get("source_backtest_id")
@@ -363,11 +489,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return None, {}
         try:
             raw_catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
-            catalog = (
-                validate_matrix_catalog(raw_catalog)
-                if raw_catalog.get("schema_version") == HISTORICAL_MATRIX_CATALOG_SCHEMA
-                else validate_historical_catalog(raw_catalog)
-            )
+            if raw_catalog.get("schema_version") == HISTORICAL_MATRIX_CATALOG_SCHEMA:
+                catalog = validate_matrix_catalog(raw_catalog)
+            elif raw_catalog.get("schema_version") == OFFICIAL_SPLIT_V3_HISTORICAL_SCHEMA:
+                catalog = validate_official_split_v3_historical(raw_catalog)
+            else:
+                catalog = validate_historical_catalog(raw_catalog)
             root = catalog_path.parent.parent.resolve()
             loaded: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
             for entry in catalog["entries"]:
@@ -377,12 +504,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 if sha256_file(receipt_path) != entry["receipt_sha256"]:
                     raise RuntimeError("historical backtest receipt hash mismatch")
                 raw_receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-                receipt = (
-                    validate_matrix_backtest_receipt(raw_receipt)
-                    if raw_receipt.get("schema_version")
-                    == HISTORICAL_MATRIX_BACKTEST_SCHEMA
-                    else validate_any_backtest_receipt(raw_receipt)
-                )
+                if raw_receipt.get("schema_version") == HISTORICAL_MATRIX_BACKTEST_SCHEMA:
+                    receipt = validate_matrix_backtest_receipt(raw_receipt)
+                elif raw_receipt.get("schema_version") == OFFICIAL_SPLIT_V3_BACKTEST_SCHEMA:
+                    receipt = validate_official_split_v3_backtest(raw_receipt)
+                else:
+                    receipt = validate_any_backtest_receipt(raw_receipt)
                 summary = entry["summary"]
                 if (
                     receipt["id"] != entry["id"]
@@ -445,7 +572,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "track_kind": receipt.get(
                 "track_kind",
                 (
-                    "HISTORICAL_MODEL_MATRIX"
+                    "OFFICIAL_SPLIT_V3_MODEL_MATRIX"
+                    if receipt.get("schema_version") == OFFICIAL_SPLIT_V3_BACKTEST_SCHEMA
+                    else "HISTORICAL_MODEL_MATRIX"
                     if receipt.get("schema_version") == HISTORICAL_MATRIX_BACKTEST_SCHEMA
                     else "OFFICIAL_DEMO_METHOD_EXTENDED_PIT"
                 ),
@@ -480,7 +609,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         evaluation_split = receipt.get(
             "evaluation_split", entry.get("evaluation_split", entry.get("selection_split"))
         )
-        if evaluation_split not in {"validation_2025", "test_viewed_2026"}:
+        if evaluation_split not in {
+            "validation_2025",
+            "test_viewed_2026",
+            "test_viewed_official_v3",
+        }:
             raise RuntimeError("historical public split identity is invalid")
         result.update(
             {
@@ -814,6 +947,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 status_code=503, detail="Research catalog could not be read safely"
             ) from error
         try:
+            if (
+                isinstance(payload, dict)
+                and payload.get("schema_version") == "elanquant_kronos_rolling_evaluation_v3"
+            ):
+                matrix_payload = json.loads(
+                    active_settings.matrix_receipt.read_text(encoding="utf-8")
+                )
+                experiments = official_split_v3_experiments(
+                    payload, matrix_payload, sha256_file(active_settings.research_catalog)
+                )
+                return {"generated_at": None, "experiments": experiments}
             validated = validate_research_catalog(payload)
         except (KeyError, RuntimeError, TypeError, ValueError) as error:
             raise HTTPException(
@@ -864,22 +1008,45 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if signal not in OFFICIAL_DEMO_SIGNALS:
             raise HTTPException(status_code=422, detail="Unsupported official demo signal")
         root = active_settings.historical_backtest_catalog.resolve().parent.parent
-        artifact = receipt["artifacts"]["daily_series"]
+        official_v3 = receipt.get("schema_version") == OFFICIAL_SPLIT_V3_BACKTEST_SCHEMA
+        artifact = (
+            {
+                "path": receipt["daily_series_path"],
+                "sha256": receipt["daily_series_sha256"],
+            }
+            if official_v3
+            else receipt["artifacts"]["daily_series"]
+        )
         artifact_path = (root / str(artifact["path"])).resolve()
         if root not in artifact_path.parents or not artifact_path.is_file():
             raise HTTPException(status_code=503, detail="Historical series is unavailable")
         if sha256_file(artifact_path) != artifact["sha256"]:
             raise HTTPException(status_code=503, detail="Historical series hash mismatch")
-        required = {
-            "datetime",
-            "signal",
-            "additive_strategy_with_cost",
-            "additive_benchmark",
-            "additive_excess_with_cost",
-            "compounded_strategy_nav",
-            "compounded_benchmark_nav",
-        }
+        required = (
+            {
+                "datetime",
+                "signal",
+                "return",
+                "cost",
+                "benchmark",
+                "strategy_with_cost",
+                "benchmark_curve",
+                "excess_with_cost",
+            }
+            if official_v3
+            else {
+                "datetime",
+                "signal",
+                "additive_strategy_with_cost",
+                "additive_benchmark",
+                "additive_excess_with_cost",
+                "compounded_strategy_nav",
+                "compounded_benchmark_nav",
+            }
+        )
         points: list[dict[str, object]] = []
+        strategy_nav = 1.0
+        benchmark_nav = 1.0
         try:
             with artifact_path.open(encoding="utf-8", newline="") as handle:
                 reader = csv.DictReader(handle)
@@ -888,13 +1055,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 for row in reader:
                     if row["signal"] != signal:
                         continue
-                    values = {
-                        "strategy": float(row["additive_strategy_with_cost"]),
-                        "benchmark": float(row["additive_benchmark"]),
-                        "excess": float(row["additive_excess_with_cost"]),
-                        "strategy_nav": float(row["compounded_strategy_nav"]),
-                        "benchmark_nav": float(row["compounded_benchmark_nav"]),
-                    }
+                    if official_v3:
+                        daily_return = float(row["return"])
+                        daily_cost = float(row["cost"])
+                        daily_benchmark = float(row["benchmark"])
+                        strategy_nav *= 1.0 + daily_return - daily_cost
+                        benchmark_nav *= 1.0 + daily_benchmark
+                        values = {
+                            "strategy": float(row["strategy_with_cost"]),
+                            "benchmark": float(row["benchmark_curve"]),
+                            "excess": float(row["excess_with_cost"]),
+                            "strategy_nav": strategy_nav,
+                            "benchmark_nav": benchmark_nav,
+                        }
+                    else:
+                        values = {
+                            "strategy": float(row["additive_strategy_with_cost"]),
+                            "benchmark": float(row["additive_benchmark"]),
+                            "excess": float(row["additive_excess_with_cost"]),
+                            "strategy_nav": float(row["compounded_strategy_nav"]),
+                            "benchmark_nav": float(row["compounded_benchmark_nav"]),
+                        }
                     if not all(math.isfinite(value) for value in values.values()):
                         raise RuntimeError("historical series contains a non-finite value")
                     optional_values: dict[str, float | None] = {}
@@ -943,6 +1124,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if selected is None:
             raise HTTPException(status_code=404, detail="Historical backtest not found")
         entry, receipt = selected
+        official_v3 = receipt.get("schema_version") == OFFICIAL_SPLIT_V3_BACKTEST_SCHEMA
         holdings_pointer = entry.get("holdings")
         sidecar_holdings = isinstance(holdings_pointer, dict) and set(
             holdings_pointer
@@ -950,6 +1132,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         matrix_holdings = isinstance(holdings_pointer, dict) and set(
             holdings_pointer
         ) == {"artifact_path", "artifact_sha256"}
+        if official_v3:
+            holdings_pointer = {
+                "artifact_path": receipt["holdings_path"],
+                "artifact_sha256": receipt["holdings_sha256"],
+            }
+            matrix_holdings = True
         if not sidecar_holdings and not matrix_holdings:
             raise HTTPException(
                 status_code=404,
@@ -963,7 +1151,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         root = active_settings.historical_backtest_catalog.resolve().parent.parent
         if matrix_holdings:
-            artifact = receipt.get("artifacts", {}).get("holdings")
+            artifact = (
+                {
+                    "path": receipt["holdings_path"],
+                    "sha256": receipt["holdings_sha256"],
+                    "schema_version": "elanquant_historical_model_holdings_v1",
+                    "columns": list(HOLDINGS_COLUMNS),
+                    "sessions": receipt["support"]["sessions"],
+                }
+                if official_v3
+                else receipt.get("artifacts", {}).get("holdings")
+            )
             if (
                 not isinstance(artifact, dict)
                 or artifact.get("path") != holdings_pointer.get("artifact_path")
@@ -1030,11 +1228,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ) from error
         artifact_path = (root / str(artifact.get("path"))).resolve()
         try:
+            artifact_bytes = artifact_path.stat().st_size
             if (
                 root not in artifact_path.parents
                 or not artifact_path.is_file()
-                or artifact_path.stat().st_size != artifact.get("bytes")
-                or artifact_path.stat().st_size > 64_000_000
+                or (
+                    not official_v3
+                    and artifact_bytes != artifact.get("bytes")
+                )
+                or artifact_bytes > 64_000_000
                 or not valid_sha256(artifact.get("sha256"))
                 or sha256_file(artifact_path) != artifact["sha256"]
                 or artifact.get("schema_version")
@@ -1044,7 +1246,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 }
                 or artifact.get("columns")
                 != list(HOLDINGS_COLUMNS)
-                or artifact.get("rows", 200_001) > 200_000
+                or (
+                    not official_v3
+                    and artifact.get("rows", 200_001) > 200_000
+                )
                 or artifact.get("sessions", 1_001) > 1000
             ):
                 raise RuntimeError("historical holdings evidence mismatch")
@@ -1095,15 +1300,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 rows,
                 expected_sessions=artifact["sessions"],
             )
-            if any(
-                observed_support[identity] != artifact[identity]
-                for identity in (
+            support_fields = (
+                ("sessions",)
+                if official_v3
+                else (
                     "rows",
                     "sessions",
                     "session_signal_pairs",
                     "empty_session_signal_pairs",
                 )
-            ):
+            )
+            if any(observed_support[identity] != artifact[identity] for identity in support_fields):
                 raise RuntimeError("historical holdings support receipt disagrees")
         except (OSError, TypeError, ValueError, RuntimeError) as error:
             raise HTTPException(

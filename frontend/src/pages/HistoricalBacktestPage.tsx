@@ -69,20 +69,23 @@ export function HistoricalBacktestPage({
   ) => Promise<HistoricalHoldingsSnapshot | null>
 }) {
   const [selectedSplit, setSelectedSplit] = useState<
-    'validation_2025' | 'test_viewed_2026'
-  >('test_viewed_2026')
+    'validation_2025' | 'test_viewed_2026' | 'test_viewed_official_v3'
+  >('test_viewed_official_v3')
   const [selectedStrategy, setSelectedStrategy] = useState<HistoricalStrategyVariant>(
     'official_top50',
   )
   const [selectedModel, setSelectedModel] = useState<HistoricalModelCell>('small-official-ft')
   const publicBacktests = backtests.filter((entry) => publicModelIds.has(entry.model_cell_id))
+  const officialSplitV3 = publicBacktests.some(
+    (entry) => entry.evaluation_split === 'test_viewed_official_v3',
+  )
   const activeModel = publicBacktests.some((entry) => entry.model_cell_id === selectedModel)
     ? selectedModel
     : (publicBacktests[0]?.model_cell_id ?? 'small-official-ft')
   const modelBacktests = publicBacktests.filter((entry) => entry.model_cell_id === activeModel)
   const activeSplit = modelBacktests.some((entry) => entry.evaluation_split === selectedSplit)
     ? selectedSplit
-    : 'validation_2025'
+    : modelBacktests[0]?.evaluation_split ?? selectedSplit
   const splitBacktests = modelBacktests.filter((entry) => entry.evaluation_split === activeSplit)
   const backtest =
     splitBacktests.find((entry) => entry.strategy_variant_id === selectedStrategy) ??
@@ -102,11 +105,19 @@ export function HistoricalBacktestPage({
         <div>
           <span className="eyebrow">04 / Official-demo method</span>
           <h1>历史组合 <span className="title-phrase">对照回测</span></h1>
-          <p>四个公开模型版本分别使用自己的预测信号，交叉查看两个评估期与 Top50 / Top3 组合。结果只作研究比较，不自动选模或改动在线账户。</p>
+          <p>
+            {officialSplitV3
+              ? '四个公开模型版本分别使用自己的预测信号，在官方日期分割的 Rolling Test 上比较 Top50 / Top3 组合。结果只作已查看测试的研究比较，不用于选模或改动在线账户。'
+              : '四个公开模型版本分别使用自己的预测信号，交叉查看两个评估期与 Top50 / Top3 组合。结果只作研究比较，不自动选模或改动在线账户。'}
+          </p>
         </div>
         <div className="identity-card identity-card--backtest">
           <span>轨道身份</span>
-          <strong>4 MODELS × 2 SPLITS × 2 PORTFOLIOS</strong>
+          <strong>
+            {officialSplitV3
+              ? '4 MODELS × 1 ROLLING TEST × 2 PORTFOLIOS'
+              : '4 MODELS × 2 SPLITS × 2 PORTFOLIOS'}
+          </strong>
           <small>历史 Qlib 模拟 · 只读回执 · 不生成在线订单</small>
         </div>
       </header>
@@ -159,6 +170,7 @@ export function HistoricalBacktestPage({
           </section>
           <div className="backtest-split-tabs" role="group" aria-label="历史回测评估分区">
             {([
+              ['test_viewed_official_v3', '官方分割 Rolling Test（已查看）'],
               ['test_viewed_2026', '2026 已开封样本外诊断（已修正）'],
               ['validation_2025', '2025 训练验证 / checkpoint 选择'],
             ] as const).map(([split, label]) => {
@@ -237,7 +249,8 @@ function BacktestEvidence({
   ) => Promise<HistoricalHoldingsSnapshot | null>
 }) {
   const primary = backtest.metrics.mean
-  const finalTest = backtest.evaluation_split === 'test_viewed_2026'
+  const finalTest = backtest.evaluation_split !== 'validation_2025'
+  const officialSplitV3 = backtest.evaluation_split === 'test_viewed_official_v3'
   const historicalTop3 = backtest.strategy_variant_id === 'historical_top3'
   const selectedSeries = historicalTop3 ? top3Series : officialSeries
   const positionCounts = selectedSeries
@@ -257,16 +270,22 @@ function BacktestEvidence({
         <Badge tone="success">
           {historicalTop3
             ? 'POST-HOC / NON-SELECTION'
-            : finalTest
+            : officialSplitV3
+              ? 'ROLLING TEST / VIEWED / NON-SELECTION'
+              : finalTest
               ? 'CORRECTED / OOS 2026 / OPENED'
               : 'TRAINING VALIDATION / 2025'}
         </Badge>
         <strong>
           {historicalTop3
             ? finalTest
-              ? '2026 窗口已开封；这是组合层的事后诊断，不用于选模'
+              ? officialSplitV3
+                ? '官方 Rolling Test 已查看；这是组合层的事后诊断，不用于选模'
+                : '2026 窗口已开封；这是组合层的事后诊断，不用于选模'
               : '2025 已在查看后构建；这是事后敏感性分析，不用于选模'
-            : finalTest
+            : officialSplitV3
+              ? '官方日期分割的 Rolling Test 已查看；只报告冻结结果，不用于选模或上线提升'
+              : finalTest
               ? '已修正未来成分/缺行条件；窗口已开封，只作样本外诊断，不是新的盲测'
               : '这一段参与 validation loss 和 best checkpoint 选择，不是最终测试'}
         </strong>
