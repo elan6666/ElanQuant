@@ -207,3 +207,26 @@
   frontend 12 Vitest PASS, ESLint, production build and npm audit PASS. Live
   API/security checks and deployed visual QA pass; independent design review is
   SHIP with no P0/P1/P2.
+
+## 2026-08-14 — Official split portability and build wave
+
+- Fetched and admitted the official raw slices through the frozen 2026-08-13
+  session, preserving raw-slice overlap only as lookback context and proving
+  effective 101-row train/validation and mature rolling-test boundaries.
+- Added exact Small/Base × zero-shot/official-FT contracts, retirement receipts
+  for old Strict PIT evidence, persistent two-GPU training, four-cell signal
+  evaluation and eight Top50/Top3 historical producers.
+- Added explicit Apple Silicon and Linux/NVIDIA execution identities with no
+  silent device fallback. Mac PyTorch 2.13 MPS and server PyTorch 2.13+cu130
+  RTX 5090 CUDA doctor/synthetic smoke receipts are PASS.
+- Added public BYO CSV/Parquet import, pinned official Tokenizer/Small/Base
+  weight verification, bootstrap, package metadata, data/license documentation
+  and three-level README reproduction instructions.
+- Simplified the dashboard to six pages and four public model cells; removed
+  Strict PIT selectors and operational prose, added visible numeric definitions
+  and a reference-price explanation for the 10-day predicted percentage.
+- Added v3 API/UI adapters for the exact four-model Rolling Test and all eight
+  historical Top50/Top3 receipts, including sealed daily series and holdings.
+- Current gates: frontend 22 tests, ESLint and build PASS; server 132 tests,
+  Ruff, compileall and scoped Pyright PASS. Wheel/sdist build and a clean Python
+  3.12 wheel install/data-import/bootstrap smoke PASS with no forbidden payloads.

@@ -9,7 +9,7 @@ review_verdict: pending
 iteration_count: 0
 harness_status: ready
 hard_blocked: false
-updated_at: 2026-08-14T15:54:00+08:00
+updated_at: 2026-08-14T18:40:00+08:00
 ---
 
 # Current State
@@ -71,6 +71,25 @@ Deliver a reproducible ElanQuant reset with official-date-aligned Small/Base
 fine-tuning, mature rolling-test evaluation, Top50 and Top3 historical studies,
 local/remote inference profiles, third-party bootstrap/data/weight workflows,
 and a simpler evidence-led web product while preserving the no-broker boundary.
+
+## Current build evidence
+
+Official-split-v3 raw data, dataset materialization and admission are PASS.
+Small Tokenizer and Predictor have completed 30 epochs with fresh terminal
+receipts. The preserved persistent training unit is now finishing Base; matrix,
+analysis-lock, four-model signal evaluation and eight Top50/Top3 backtests are
+durably queued behind it. The live r2 release has not been changed.
+
+Portable execution is implemented and verified on both target profiles:
+Apple Silicon reports PyTorch 2.13/MPS PASS and the Linux server reports
+PyTorch 2.13+cu130/RTX 5090 CUDA PASS. Both synthetic smoke receipts are finite
+and explicitly non-model tests. A clean wheel/sdist build contains no data,
+weights, checkpoint, database or token files; a fresh Python 3.12 wheel install
+successfully imports the bundled synthetic CSV and runs bootstrap dry-run.
+
+The official-v3 API/frontend adapter now reads exact four-model evaluation and
+eight historical entries, including sealed series and holdings. Frontend 22
+tests/lint/build PASS; server 132 tests, Ruff, compileall and scoped Pyright PASS.
 
 ## Open blockers
 

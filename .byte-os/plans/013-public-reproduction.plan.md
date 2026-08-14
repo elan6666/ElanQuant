@@ -1,9 +1,9 @@
 ---
 id: 013
 title: Public data, weights, bootstrap and package
-status: in_progress
+status: completed
 wave: 1
-updated_at: 2026-08-14T07:50:00Z
+updated_at: 2026-08-14T10:40:00Z
 owner_role: Developer Experience Engineer
 depends_on: []
 start_directory: .
