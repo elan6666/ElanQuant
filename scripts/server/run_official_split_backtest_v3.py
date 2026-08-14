@@ -7,6 +7,7 @@ import argparse
 import importlib.metadata
 import json
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -212,17 +213,46 @@ def main() -> int:
     result: dict[str, Any] = {
         "schema_version": BACKTEST_SCHEMA,
         "status": "PASS",
+        "id": (
+            f"official-split-v3-{args.model_cell}-test-viewed-"
+            f"{args.strategy_variant}-v1"
+        ),
+        "generated_at": datetime.now(UTC).isoformat(),
         "model_cell_id": args.model_cell,
+        "evaluation_split": "test_viewed_official_v3",
         "strategy_variant_id": args.strategy_variant,
         "strategy": STRATEGIES[args.strategy_variant],
+        "execution": EXPECTED_EXECUTION,
+        "primary_signal": "mean",
         "sample_count": 5,
         "test_status": "TEST_VIEWED",
+        "test_data_access": "VIEWED",
+        "selection_eligible": False,
         "used_for_selection": False,
         "promotion_eligible": False,
+        "online_paper_equivalent": False,
+        "result_role": "OPENED_ROLLING_TEST_MODEL_STRATEGY_DIAGNOSTIC",
         "analysis_lock_sha256": sha256(args.analysis_lock),
         "source_signal_receipt_sha256": sha256(args.signal_receipt),
         "source_signal_sha256": sha256(signal_path),
         "provider_receipt_sha256": sha256(provider_receipt_path),
+        "backtest_code_sha256": sha256(Path(__file__).resolve()),
+        "qlib": {
+            "version": importlib.metadata.version("pyqlib"),
+            "metadata_sha256": lock["qlib_metadata_sha256"],
+            "record_sha256": lock["qlib_record_sha256"],
+            "source_tree_sha256": lock["qlib_source_tree_sha256"],
+        },
+        "curve_semantics": {
+            "official": "Arithmetic cumulative sum of daily returns, matching qlib_test.py.",
+            "derived": "Compounded NAV is an ElanQuant instrumentation extension.",
+        },
+        "deviations": [
+            "Uses the admitted official-split-v3 A-share data and dynamic CSI300 universe.",
+            "Rolling test is already viewed and is never used for selection or promotion.",
+            "Historical Top3 is a Qlib portfolio-size sensitivity variant, not online paper Top3.",
+        ],
+        "observability": {"turnover_exposed": True, "position_count_exposed": True},
         "daily_series_path": daily_path.relative_to(root).as_posix(),
         "daily_series_sha256": sha256(daily_path),
         "raw_report_path": raw_path.relative_to(root).as_posix(),
@@ -232,6 +262,7 @@ def main() -> int:
         "support": {
             "signal_rows": len(signals),
             "sessions": sessions,
+            "signal_cross_sections": sessions,
             "actual_start": start,
             "actual_end": end,
         },

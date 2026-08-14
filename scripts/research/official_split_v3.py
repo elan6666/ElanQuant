@@ -520,8 +520,13 @@ def validate_backtest_receipt(payload: Mapping[str, Any]) -> dict[str, Any]:
         raise ContractError("backtest strategy or sample count mismatch")
     if (
         value.get("test_status") != "TEST_VIEWED"
+        or value.get("evaluation_split") != "test_viewed_official_v3"
+        or value.get("test_data_access") != "VIEWED"
+        or value.get("selection_eligible") is not False
         or value.get("used_for_selection") is not False
         or value.get("promotion_eligible") is not False
+        or value.get("online_paper_equivalent") is not False
+        or value.get("primary_signal") != "mean"
     ):
         raise ContractError("backtest test firewall mismatch")
     for field in (
@@ -529,11 +534,23 @@ def validate_backtest_receipt(payload: Mapping[str, Any]) -> dict[str, Any]:
         "source_signal_receipt_sha256",
         "source_signal_sha256",
         "provider_receipt_sha256",
+        "backtest_code_sha256",
         "daily_series_sha256",
         "raw_report_sha256",
         "holdings_sha256",
     ):
         _sha(value.get(field), field)
+    if not isinstance(value.get("id"), str) or not str(value["id"]).startswith(
+        f"official-split-v3-{cell}-test-viewed-{variant}-"
+    ):
+        raise ContractError("backtest public identity is invalid")
+    if value.get("execution") is None or value.get("sample_count") != 5:
+        raise ContractError("backtest execution or sampling identity is invalid")
+    qlib = value.get("qlib")
+    if not isinstance(qlib, Mapping):
+        raise ContractError("backtest Qlib identity missing")
+    for field in ("metadata_sha256", "record_sha256", "source_tree_sha256"):
+        _sha(qlib.get(field), f"qlib.{field}")
     metrics = value.get("metrics")
     if not isinstance(metrics, Mapping) or not metrics:
         raise ContractError("backtest metrics missing")

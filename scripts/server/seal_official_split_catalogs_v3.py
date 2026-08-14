@@ -119,7 +119,9 @@ def main() -> int:
                     raise RuntimeError(f"backtest artifact changed: {cell}/{variant}/{path_field}")
             historical_entries.append(
                 {
+                    "id": backtest["id"],
                     "model_cell_id": cell,
+                    "evaluation_split": backtest["evaluation_split"],
                     "strategy_variant_id": variant,
                     "strategy": STRATEGIES[variant],
                     "sample_count": 5,
@@ -132,6 +134,7 @@ def main() -> int:
                     "receipt_sha256": sha256(backtest_path),
                     "support": backtest["support"],
                     "metrics": backtest["metrics"],
+                    "summary": backtest["metrics"][backtest["primary_signal"]],
                 }
             )
     evaluation: dict[str, Any] = {
