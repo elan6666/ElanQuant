@@ -161,6 +161,7 @@ DATASET_ADMISSION="$DATASET_ADMISSION" \
 TRADE_CALENDAR="$TRADE_CALENDAR" \
 RESULTS_ROOT="$RESULTS_ROOT" \
 DEVICE=cuda:0 \
+SECONDARY_DEVICE=cuda:1 \
   "$SOURCE_ROOT/scripts/server/run_official_split_analysis_v3.sh"
 
 "$TRAINING_PYTHON" scripts/server/seal_official_split_catalogs_v3.py \

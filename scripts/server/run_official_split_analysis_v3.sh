@@ -12,6 +12,7 @@ DATASET_ADMISSION=${DATASET_ADMISSION:?}
 TRADE_CALENDAR=${TRADE_CALENDAR:?}
 RESULTS_ROOT=${RESULTS_ROOT:?}
 DEVICE=${DEVICE:-cuda:0}
+SECONDARY_DEVICE=${SECONDARY_DEVICE:-cuda:1}
 
 if [[ -e "$RESULTS_ROOT" ]]; then
   echo "immutable Plan011 results root already exists" >&2
@@ -19,9 +20,10 @@ if [[ -e "$RESULTS_ROOT" ]]; then
 fi
 mkdir -p "$RESULTS_ROOT/signals" "$RESULTS_ROOT/backtests"
 
-cells=(base-official-ft base-zero-shot small-official-ft small-zero-shot)
 variants=(historical_top3 official_top50)
-for cell in "${cells[@]}"; do
+run_cell() {
+  local cell=$1
+  local device=$2
   "$PYTHON_BIN" "$ELANQUANT_ROOT/source/scripts/server/run_official_split_signals_v3.py" \
     --root "$ELANQUANT_ROOT" \
     --upstream "$UPSTREAM_ROOT" \
@@ -31,7 +33,7 @@ for cell in "${cells[@]}"; do
     --dataset-admission "$DATASET_ADMISSION" \
     --trade-calendar "$TRADE_CALENDAR" \
     --model-cell "$cell" \
-    --device "$DEVICE" \
+    --device "$device" \
     --out-dir "$RESULTS_ROOT/signals/$cell"
   for variant in "${variants[@]}"; do
     "$PYTHON_BIN" "$ELANQUANT_ROOT/source/scripts/server/run_official_split_backtest_v3.py" \
@@ -43,4 +45,23 @@ for cell in "${cells[@]}"; do
       --qlib-site-packages "$QLIB_SITE_PACKAGES" \
       --out-dir "$RESULTS_ROOT/backtests/$cell/$variant"
   done
-done
+}
+
+# Keep one process per GPU while overlapping the two independent model-size
+# queues. Each cell still writes to its own immutable directory and each GPU
+# runs only one inference process at a time.
+(
+  run_cell base-official-ft "$DEVICE"
+  run_cell small-official-ft "$DEVICE"
+) &
+primary_pid=$!
+(
+  run_cell base-zero-shot "$SECONDARY_DEVICE"
+  run_cell small-zero-shot "$SECONDARY_DEVICE"
+) &
+secondary_pid=$!
+
+status=0
+wait "$primary_pid" || status=$?
+wait "$secondary_pid" || status=$?
+exit "$status"
