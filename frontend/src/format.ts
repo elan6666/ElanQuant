@@ -54,8 +54,10 @@ export const stageLabel: Record<JobStage, string> = {
   updating_data: '更新行情数据',
   validating_data: '验证数据与PIT',
   infer_small: 'Small模型推理',
+  infer_base: 'Base模型推理',
   scoring: '计算评分与排名',
   paper_ledger: '冻结模拟订单',
+  research_only: '保存研究结果',
   completed: '发布结果',
 }
 

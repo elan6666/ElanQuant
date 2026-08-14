@@ -12,7 +12,7 @@ from elanquant.execution import (
     SystemCapabilities,
     build_execution_receipt,
     load_execution_profile,
-    probe_system_capabilities,
+    probe_python_runtime,
     require_capability,
     restricted_process_environment,
     runtime_values,
@@ -31,7 +31,7 @@ class Worker:
     def __init__(
         self,
         settings: Settings,
-        capability_probe: Callable[[str], SystemCapabilities] = probe_system_capabilities,
+        capability_probe: Callable[[str], SystemCapabilities] | None = None,
     ):
         self.settings = settings
         self.capability_probe = capability_probe
@@ -76,7 +76,14 @@ class Worker:
                     profile,
                     str(queued["model_release"]),
                     str(queued["requested_device"]),
-                    self.capability_probe(str(queued["requested_device"])),
+                    (
+                        self.capability_probe(str(queued["requested_device"]))
+                        if self.capability_probe is not None
+                        else probe_python_runtime(
+                            self.settings.research_python,
+                            str(queued["requested_device"]),
+                        )
+                    ),
                     inference_batch_size=self.settings.inference_batch_size,
                 )
                 self.jobs.record_execution_receipt(queued_id, receipt)

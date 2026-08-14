@@ -59,6 +59,11 @@ from scripts.research.official_split_v3 import (
 from scripts.research.official_split_v3 import (
     validate_historical_catalog as validate_official_split_v3_historical,
 )
+from scripts.research.online_compatibility_v3 import (
+    COMPATIBILITY_RELEASE_SCHEMA,
+    validate_compatibility_release,
+    validate_compatibility_release_dir,
+)
 from scripts.research.online_release_v3 import validate_method_lock, validate_release
 
 HISTORICAL_CURVE_SEMANTICS = {
@@ -108,7 +113,11 @@ def official_split_v3_experiments(
         or not isinstance(release_payload, dict)
     ):
         raise RuntimeError("official-split-v3 catalog or matrix is not an object")
-    release = validate_release(release_payload)
+    release = (
+        validate_compatibility_release(release_payload)
+        if release_payload.get("schema_version") == COMPATIBILITY_RELEASE_SCHEMA
+        else validate_release(release_payload)
+    )
     if (
         release.get("training_matrix_sha256") != matrix_sha256
         or release.get("rolling_evaluation_sha256") != evaluation_sha256
@@ -907,7 +916,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             latest = connection.execute(
                 """
                 SELECT as_of_session, id, status
-                FROM inference_runs ORDER BY created_at DESC LIMIT 1
+                FROM inference_runs
+                WHERE COALESCE(paper_publication_state, '')
+                      != 'RESEARCH_ONLY_NOT_PUBLISHED'
+                ORDER BY created_at DESC LIMIT 1
                 """
             ).fetchone()
             snapshot = connection.execute(
@@ -932,6 +944,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 warnings.append("正式训练矩阵回执尚未发布。")
             if not active_settings.evaluation_receipt.is_file():
                 warnings.append("正式评估回执尚未发布。")
+        primary_model = None
+        if latest is not None and active_settings.matrix_receipt.is_file():
+            try:
+                matrix_schema = json.loads(
+                    active_settings.matrix_receipt.read_text(encoding="utf-8")
+                ).get("schema_version")
+            except (OSError, json.JSONDecodeError, AttributeError):
+                matrix_schema = None
+                warnings.append("训练矩阵回执无法安全解析。")
+            primary_model = (
+                f"{active_settings.model_release}-official-ft"
+                if matrix_schema == "elanquant_kronos_four_cell_matrix_v3"
+                else "small-strict-pit"
+                if matrix_schema == "elanquant_training_matrix_v2"
+                else None
+            )
         return {
             "status": "ok",
             "service_state": "ready" if worker_ready and not warnings else "degraded",
@@ -940,17 +968,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "data_as_of": data_session,
             "inference_as_of": latest_session,
             "active_job_id": None if active is None else str(active["id"]),
-            "primary_model": (
-                (
-                    f"{active_settings.model_release}-official-ft"
-                    if active_settings.matrix_receipt.is_file()
-                    and "elanquant_kronos_four_cell_matrix_v3"
-                    in active_settings.matrix_receipt.read_text(encoding="utf-8")[:256]
-                    else "small-strict-pit"
-                )
-                if latest is not None
-                else None
-            ),
+            "primary_model": primary_model,
             "warnings": warnings,
             "active_jobs": 0 if active is None else 1,
             "latest_run": None if latest is None else dict(latest),
@@ -1001,7 +1019,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 analysis_lock = validate_analysis_lock(
                     json.loads(analysis_lock_path.read_text(encoding="utf-8"))
                 )
-                release = validate_release(release_payload)
+                if release_payload.get("schema_version") == COMPATIBILITY_RELEASE_SCHEMA:
+                    source_root = active_settings.execution_profiles_root.resolve().parents[1]
+                    release, _, _ = validate_compatibility_release_dir(
+                        release_root,
+                        adapter_path=source_root
+                        / "scripts/server/adapt_online_snapshot_official_split_v3.py",
+                        fetcher_path=source_root / "scripts/server/fetch_online_snapshot.py",
+                    )
+                else:
+                    release = validate_release(release_payload)
                 matrix_sha = sha256_file(active_settings.matrix_receipt)
                 if (
                     release.get("online_method_lock_sha256") != sha256_file(method_lock_path)
@@ -1500,7 +1527,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             row = connection.execute(
                 """
                 SELECT * FROM inference_runs
-                WHERE status = 'SUCCEEDED' ORDER BY created_at DESC LIMIT 1
+                WHERE status = 'SUCCEEDED'
+                  AND COALESCE(paper_publication_state, '')
+                      != 'RESEARCH_ONLY_NOT_PUBLISHED'
+                ORDER BY created_at DESC LIMIT 1
                 """
             ).fetchone()
         if row is None:
@@ -2005,7 +2035,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             latest_run = connection.execute(
                 """
                 SELECT id, as_of_session, paper_publication_state, paper_publication_run_id
-                FROM inference_runs WHERE status = 'SUCCEEDED'
+                FROM inference_runs
+                WHERE status = 'SUCCEEDED'
+                  AND COALESCE(paper_publication_state, '')
+                      != 'RESEARCH_ONLY_NOT_PUBLISHED'
                 ORDER BY created_at DESC LIMIT 1
                 """
             ).fetchone()

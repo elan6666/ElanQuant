@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import importlib
+import json
 import os
 import platform
+import subprocess
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -186,6 +188,84 @@ def probe_system_capabilities(requested_device: str) -> SystemCapabilities:
         cuda_available=cuda_available,
         device_name=device_name,
     )
+
+
+def probe_python_runtime(python: Path, requested_device: str) -> SystemCapabilities:
+    """Probe the configured research interpreter instead of the lightweight app venv."""
+
+    if requested_device not in DEVICES:
+        raise ValueError(f"unsupported requested device: {requested_device}")
+    script = """
+import json
+import platform
+import sys
+
+try:
+    import torch
+except (ImportError, OSError):
+    torch = None
+
+mps_available = False
+cuda_available = False
+device_name = platform.processor() or platform.machine()
+if torch is not None:
+    mps = getattr(getattr(torch, "backends", None), "mps", None)
+    is_mps_available = getattr(mps, "is_available", None)
+    if callable(is_mps_available):
+        mps_available = bool(is_mps_available())
+    cuda = getattr(torch, "cuda", None)
+    is_cuda_available = getattr(cuda, "is_available", None)
+    if callable(is_cuda_available):
+        cuda_available = bool(is_cuda_available())
+    if sys.argv[1] == "cuda" and cuda_available:
+        get_device_name = getattr(cuda, "get_device_name", None)
+        if callable(get_device_name):
+            device_name = str(get_device_name(0))
+    elif sys.argv[1] == "mps" and mps_available:
+        device_name = "Apple Silicon MPS"
+
+print(json.dumps({
+    "operating_system": platform.system(),
+    "architecture": platform.machine().lower(),
+    "python_version": platform.python_version(),
+    "torch_version": None if torch is None else str(getattr(torch, "__version__", "unknown")),
+    "cpu_available": torch is not None,
+    "mps_available": mps_available,
+    "cuda_available": cuda_available,
+    "device_name": device_name,
+}, sort_keys=True))
+"""
+    completed = subprocess.run(
+        [str(python), "-c", script, requested_device],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env=sanitized_subprocess_environment(),
+    )
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout or "runtime probe failed")[-500:]
+        raise OSError(f"research runtime capability probe failed: {detail}")
+    try:
+        payload = json.loads(completed.stdout)
+        if not isinstance(payload, dict):
+            raise TypeError("capability payload is not an object")
+        return SystemCapabilities(
+            operating_system=str(payload["operating_system"]),
+            architecture=str(payload["architecture"]),
+            python_version=str(payload["python_version"]),
+            torch_version=(
+                None if payload["torch_version"] is None else str(payload["torch_version"])
+            ),
+            cpu_available=bool(payload["cpu_available"]),
+            mps_available=bool(payload["mps_available"]),
+            cuda_available=bool(payload["cuda_available"]),
+            device_name=(
+                None if payload["device_name"] is None else str(payload["device_name"])
+            ),
+        )
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+        raise OSError("research runtime capability probe returned invalid JSON") from error
 
 
 def build_execution_receipt(

@@ -9,7 +9,7 @@ review_verdict: pending
 iteration_count: 0
 harness_status: ready
 hard_blocked: false
-updated_at: 2026-08-14T18:40:00+08:00
+updated_at: 2026-08-14T23:36:00+08:00
 ---
 
 # Current State
@@ -23,12 +23,9 @@ Top3/Drop1/Hold5 must consume the same sample-count-five standardized-space
 signals. The rolling test is permanently labelled viewed after publication;
 only anchors with a matured ten-session target enter IC/RankIC metrics.
 
-The old strict-PIT release remains running while the replacement is built, but
-is now a retirement candidate rather than an active future product version. It
-will be removed from public selectors only after the new official-style release
-passes data, training, evaluation, backtest and online smoke gates. Existing
-checkpoints and receipts are preserved read-only as superseded evidence; no
-physical deletion is authorized.
+The official-split compatibility release is now active. Public selectors expose
+exactly Small/Base × zero-shot/official-ft; old strict-PIT checkpoints and
+receipts remain preserved as retired evidence and are not physically deleted.
 
 The same model evidence must run under two execution profiles: local Apple
 Silicon (Small default, Base explicit high-resource option) and a configurable
@@ -74,11 +71,25 @@ and a simpler evidence-led web product while preserving the no-broker boundary.
 
 ## Current build evidence
 
-Official-split-v3 raw data, dataset materialization and admission are PASS.
-Small Tokenizer and Predictor have completed 30 epochs with fresh terminal
-receipts. The preserved persistent training unit is now finishing Base; matrix,
-analysis-lock, four-model signal evaluation and eight Top50/Top3 backtests are
-durably queued behind it. The live r2 release has not been changed.
+Official-split-v3 raw data, causal materialization and admission are PASS. Small
+and Base Tokenizer/Predictor training completed 30 epochs with fresh, sealed
+terminal receipts. The exact four-cell matrix, pre-result analysis and online
+method locks, four-model rolling evaluation and eight Top50/Top3 backtests are
+sealed. `releases/current` points to
+`kronos-official-split-v3-causal-r4-20260814-compat-v3`.
+
+The compatibility layer preserves the predeclared online runner byte-for-byte,
+adapts only `vol/amt` to its required `volume/amount` schema, and adds a
+byte-identical `formal-evaluation.json` alias without changing the original
+candidate release. The compatibility receipt records that it was applied after
+viewed results and is not selection or performance-promotion evidence.
+
+Live Small and Base force E2E runs both succeeded on the remote CUDA profile.
+Small published 600 scores and one frozen Top3 recommendation set; Base
+published 600 research-only scores and changed none of the paper,
+recommendation, order, position, fill, valuation or portfolio tables. The live
+status reports `small-official-ft` as the primary model and 2026-08-14 as the
+latest closed/data/inference session.
 
 Portable execution is implemented and verified on both target profiles:
 Apple Silicon reports PyTorch 2.13/MPS PASS and the Linux server reports
@@ -87,28 +98,30 @@ and explicitly non-model tests. A clean wheel/sdist build contains no data,
 weights, checkpoint, database or token files; a fresh Python 3.12 wheel install
 successfully imports the bundled synthetic CSV and runs bootstrap dry-run.
 
-The official-v3 API/frontend adapter now reads exact four-model evaluation and
-eight historical entries, including sealed series and holdings. Frontend 22
-tests/lint/build PASS; server 132 tests, Ruff, compileall and scoped Pyright PASS.
+The official-v3 API/frontend adapter reads exact four-model evaluation and eight
+historical entries, including sealed series and holdings. Frontend 26 tests,
+ESLint, build and zero-vulnerability audit PASS; server 155 tests (one skipped),
+Ruff, compileall and Pyright PASS.
 
 ## Open blockers
 
-No current hard blocker. Public redistribution of newly fine-tuned A-share
-weights remains gated on data-license evidence; this does not block publishing
-the source, official-weight downloader or BYO-data reproduction recipe. Apple
-MPS and Base-local labels remain unavailable until device smoke gates pass.
+No current product/runtime blocker. Public redistribution of newly fine-tuned
+A-share weights remains gated on data-license evidence; this does not block the
+source, official-weight downloader or BYO-data reproduction recipe. Rolling
+test and backtest results are viewed, non-selection research evidence and are
+not investment-performance promotion evidence.
 
 ## Harness
 
-Server passes 97 pytest tests, Ruff, Pyright, compileall, shell syntax and systemd unit
-verification. Frontend passes 17 Vitest tests, ESLint, TypeScript/Vite build and
-npm audit with zero vulnerabilities. Live DB reports `integrity_check=ok` and
-zero foreign-key violations. Official release audit, same-session frozen-ledger
-comparison and deployed 1440/390 browser QA pass. Independent design, product,
-Base formal and six-cell catalog reviews are SHIP with no P0/P1.
+Server passes 155 pytest tests (one skipped), Ruff, Pyright and compileall.
+Frontend passes 26 Vitest tests, ESLint, TypeScript/Vite build and npm audit with
+zero vulnerabilities. API and Worker are active on loopback; hostile Host is
+rejected; the live DB reports `integrity_check=ok` and zero foreign-key
+violations. The compatibility release and its full dependency chain are sealed
+read-only and independently audited with no P0/P1.
 
 ## Next
 
-Refresh research/specs and executable plans, implement the portable data and
-execution foundation, then start immutable server data materialization and
-Small/Base training while frontend, README and local-profile work continue.
+Complete final Safari 1440/390 visual QA after the Mac is unlocked, then commit
+the reviewed compatibility/runtime delivery locally. Do not push unless the
+owner explicitly activates publication.

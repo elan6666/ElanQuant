@@ -23,6 +23,37 @@ from scripts.research.online_release_v3 import (
 from scripts.server import evaluate_and_infer
 
 
+def test_research_subprocess_uses_configured_source_root(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    source = tmp_path / "source"
+    profiles = source / "configs/execution"
+    dependencies = tmp_path / "research-deps"
+    profiles.mkdir(parents=True)
+    dependencies.mkdir()
+    active = Settings(
+        database_path=tmp_path / "db.sqlite3",
+        artifact_root=tmp_path / "runs",
+        frontend_dist=tmp_path / "dist",
+        execution_profiles_root=profiles,
+        research_deps=dependencies,
+    )
+    captured: dict[str, Any] = {}
+
+    def fake_subprocess(command, **kwargs):  # type: ignore[no-untyped-def]
+        captured["environment"] = kwargs["env"]
+        return SimpleNamespace(returncode=0, stdout="{}\n", stderr="")
+
+    monkeypatch.setattr(real.subprocess, "run", fake_subprocess)
+    assert real._run(["research-python"], active) == {}
+    python_path = str(captured["environment"]["PYTHONPATH"]).split(real.os.pathsep)
+    assert python_path[:3] == [
+        str(source / "backend/src"),
+        str(source),
+        str(dependencies),
+    ]
+
+
 @pytest.mark.parametrize(
     ("fail_finalization", "model_release"),
     [(False, "small"), (True, "small"), (False, "base")],
@@ -269,6 +300,8 @@ def test_real_pipeline_publishes_only_contract_complete_artifacts_atomically(
         job,
         lambda stage, _progress, _message, _resolved: stages.append(stage),
     )
+    expected_scripts = active.execution_profiles_root.resolve().parents[1] / "scripts/server"
+    assert Path(commands[0][1]).resolve() == expected_scripts / "fetch_online_snapshot.py"
 
     with database.connect() as connection:
         run = connection.execute("SELECT * FROM inference_runs WHERE id = ?", (run_id,)).fetchone()
@@ -339,12 +372,19 @@ def test_real_pipeline_publishes_only_contract_complete_artifacts_atomically(
         {"2026-08-13"} if model_release == "small" else set()
     )
     api = TestClient(create_app(active))
-    payload = api.get("/api/v1/runs/latest").json()
-    assert payload["scoreable"] is False
-    assert len(payload["model_versions"]) == 3
-    assert all("@" in identity for identity in payload["model_versions"])
-    assert payload["provenance"]["evaluation_hash"] == real.sha256(evaluation_receipt)
-    assert {cell["state"] for cell in payload["experiment_matrix"]} == {"passed"}
+    latest_response = api.get("/api/v1/runs/latest")
+    if model_release == "base":
+        assert latest_response.status_code == 404
+        assert api.get("/api/v1/runs").json()["runs"][0]["id"] == run_id
+    else:
+        payload = latest_response.json()
+        assert payload["scoreable"] is False
+        assert len(payload["model_versions"]) == 3
+        assert all("@" in identity for identity in payload["model_versions"])
+        assert payload["provenance"]["evaluation_hash"] == real.sha256(
+            evaluation_receipt
+        )
+        assert {cell["state"] for cell in payload["experiment_matrix"]} == {"passed"}
     dashboard_scores = api.get(f"/api/v1/runs/{run_id}/scores").json()["scores"]
     assert len(dashboard_scores[0]["model_scores"]) == 3
     assert all("@" not in identity for identity in dashboard_scores[0]["model_scores"])

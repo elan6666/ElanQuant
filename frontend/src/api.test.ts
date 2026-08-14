@@ -109,6 +109,71 @@ describe('API runtime contract', () => {
     })
   })
 
+  it('decodes live Base research-only stages without blocking the dashboard', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = String(input)
+        if (path.endsWith('/system/status')) {
+          return response({
+            service_state: 'ready',
+            server_time: '2026-08-14T15:00:00+00:00',
+            latest_closed_session: '2026-08-14',
+            data_as_of: '2026-08-14',
+            inference_as_of: '2026-08-14',
+            active_job_id: null,
+            primary_model: 'small-official-ft',
+            execution_profile: 'remote-linux-nvidia',
+            warnings: [],
+          })
+        }
+        if (path.endsWith('/jobs')) {
+          return response({
+            items: [
+              {
+                id: 'base-job',
+                status: 'SUCCEEDED',
+                stage: 'COMPLETED',
+                created_at: '2026-08-14T14:00:00+00:00',
+                requested_session: '2026-08-14',
+                execution_profile: 'remote-linux-nvidia',
+                events: [
+                  {
+                    id: '67',
+                    status: 'RUNNING',
+                    stage: 'INFER_BASE',
+                    message: 'Base inference',
+                    created_at: '2026-08-14T14:01:00+00:00',
+                  },
+                  {
+                    id: '69',
+                    status: 'RUNNING',
+                    stage: 'RESEARCH_ONLY',
+                    message: 'Research result saved',
+                    created_at: '2026-08-14T14:02:00+00:00',
+                  },
+                ],
+              },
+            ],
+          })
+        }
+        if (path.includes('/runs?')) return response({ runs: [] })
+        if (path.endsWith('/research/experiments')) return response({ experiments: [] })
+        if (path.endsWith('/research/backtests')) {
+          return response({ available: false, backtests: [] })
+        }
+        return response({}, 404)
+      }),
+    )
+
+    const snapshot = await createApiClient().getSnapshot()
+    expect(snapshot.jobs).toHaveLength(1)
+    expect(snapshot.jobs[0]!.events.map((event) => event.stage)).toEqual([
+      'infer_base',
+      'research_only',
+    ])
+  })
+
   it('decodes the live evidence-chain envelopes without adapter drift', async () => {
     const evaluation = {
       rank_ic: 0.01,

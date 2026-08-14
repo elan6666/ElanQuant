@@ -46,12 +46,12 @@ export function App({ client = productionClient }: { client?: ApiClient }) {
       <div className="connection-screen">
         <span className="eyebrow">Connection unavailable</span>
         <h1>无法读取 ElanQuant 运行服务</h1>
-        <p>{dashboard.error || '没有收到服务器响应。'}</p>
+        <p>{dashboard.error || '没有收到运行服务响应。'}</p>
         <p>请确认已配置的本机或远程运行服务可用，然后重试。</p>
         <button className="primary-action" type="button" onClick={() => void dashboard.refresh()}>
           <span>重新连接</span><b>↻</b>
         </button>
-        <small>已有服务器任务不会因为这个页面断线而停止。</small>
+        <small>已有任务不会因为这个页面断线而停止。</small>
       </div>
     )
   }

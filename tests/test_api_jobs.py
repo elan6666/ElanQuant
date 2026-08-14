@@ -2,13 +2,19 @@ import json
 import sqlite3
 from pathlib import Path
 
+from fastapi.testclient import TestClient
+
 from elanquant.api.app import canonical_hash, create_app
 from elanquant.orchestration.worker import Worker
 from elanquant.settings import Settings
-from fastapi.testclient import TestClient
 
 
 def settings(tmp_path: Path) -> Settings:
+    matrix_receipt = tmp_path / "training-matrix.json"
+    matrix_receipt.write_text(
+        json.dumps({"schema_version": "elanquant_training_matrix_v2"}),
+        encoding="utf-8",
+    )
     return Settings(
         database_path=tmp_path / "elanquant.sqlite3",
         artifact_root=tmp_path / "runs",
@@ -16,6 +22,7 @@ def settings(tmp_path: Path) -> Settings:
         initial_cash=100_000,
         top_k=3,
         research_catalog=tmp_path / "research-catalog.json",
+        matrix_receipt=matrix_receipt,
     )
 
 
@@ -248,6 +255,17 @@ def test_completed_run_matches_dashboard_contract(tmp_path: Path) -> None:
     assert system["inference_as_of"] == "2026-08-12"
     assert system["primary_model"] == "small-strict-pit"
 
+    active.matrix_receipt.write_text(
+        json.dumps(
+            {
+                "cells": [{"padding": "x" * 512}],
+                "schema_version": "elanquant_kronos_four_cell_matrix_v3",
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert client.get("/api/v1/system/status").json()["primary_model"] == "small-official-ft"
+
     run = client.get("/api/v1/runs/latest").json()
     assert run["status"] == "success"
     assert len(run["experiment_matrix"]) == 3
@@ -302,6 +320,57 @@ def test_completed_run_matches_dashboard_contract(tmp_path: Path) -> None:
     summary = client.get("/api/v1/paper/summary").json()
     assert summary["sample_sessions"] == 2
     assert summary["evidence_state"] == "available"
+
+    # A later Base research-only run remains visible in run history, but must
+    # not replace the latest online ranking or paper publication.
+    with sqlite3.connect(active.database_path) as connection:
+        snapshot_id = connection.execute(
+            "SELECT snapshot_id FROM inference_runs WHERE id = ?", (next_run["id"],)
+        ).fetchone()[0]
+        connection.execute(
+            """
+            INSERT INTO jobs (
+                id, idempotency_key, job_type, requested_session, resolved_session,
+                status, stage, progress, created_at, finished_at,
+                execution_profile, model_release, requested_device
+            ) VALUES (?, ?, 'UPDATE_AND_INFER', ?, ?, 'SUCCEEDED', 'COMPLETED', 1,
+                      ?, ?, 'remote-linux-nvidia', 'base', 'cuda')
+            """,
+            (
+                "base-research-job",
+                "base-research-key",
+                "2026-08-13",
+                "2026-08-13",
+                "9999-12-31T23:00:00+00:00",
+                "9999-12-31T23:10:00+00:00",
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO inference_runs (
+                id, job_id, snapshot_id, as_of_session, status, protocol,
+                artifact_path, artifact_sha256, scoreable,
+                paper_publication_state, created_at, finished_at
+            ) VALUES (?, ?, ?, ?, 'SUCCEEDED', ?, ?, ?, 0,
+                      'RESEARCH_ONLY_NOT_PUBLISHED', ?, ?)
+            """,
+            (
+                "base-research-run",
+                "base-research-job",
+                snapshot_id,
+                "2026-08-13",
+                "OFFICIAL_SPLIT_V3_BASE_RESEARCH_ONLY",
+                str(active.artifact_root / "base-research-run.json"),
+                "f" * 64,
+                "9999-12-31T23:00:00+00:00",
+                "9999-12-31T23:10:00+00:00",
+            ),
+        )
+    assert client.get("/api/v1/runs/latest").json()["id"] == next_run["id"]
+    assert client.get("/api/v1/runs").json()["runs"][0]["id"] == "base-research-run"
+    assert client.get("/api/v1/paper/summary").json()["latest_publication"]["run_id"] == (
+        next_run["id"]
+    )
 
     with sqlite3.connect(active.database_path) as connection:
         connection.execute(

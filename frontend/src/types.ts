@@ -24,8 +24,10 @@ export type JobStage =
   | 'updating_data'
   | 'validating_data'
   | 'infer_small'
+  | 'infer_base'
   | 'scoring'
   | 'paper_ledger'
+  | 'research_only'
   | 'completed'
 
 export interface SystemStatus {

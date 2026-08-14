@@ -156,8 +156,10 @@ const jobStages = [
   'updating_data',
   'validating_data',
   'infer_small',
+  'infer_base',
   'scoring',
   'paper_ledger',
+  'research_only',
   'completed',
 ] as const
 

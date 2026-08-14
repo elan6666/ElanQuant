@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import subprocess
 from dataclasses import replace
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from elanquant.execution import (
     SystemCapabilities,
     build_execution_receipt,
     load_execution_profile,
+    probe_python_runtime,
     require_capability,
     sanitized_subprocess_environment,
 )
@@ -26,6 +28,41 @@ from elanquant.settings import PROJECT_ROOT, Settings
 from elanquant.storage.database import Database
 
 PROFILES_ROOT = PROJECT_ROOT / "configs/execution"
+
+
+def test_research_runtime_probe_uses_configured_interpreter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    python = tmp_path / "research-python"
+    captured: dict[str, object] = {}
+
+    def fake_run(command, **kwargs):  # type: ignore[no-untyped-def]
+        captured["command"] = command
+        captured["environment"] = kwargs["env"]
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=json.dumps(
+                {
+                    "operating_system": "Linux",
+                    "architecture": "x86_64",
+                    "python_version": "3.12.3",
+                    "torch_version": "2.13.0+cu130",
+                    "cpu_available": True,
+                    "mps_available": False,
+                    "cuda_available": True,
+                    "device_name": "NVIDIA RTX 5090",
+                }
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr("elanquant.execution.subprocess.run", fake_run)
+    result = probe_python_runtime(python, "cuda")
+
+    assert captured["command"][0] == str(python)  # type: ignore[index]
+    assert result.cuda_available is True
+    assert result.torch_version == "2.13.0+cu130"
 
 
 def active_settings(tmp_path: Path, **overrides: object) -> Settings:

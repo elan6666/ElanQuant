@@ -230,3 +230,31 @@
 - Current gates: frontend 22 tests, ESLint and build PASS; server 132 tests,
   Ruff, compileall and scoped Pyright PASS. Wheel/sdist build and a clean Python
   3.12 wheel install/data-import/bootstrap smoke PASS with no forbidden payloads.
+
+## 2026-08-14 — Official split promotion and portable runtime E2E
+
+- Completed and sealed all four official-split cells: Small/Base zero-shot and
+  official-style fine-tune. Strict-PIT remains only as retired audit evidence
+  and is absent from public selectors.
+- Sealed the pre-result online method lock before viewed analysis, then produced
+  the exact four-model rolling evaluation and eight Top50/Top3 historical
+  backtests. All viewed metrics remain non-selection and non-promotion evidence.
+- Added a separately sealed compatibility release that preserves the locked
+  online runner and original candidate bytes. Its deterministic adapter maps
+  `vol/amt` to `volume/amount`, validates the full numeric domain and records
+  source/adapted snapshot lineage. `formal-evaluation.json` is an independent,
+  byte-identical alias of `rolling-evaluation.json`.
+- Promoted
+  `kronos-official-split-v3-causal-r4-20260814-compat-v3` atomically. API and
+  Worker are active; the live API exposes exact four experiments, eight
+  backtests and primary model `small-official-ft`.
+- Real Small E2E succeeded with 600 scores and a frozen Top3 recommendation set.
+  Real Base E2E succeeded with 600 research-only scores and zero changes across
+  the paper/recommendation/order/position/fill/valuation/portfolio boundary.
+- Final gates: server 155 pytest PASS with one skipped, Ruff PASS, Pyright 0,
+  compileall PASS; frontend 26 Vitest PASS, ESLint/build PASS and npm audit zero
+  vulnerabilities. Independent compatibility audit reports P0=0/P1=0.
+- Filtered Base research-only runs out of the online latest-run and paper-summary
+  views while retaining them in run history. The deployed frontend now accepts
+  the real `INFER_BASE` and `RESEARCH_ONLY` job stages and renders the Base
+  research branch without pretending that it published a paper ledger.

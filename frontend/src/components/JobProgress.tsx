@@ -2,18 +2,25 @@ import { formatDateTime, jobStateLabel, stageLabel } from '../format'
 import type { Job, JobStage } from '../types'
 import { Badge } from './Badge'
 
-const orderedStages: JobStage[] = [
+const commonStages: JobStage[] = [
   'queued',
   'resolving_session',
   'updating_data',
   'validating_data',
-  'infer_small',
-  'scoring',
-  'paper_ledger',
-  'completed',
 ]
 
 export function JobProgress({ job, compact = false }: { job: Job; compact?: boolean }) {
+  const isBaseResearch =
+    job.stage === 'infer_base' ||
+    job.stage === 'research_only' ||
+    job.events.some((event) => event.stage === 'infer_base' || event.stage === 'research_only')
+  const orderedStages: JobStage[] = [
+    ...commonStages,
+    isBaseResearch ? 'infer_base' : 'infer_small',
+    'scoring',
+    isBaseResearch ? 'research_only' : 'paper_ledger',
+    'completed',
+  ]
   const activeIndex = orderedStages.indexOf(job.stage)
   return (
     <article className={`job-progress ${compact ? 'job-progress--compact' : ''}`}>

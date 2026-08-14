@@ -25,6 +25,10 @@ from elanquant.settings import Settings
 from elanquant.storage.database import Database
 from scripts.research import online_release_v3 as online_release_contract
 from scripts.research.official_split_v3 import validate_analysis_lock
+from scripts.research.online_compatibility_v3 import (
+    COMPATIBILITY_RELEASE_SCHEMA,
+    validate_compatibility_release_dir,
+)
 from scripts.research.online_release_v3 import validate_method_lock, validate_release
 
 StageCallback = Callable[[str, float, str, str | None], None]
@@ -120,11 +124,30 @@ def validate_publication_release(
         and manifest.get("selection_basis") == "PREDECLARED_OFFICIAL_FT_METHOD_IDENTITY"
         and manifest.get("test_metrics_used_for_selection") is False
     )
-    if schema == "elanquant_official_split_online_release_v3":
+    if schema == COMPATIBILITY_RELEASE_SCHEMA:
+        source_root = settings.execution_profiles_root.resolve().parents[1]
+        validated_release, _, _ = validate_compatibility_release_dir(
+            matrix_parent,
+            adapter_path=source_root
+            / "scripts/server/adapt_online_snapshot_official_split_v3.py",
+            fetcher_path=source_root / "scripts/server/fetch_online_snapshot.py",
+        )
+        v3_valid = (
+            validated_release.get("training_matrix_sha256") == matrix_sha256
+            and validated_release.get("rolling_evaluation_sha256") == evaluation_sha256
+        )
+    if schema in {
+        "elanquant_official_split_online_release_v3",
+        COMPATIBILITY_RELEASE_SCHEMA,
+    }:
         historical_path = matrix_parent / "historical-catalog.json"
         analysis_lock_path = matrix_parent / "analysis-lock.json"
         method_lock_path = matrix_parent / "online-method-lock.json"
-        validated_release = validate_release(manifest)
+        validated_release = (
+            validate_release(manifest)
+            if schema == "elanquant_official_split_online_release_v3"
+            else manifest
+        )
         validated_analysis_lock = (
             validate_analysis_lock(json.loads(analysis_lock_path.read_text(encoding="utf-8")))
             if analysis_lock_path.is_file()
@@ -396,9 +419,15 @@ def verified_snapshot_inputs(
 def _run(command: list[str], settings: Settings) -> dict[str, Any]:
     environment = os.environ.copy()
     prior = environment.get("PYTHONPATH")
-    environment["PYTHONPATH"] = (
-        str(settings.research_deps) if not prior else f"{settings.research_deps}:{prior}"
-    )
+    source_root = settings.execution_profiles_root.resolve().parents[1]
+    python_paths = [
+        str(source_root / "backend/src"),
+        str(source_root),
+        str(settings.research_deps),
+    ]
+    if prior:
+        python_paths.append(prior)
+    environment["PYTHONPATH"] = os.pathsep.join(python_paths)
     completed = subprocess.run(
         command,
         check=False,
@@ -429,8 +458,10 @@ def run_real_pipeline(
 ) -> str:
     requested = str(job["requested_session"])
     runtime = resolve_runtime_selection(settings, job)
-    root = Path(__file__).resolve().parents[4]
+    root = settings.execution_profiles_root.resolve().parents[1]
     server_scripts = root / "scripts/server"
+    if not server_scripts.is_dir():
+        raise RuntimeError("configured source root does not contain server scripts")
     online_root = settings.artifact_root.parent / "online-snapshots"
     evaluation_path = settings.evaluation_receipt
     if not settings.matrix_receipt.is_file() or not evaluation_path.is_file():
@@ -529,6 +560,53 @@ def run_real_pipeline(
     )
     run_id = str(uuid.uuid4())
     artifact_path = settings.artifact_root / run_id / "inference.json"
+    inference_snapshot_path = snapshot_path
+    inference_snapshot_hash = snapshot_hash
+    if (
+        release_manifest is not None
+        and release_manifest.get("schema_version") == COMPATIBILITY_RELEASE_SCHEMA
+    ):
+        adapter_path = server_scripts / "adapt_online_snapshot_official_split_v3.py"
+        _, compatibility, _ = validate_compatibility_release_dir(
+            settings.matrix_receipt.resolve().parent,
+            adapter_path=adapter_path,
+            fetcher_path=server_scripts / "fetch_online_snapshot.py",
+        )
+        if (
+            snapshot_manifest.get("snapshot_logic_sha256")
+            != compatibility["online_fetcher_sha256"]
+        ):
+            raise RuntimeError("online snapshot fetcher differs from compatibility release")
+        inference_snapshot_path = settings.artifact_root / run_id / "online-snapshot-adapted"
+        adapter_receipt = _run(
+            [
+                str(settings.research_python),
+                str(adapter_path),
+                "--source",
+                str(snapshot_path),
+                "--out",
+                str(inference_snapshot_path),
+            ],
+            settings,
+        )
+        adapted_manifest_path = inference_snapshot_path / "manifest.json"
+        adapted_manifest = json.loads(adapted_manifest_path.read_text(encoding="utf-8"))
+        inference_snapshot_hash = sha256(adapted_manifest_path)
+        if (
+            adapter_receipt.get("status") != "PASS"
+            or adapter_receipt.get("manifest_sha256") != inference_snapshot_hash
+            or adapter_receipt.get("source_manifest_sha256") != snapshot_hash
+            or adapted_manifest.get("source_manifest_sha256") != snapshot_hash
+            or adapted_manifest.get("source_snapshot_logic_sha256")
+            != snapshot_manifest.get("snapshot_logic_sha256")
+            or adapted_manifest.get("adapter_sha256")
+            != compatibility["online_snapshot_adapter_sha256"]
+            or adapted_manifest.get("column_aliases") != {"vol": "volume", "amt": "amount"}
+            or adapted_manifest.get("value_transform")
+            != "IDENTITY_NO_SCALE_NO_FILL_NO_REORDER"
+            or adapted_manifest.get("source_files") != snapshot_manifest.get("files")
+        ):
+            raise RuntimeError("adapted online snapshot provenance is incomplete")
     release_label = runtime.model_release.capitalize()
     advance(
         f"INFER_{runtime.model_release.upper()}",
@@ -552,7 +630,7 @@ def run_real_pipeline(
             "--device",
             runtime.requested_device,
             "--online-root",
-            str(snapshot_path),
+            str(inference_snapshot_path),
             "--online-batch-size",
             str(settings.inference_batch_size),
             "--out",
@@ -602,7 +680,7 @@ def run_real_pipeline(
         sha256(settings.matrix_receipt) != matrix_sha
         or sha256(evaluation_path) != evaluation_sha
         or result.get("training_matrix_receipt_sha256") != matrix_sha
-        or result.get("data_manifest_sha256") != snapshot_hash
+        or result.get("data_manifest_sha256") != inference_snapshot_hash
     ):
         raise RuntimeError("inference provenance changed or disagrees during publication")
     if any(
