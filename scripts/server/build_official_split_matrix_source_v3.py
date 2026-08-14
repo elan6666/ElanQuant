@@ -54,14 +54,28 @@ def main() -> int:
     if weights.get("status") != "PASS" or not isinstance(weights.get("models"), dict):
         raise RuntimeError("official pretrained weight receipt is not PASS")
     models = weights["models"]
-    tokenizer_sha = str(models["NeoQuasar/Kronos-Tokenizer-base"]["model_sha256"])
+    tokenizer_entry = models["NeoQuasar/Kronos-Tokenizer-base"]
+    tokenizer_sha = str(tokenizer_entry["model_sha256"])
+    tokenizer_path = Path(str(tokenizer_entry["path"])).resolve()
+    if (
+        root not in tokenizer_path.parents
+        or sha256(tokenizer_path / "model.safetensors") != tokenizer_sha
+    ):
+        raise RuntimeError("official tokenizer bytes differ from the weight receipt")
 
     cells: list[dict[str, Any]] = []
     for size, training_run_id in (
         ("base", args.base_training_run_id),
         ("small", args.small_training_run_id),
     ):
-        predictor_sha = str(models[f"NeoQuasar/Kronos-{size}"]["model_sha256"])
+        predictor_entry = models[f"NeoQuasar/Kronos-{size}"]
+        predictor_sha = str(predictor_entry["model_sha256"])
+        predictor_path = Path(str(predictor_entry["path"])).resolve()
+        if (
+            root not in predictor_path.parents
+            or sha256(predictor_path / "model.safetensors") != predictor_sha
+        ):
+            raise RuntimeError(f"official {size} predictor bytes differ from the weight receipt")
         zero_config = root / "source" / "configs" / "models" / (
             f"official_split_v3_{size}_zero_shot.yaml"
         )
@@ -72,6 +86,8 @@ def main() -> int:
                 "tokenizer_sha256": tokenizer_sha,
                 "predictor_sha256": predictor_sha,
                 "config_sha256": sha256(zero_config),
+                "tokenizer_path": str(tokenizer_path),
+                "predictor_path": str(predictor_path),
             }
         )
         terminal_root = root / "runs" / "training" / training_run_id

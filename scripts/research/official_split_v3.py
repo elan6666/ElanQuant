@@ -423,6 +423,10 @@ def validate_matrix(payload: Mapping[str, Any]) -> dict[str, Any]:
             raise ContractError("cell training mode mismatch")
         for field in ("tokenizer_sha256", "predictor_sha256", "config_sha256"):
             _sha(row.get(field), field)
+        for field in ("tokenizer_path", "predictor_path"):
+            path = row.get(field)
+            if not isinstance(path, str) or not path or not path.startswith("/"):
+                raise ContractError(f"{cell_id}.{field} must be an absolute model directory")
         if expected_mode == "official_ft":
             _sha(row.get("tokenizer_terminal_sha256"), "tokenizer_terminal_sha256")
             _sha(row.get("predictor_terminal_sha256"), "predictor_terminal_sha256")

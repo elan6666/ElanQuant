@@ -77,6 +77,12 @@ def compile_matrix(root: Path, source: dict[str, Any], split_path: Path) -> dict
                     "tokenizer_sha256": tokenizer["checkpoint_sha256"],
                     "predictor_sha256": predictor["checkpoint_sha256"],
                     "config_sha256": predictor["config_sha256"],
+                    "tokenizer_path": str(
+                        Path(str(tokenizer["checkpoint_path"])).resolve().parent
+                    ),
+                    "predictor_path": str(
+                        Path(str(predictor["checkpoint_path"])).resolve().parent
+                    ),
                     "tokenizer_terminal_sha256": sha256(tokenizer_path),
                     "predictor_terminal_sha256": sha256(predictor_path),
                     "predictor_input_tokenizer_sha256": predictor[

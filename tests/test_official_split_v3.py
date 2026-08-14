@@ -92,6 +92,8 @@ def matrix() -> dict[str, object]:
             "tokenizer_sha256": SHA,
             "predictor_sha256": SHA,
             "config_sha256": SHA,
+            "tokenizer_path": f"/models/{cell_id}/tokenizer",
+            "predictor_path": f"/models/{cell_id}/predictor",
         }
         if trained:
             row.update(
@@ -120,6 +122,13 @@ def test_active_matrix_is_exactly_four_cells_and_rejects_strict() -> None:
     )
     with pytest.raises(ContractError, match="exactly four"):
         validate_matrix(invalid)
+    missing_path = copy.deepcopy(matrix())
+    del missing_path["cells"][0]["predictor_path"]
+    missing_path["receipt_hash"] = canonical_hash(
+        {key: value for key, value in missing_path.items() if key != "receipt_hash"}
+    )
+    with pytest.raises(ContractError, match="absolute model directory"):
+        validate_matrix(missing_path)
 
 
 def evaluation() -> dict[str, object]:
