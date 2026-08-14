@@ -9,6 +9,7 @@ import os
 import subprocess
 import uuid
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,83 @@ StageCallback = Callable[[str, float, str, str | None], None]
 
 class DataIncompleteError(RuntimeError):
     """Raised when a provider snapshot fails a typed data admission gate."""
+
+
+@dataclass(frozen=True)
+class RuntimeSelection:
+    execution_profile: str
+    model_release: str
+    requested_device: str
+    execution_device: str
+    publish_paper: bool
+
+
+PROFILE_DEVICES = {
+    "local-apple-silicon": {"cpu", "mps"},
+    "remote-linux-nvidia": {"cuda"},
+    "legacy-yilangliu": {"cuda"},
+}
+PROFILE_RELEASES = {
+    "local-apple-silicon": {"small", "base"},
+    "remote-linux-nvidia": {"small", "base"},
+    "legacy-yilangliu": {"small"},
+}
+
+
+def resolve_runtime_selection(settings: Settings, job: dict[str, object]) -> RuntimeSelection:
+    profile = str(job.get("execution_profile", ""))
+    release = str(job.get("model_release", ""))
+    requested_device = str(job.get("requested_device", ""))
+    if profile != settings.execution_profile:
+        raise RuntimeError("job execution profile differs from the active deployment")
+    if requested_device != settings.execution_device:
+        raise RuntimeError("job execution device differs from the active deployment")
+    if profile not in PROFILE_DEVICES or requested_device not in PROFILE_DEVICES[profile]:
+        raise RuntimeError("job device is not admitted by its execution profile")
+    if profile not in PROFILE_RELEASES or release not in PROFILE_RELEASES[profile]:
+        raise RuntimeError("job model release is not admitted by its execution profile")
+    execution_device = "cuda:0" if requested_device == "cuda" else requested_device
+    return RuntimeSelection(
+        execution_profile=profile,
+        model_release=release,
+        requested_device=requested_device,
+        execution_device=execution_device,
+        publish_paper=release == "small",
+    )
+
+
+def expected_model_ids(model_release: str) -> set[str]:
+    if model_release not in {"small", "base"}:
+        raise RuntimeError("unsupported model release")
+    return {
+        f"{model_release}-zero-shot",
+        f"{model_release}-official-ft",
+        f"{model_release}-strict-pit",
+    }
+
+
+def validate_publication_release(
+    settings: Settings, matrix_sha256: str, evaluation_sha256: str
+) -> dict[str, object]:
+    matrix_parent = settings.matrix_receipt.resolve().parent
+    evaluation_parent = settings.evaluation_receipt.resolve().parent
+    if matrix_parent != evaluation_parent:
+        raise RuntimeError("publication matrix and evaluation are not one immutable release")
+    manifest_path = matrix_parent / "manifest.json"
+    if not manifest_path.is_file():
+        raise RuntimeError("Small publication release manifest is missing")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if (
+        not isinstance(manifest, dict)
+        or manifest.get("schema_version") != "elanquant_release_v1"
+        or manifest.get("status") != "PASS"
+        or not isinstance(manifest.get("release_id"), str)
+        or not manifest["release_id"]
+        or manifest.get("training_matrix_sha256") != matrix_sha256
+        or manifest.get("formal_evaluation_sha256") != evaluation_sha256
+    ):
+        raise RuntimeError("Small publication release manifest is invalid or mismatched")
+    return manifest
 
 
 def valid_sha256(value: object) -> bool:
@@ -185,9 +263,19 @@ def run_real_pipeline(
     advance: StageCallback,
 ) -> str:
     requested = str(job["requested_session"])
+    runtime = resolve_runtime_selection(settings, job)
     root = Path(__file__).resolve().parents[4]
     server_scripts = root / "scripts/server"
     online_root = settings.artifact_root.parent / "online-snapshots"
+    evaluation_path = settings.evaluation_receipt
+    if not settings.matrix_receipt.is_file() or not evaluation_path.is_file():
+        raise RuntimeError("sealed matrix/evaluation release is missing")
+    matrix_sha = sha256(settings.matrix_receipt)
+    evaluation_sha = sha256(evaluation_path)
+    if runtime.publish_paper:
+        validate_publication_release(settings, matrix_sha, evaluation_sha)
+    evaluation_result = json.loads(evaluation_path.read_text(encoding="utf-8"))
+    expected_models = expected_model_ids(runtime.model_release)
     advance("UPDATING_DATA", 0.12, "Fetching immutable CSI300 online snapshot", None)
     fetch = _run(
         [
@@ -209,13 +297,6 @@ def run_real_pipeline(
         raise RuntimeError("online snapshot failed its terminal data gate")
     resolved = str(snapshot_manifest["resolved_session"])
     snapshot_hash = sha256(snapshot_manifest_path)
-    evaluation_path = settings.evaluation_receipt
-    if not settings.matrix_receipt.is_file() or not evaluation_path.is_file():
-        raise RuntimeError("sealed matrix/evaluation release is missing")
-    matrix_sha = sha256(settings.matrix_receipt)
-    evaluation_sha = sha256(evaluation_path)
-    evaluation_result = json.loads(evaluation_path.read_text(encoding="utf-8"))
-    expected_models = {"small-zero-shot", "small-official-ft", "small-strict-pit"}
     evaluation_models = evaluation_result.get("models")
     evaluation_support = evaluation_result.get("evaluation_support")
     if (
@@ -228,7 +309,9 @@ def run_real_pipeline(
         or not isinstance(evaluation_support, dict)
         or evaluation_result.get("training_matrix_receipt_sha256") != matrix_sha
     ):
-        raise RuntimeError("formal Small evaluation receipt is incomplete or mismatched")
+        raise RuntimeError(
+            f"formal {runtime.model_release} evaluation receipt is incomplete or mismatched"
+        )
     expected_support: dict[str, tuple[int, int]] = {}
     for split_name in ("validation_2025", "test_viewed_2026"):
         support = evaluation_support.get(split_name)
@@ -247,7 +330,21 @@ def run_real_pipeline(
             raise RuntimeError(f"formal support is invalid: {split_name}")
         expected_support[split_name] = (rows, sections)
     for model_id in expected_models:
-        metrics = evaluation_models[model_id].get("metrics")
+        evaluated_model = evaluation_models[model_id]
+        expected_track = (
+            "zero_shot"
+            if model_id.endswith("-zero-shot")
+            else "official_style"
+            if model_id.endswith("-official-ft")
+            else "strict_pit"
+        )
+        if (
+            not isinstance(evaluated_model, dict)
+            or evaluated_model.get("size") != runtime.model_release
+            or evaluated_model.get("track") != expected_track
+        ):
+            raise RuntimeError(f"formal model semantics are invalid: {model_id}")
+        metrics = evaluated_model.get("metrics")
         if not isinstance(metrics, dict) or set(metrics) != set(expected_support):
             raise RuntimeError(f"formal split metrics are incomplete: {model_id}")
         for split_name, expected in expected_support.items():
@@ -268,7 +365,13 @@ def run_real_pipeline(
     )
     run_id = str(uuid.uuid4())
     artifact_path = settings.artifact_root / run_id / "inference.json"
-    advance("INFER_SMALL", 0.38, "Running pinned Small cells", resolved)
+    release_label = runtime.model_release.capitalize()
+    advance(
+        f"INFER_{runtime.model_release.upper()}",
+        0.38,
+        f"Running pinned {release_label} cells on {runtime.execution_device}",
+        resolved,
+    )
     inference_receipt = _run(
         [
             str(settings.research_python),
@@ -279,11 +382,17 @@ def run_real_pipeline(
             str(settings.upstream_root),
             "--matrix-receipt",
             str(settings.matrix_receipt),
+            "--model-size",
+            runtime.model_release,
+            "--execution-profile",
+            runtime.execution_profile,
+            "--device",
+            runtime.requested_device,
             "--online-root",
             str(snapshot_path),
             "--skip-evaluation",
             "--online-batch-size",
-            "50",
+            str(settings.inference_batch_size),
             "--out",
             str(artifact_path),
         ],
@@ -291,6 +400,12 @@ def run_real_pipeline(
     )
     if inference_receipt.get("status") != "PASS":
         raise RuntimeError("Kronos inference receipt is not PASS")
+    if (
+        inference_receipt.get("model_size") != runtime.model_release
+        or inference_receipt.get("execution_profile") != runtime.execution_profile
+        or inference_receipt.get("execution_device") != runtime.execution_device
+    ):
+        raise RuntimeError("Kronos subprocess receipt disagrees with the frozen job runtime")
     result = json.loads(artifact_path.read_text(encoding="utf-8"))
     scores = result.get("scores")
     models = result.get("models")
@@ -299,6 +414,9 @@ def run_real_pipeline(
         or not isinstance(models, dict)
         or set(models) != expected_models
         or len(scores) < 250
+        or result.get("model_size") != runtime.model_release
+        or result.get("execution_profile") != runtime.execution_profile
+        or result.get("execution_device") != runtime.execution_device
     ):
         raise RuntimeError("Kronos output does not meet the complete ranking contract")
     if (
@@ -313,19 +431,32 @@ def run_real_pipeline(
         or set(item["model_scores"]) != expected_models
         for item in scores
     ):
-        raise RuntimeError("ranking rows do not contain the exact Small model set")
+        raise RuntimeError(
+            f"ranking rows do not contain the exact {runtime.model_release} model set"
+        )
     for model_id in expected_models:
         evaluated_model = evaluation_models[model_id]
         online_model = models[model_id]
         if not isinstance(evaluated_model, dict) or not isinstance(online_model, dict):
             raise RuntimeError(f"model identity is incomplete: {model_id}")
+        if (
+            evaluated_model.get("size") != runtime.model_release
+            or online_model.get("size") != runtime.model_release
+            or evaluated_model.get("track") != online_model.get("track")
+        ):
+            raise RuntimeError(f"formal/online model semantics differ: {model_id}")
         for identity in ("predictor_sha256", "tokenizer_sha256", "config_sha256"):
             if (
                 not valid_sha256(evaluated_model.get(identity))
                 or evaluated_model.get(identity) != online_model.get(identity)
             ):
                 raise RuntimeError(f"formal/online model identity differs: {model_id}.{identity}")
-    advance("SCORING", 0.74, "Publishing strict-PIT Small ranking", resolved)
+    advance(
+        "SCORING",
+        0.74,
+        f"Persisting strict-PIT {release_label} research ranking",
+        resolved,
+    )
     snapshot_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"elanquant:{resolved}:{snapshot_hash}"))
     recommendations: list[Recommendation] = [
         Recommendation(
@@ -341,17 +472,23 @@ def run_real_pipeline(
     execution, calendar_open_days = verified_snapshot_inputs(
         snapshot_path, snapshot_manifest_path, snapshot_manifest, snapshot_hash
     )
-    prices = {code: float(values["open"]) for code, values in execution.items()}
-    closes = {code: float(values["close"]) for code, values in execution.items()}
     forecast_sessions = result.get("forecast_sessions")
     if not isinstance(forecast_sessions, list) or not forecast_sessions:
         raise RuntimeError("inference artifact lacks the next real trading session")
-    advance(
-        "PAPER_LEDGER",
-        0.88,
-        "Settling due intents and freezing next-session paper orders",
-        resolved,
-    )
+    if runtime.publish_paper:
+        advance(
+            "PAPER_LEDGER",
+            0.88,
+            "Settling due intents and freezing next-session paper orders",
+            resolved,
+        )
+    else:
+        advance(
+            "RESEARCH_ONLY",
+            0.88,
+            "Persisting Base research evidence without paper-ledger publication",
+            resolved,
+        )
     with database.connect() as connection:
         connection.execute("BEGIN IMMEDIATE")
         connection.execute(
@@ -454,14 +591,18 @@ def run_real_pipeline(
                 artifact_path, artifact_sha256, scoreable, matrix_receipt_sha256,
                 evaluation_receipt_sha256, config_sha256, code_sha256,
                 created_at, finished_at
-            ) VALUES (?, ?, ?, ?, 'SUCCEEDED', 'STRICT_PIT_SMALL',
-                ?, ?, 0, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, 'SUCCEEDED', ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)
             """,
             (
                 run_id,
                 str(job["id"]),
                 snapshot_id,
                 resolved,
+                (
+                    "STRICT_PIT_SMALL"
+                    if runtime.publish_paper
+                    else "STRICT_PIT_BASE_RESEARCH_ONLY"
+                ),
                 str(artifact_path),
                 sha256(artifact_path),
                 matrix_sha,
@@ -524,43 +665,55 @@ def run_real_pipeline(
                         item["reference_price"],
                     ),
                 )
-        recommendation_id = str(uuid.uuid4())
-        connection.execute(
-            """
-            INSERT INTO recommendation_sets(
-                id, run_id, signal_session, execution_policy, created_at
-            ) VALUES (?, ?, ?, 'T_CLOSE_FROZEN_NEXT_REAL_SESSION_NO_REPLACEMENT', ?)
-            """,
-            (recommendation_id, run_id, resolved, now),
-        )
-        for item in recommendations[: settings.top_k]:
+        if runtime.publish_paper:
+            recommendation_id = str(uuid.uuid4())
             connection.execute(
                 """
-                INSERT INTO recommendation_items(
-                    recommendation_set_id, code, name, rank, score, target_weight, frozen_price
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO recommendation_sets(
+                    id, run_id, signal_session, execution_policy, created_at
+                ) VALUES (?, ?, ?, 'T_CLOSE_FROZEN_NEXT_REAL_SESSION_NO_REPLACEMENT', ?)
                 """,
-                (
-                    recommendation_id,
-                    item["code"],
-                    item["name"],
-                    item["rank"],
-                    item["score"],
-                    1 / settings.top_k,
-                    item["reference_price"],
-                ),
+                (recommendation_id, run_id, resolved, now),
             )
-        ensure_account(connection, settings.initial_cash)
-        record_manual_gaps(connection, resolved, calendar_open_days, now)
-        settle_due_orders(connection, resolved, prices, execution)
-        paper_publication = create_frozen_intents(
-            connection,
-            run_id,
-            resolved,
-            recommendations,
-            settings.top_k,
-            due_session=str(forecast_sessions[0]),
-        )
+            for item in recommendations[: settings.top_k]:
+                connection.execute(
+                    """
+                    INSERT INTO recommendation_items(
+                        recommendation_set_id, code, name, rank, score,
+                        target_weight, frozen_price
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        recommendation_id,
+                        item["code"],
+                        item["name"],
+                        item["rank"],
+                        item["score"],
+                        1 / settings.top_k,
+                        item["reference_price"],
+                    ),
+                )
+            prices = {code: float(values["open"]) for code, values in execution.items()}
+            closes = {code: float(values["close"]) for code, values in execution.items()}
+            ensure_account(connection, settings.initial_cash)
+            record_manual_gaps(connection, resolved, calendar_open_days, now)
+            settle_due_orders(connection, resolved, prices, execution)
+            paper_publication = create_frozen_intents(
+                connection,
+                run_id,
+                resolved,
+                recommendations,
+                settings.top_k,
+                due_session=str(forecast_sessions[0]),
+            )
+            write_portfolio_snapshot(
+                connection, resolved, closes, valuation_policy="REAL_CLOSE_OR_BOOK_COST"
+            )
+        else:
+            paper_publication = {
+                "state": "RESEARCH_ONLY_NOT_PUBLISHED",
+                "source_run_id": None,
+            }
         connection.execute(
             """
             UPDATE inference_runs
@@ -573,14 +726,15 @@ def run_real_pipeline(
                 run_id,
             ),
         )
-        write_portfolio_snapshot(
-            connection, resolved, closes, valuation_policy="REAL_CLOSE_OR_BOOK_COST"
-        )
         completed_message = (
             "Run completed; paper intents were already frozen by "
             f"{paper_publication['source_run_id']}"
             if paper_publication["state"] == "SKIPPED_EXISTING_FROZEN_RUN"
-            else "Run completed"
+            else (
+                "Run completed; Base research-only evidence was not published to the paper ledger"
+                if not runtime.publish_paper
+                else "Run completed"
+            )
         )
         changed = connection.execute(
             """

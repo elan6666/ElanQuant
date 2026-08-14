@@ -81,13 +81,6 @@ class Worker:
                 )
                 self.jobs.record_execution_receipt(queued_id, receipt)
                 require_capability(receipt)
-                if profile.is_research_only(str(queued["model_release"])):
-                    self.jobs.fail(
-                        queued_id,
-                        "MODEL_RELEASE_RESEARCH_ONLY",
-                        "This model release is admitted for research smoke only and cannot publish",
-                    )
-                    return True
             except CapabilityUnavailableError as error:
                 LOGGER.warning("Job %s stopped at capability gate: %s", queued_id, error)
                 self.jobs.fail(queued_id, "CAPABILITY_UNAVAILABLE", str(error))

@@ -18,7 +18,7 @@ import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -27,6 +27,11 @@ LOOKBACK = 90
 PREDICT = 10
 UPSTREAM_COMMIT = "67b630e67f6a18c9e9be918d9b4337c960db1e9a"
 FEATURES = ["open", "high", "low", "close", "volume", "amount"]
+EXECUTION_PROFILES = {
+    "local-apple-silicon": {"cpu", "mps"},
+    "remote-linux-nvidia": {"cuda"},
+    "legacy-yilangliu": {"cuda"},
+}
 
 
 def model_cells(size: str) -> tuple[tuple[str, str, str], ...]:
@@ -127,15 +132,16 @@ def evaluate_rows(
         return None if clean.empty else float(clean.mean())
 
     result: dict[str, float | int | None | dict[str, int]] = {
-        "rank_ic": mean_or_none(daily_rank),
-        "ic": mean_or_none(daily_ic),
-        "top10_mean_return": mean_or_none(daily_top),
+        "rank_ic": mean_or_none(cast(pd.Series, daily_rank)),
+        "ic": mean_or_none(cast(pd.Series, daily_ic)),
+        "top10_mean_return": mean_or_none(cast(pd.Series, daily_top)),
         "rows": len(frame),
-        "cross_sections": int(frame["signal_session"].nunique()),
+        "cross_sections": int(cast(pd.Series, frame["signal_session"]).nunique()),
     }
     if "outcome_status" in frame:
         result["outcome_counts"] = {
-            str(key): int(value) for key, value in frame["outcome_status"].value_counts().items()
+            str(key): int(value)
+            for key, value in cast(pd.Series, frame["outcome_status"]).value_counts().items()
         }
     return result
 
@@ -212,12 +218,55 @@ def kronos_timestamp_series(values: pd.Index | pd.Series) -> pd.Series:
     return pd.Series(pd.to_datetime(values), name="timestamps").reset_index(drop=True)
 
 
-def reset_sampling_seed(torch_module: Any, seed: int = 100) -> None:
+def frame_timestamp(frame: pd.DataFrame, position: int) -> pd.Timestamp:
+    raw_value: Any = frame.index[position]
+    value = cast(pd.Timestamp, pd.Timestamp(raw_value))
+    if pd.isna(value):
+        raise RuntimeError("anchor contains a missing session timestamp")
+    return value
+
+
+def resolve_device(torch_module: Any, execution_profile: str, requested_device: str) -> str:
+    normalized = "cuda" if requested_device in {"cuda", "cuda:0"} else requested_device
+    allowed = EXECUTION_PROFILES.get(execution_profile)
+    if allowed is None or normalized not in allowed:
+        raise RuntimeError(
+            f"device {requested_device} is not admitted by execution profile {execution_profile}"
+        )
+    if normalized == "cuda":
+        if not bool(torch_module.cuda.is_available()):
+            raise RuntimeError("requested CUDA device is unavailable; CPU fallback is forbidden")
+        return "cuda:0"
+    if normalized == "mps":
+        fallback = os.environ.get("PYTORCH_ENABLE_MPS_FALLBACK", "").strip().lower()
+        if fallback in {"1", "true", "yes", "on"}:
+            raise RuntimeError("PYTORCH_ENABLE_MPS_FALLBACK must be disabled for audited inference")
+        backend = getattr(getattr(torch_module, "backends", None), "mps", None)
+        available = getattr(backend, "is_available", None)
+        if not callable(available) or not bool(available()):
+            raise RuntimeError("requested MPS device is unavailable; CPU fallback is forbidden")
+        return "mps"
+    return "cpu"
+
+
+def reset_sampling_seed(
+    torch_module: Any, seed: int = 100, *, device: str = "cuda:0"
+) -> None:
     """Give evaluation and online inference independent, repeatable RNG streams."""
     np.random.seed(seed)
     torch_module.manual_seed(seed)
-    if torch_module.cuda.is_available():
+    if device.startswith("cuda"):
         torch_module.cuda.manual_seed_all(seed)
+
+
+def empty_device_cache(torch_module: Any, device: str) -> None:
+    if device.startswith("cuda"):
+        torch_module.cuda.empty_cache()
+    elif device == "mps":
+        mps = getattr(torch_module, "mps", None)
+        empty_cache = getattr(mps, "empty_cache", None)
+        if callable(empty_cache):
+            empty_cache()
 
 
 def sample_cross_sections(
@@ -228,7 +277,7 @@ def sample_cross_sections(
 ) -> list[tuple[str, int]]:
     by_session: dict[pd.Timestamp, list[tuple[str, int]]] = {}
     for code, start in anchors:
-        session = symbols[code].index[start + LOOKBACK - 1]
+        session = frame_timestamp(symbols[code], start + LOOKBACK - 1)
         by_session.setdefault(session, []).append((code, start))
     rng = random.Random(seed)
     sessions = sorted(by_session)
@@ -251,7 +300,7 @@ def formal_cross_sections(
 ) -> list[tuple[str, int]]:
     by_session: dict[pd.Timestamp, list[tuple[str, int]]] = {}
     for code, start in anchors:
-        session = symbols[code].index[start + LOOKBACK - 1]
+        session = frame_timestamp(symbols[code], start + LOOKBACK - 1)
         by_session.setdefault(session, []).append((code, start))
     selected: list[tuple[str, int]] = []
     grouped: dict[tuple[int, int], list[pd.Timestamp]] = {}
@@ -267,7 +316,7 @@ def formal_cross_sections(
 
 def anchor_hash(anchors: list[tuple[str, int]], symbols: dict[str, pd.DataFrame]) -> str:
     identities = [
-        f"{code}:{symbols[code].index[start + LOOKBACK - 1].strftime('%Y-%m-%d')}"
+        f"{code}:{frame_timestamp(symbols[code], start + LOOKBACK - 1).strftime('%Y-%m-%d')}"
         for code, start in anchors
     ]
     return hashlib.sha256("\n".join(identities).encode()).hexdigest()
@@ -281,6 +330,12 @@ def main() -> int:
     parser.add_argument("--upstream", type=Path, required=True)
     parser.add_argument("--matrix-receipt", type=Path, required=True)
     parser.add_argument("--model-size", choices=("small", "base"), default="small")
+    parser.add_argument(
+        "--execution-profile",
+        choices=tuple(EXECUTION_PROFILES),
+        default="remote-linux-nvidia",
+    )
+    parser.add_argument("--device", choices=("cpu", "mps", "cuda", "cuda:0"), default="cuda")
     parser.add_argument("--smoke-evaluation-samples", type=int)
     parser.add_argument("--formal-sessions-per-month", type=int, default=5)
     parser.add_argument("--batch-size", type=int, default=20)
@@ -289,6 +344,7 @@ def main() -> int:
     parser.add_argument("--skip-evaluation", action="store_true")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
+    device = resolve_device(torch, args.execution_profile, args.device)
     cells = model_cells(args.model_size)
     root = args.root.resolve()
     dataset_root = root / "data/processed/extended-v2"
@@ -301,6 +357,18 @@ def main() -> int:
     upstream_head = verify_upstream(upstream)
     matrix_path = args.matrix_receipt.resolve()
     matrix = load_matrix(matrix_path)
+    matrix_cells = matrix.get("cells")
+    expected_cells = {model_id: (size, track) for model_id, size, track in cells}
+    if (
+        not isinstance(matrix_cells, list)
+        or not all(isinstance(cell, dict) for cell in matrix_cells)
+        or {str(cell.get("id")) for cell in matrix_cells} != set(expected_cells)
+    ):
+        raise RuntimeError("matrix is not the exact selected three-cell release")
+    for cell in matrix_cells:
+        model_id = str(cell["id"])
+        if (cell.get("size"), cell.get("track")) != expected_cells[model_id]:
+            raise RuntimeError(f"matrix cell semantics are invalid: {model_id}")
     if matrix.get("upstream_commit") != upstream_head:
         raise RuntimeError("matrix and inference upstream identities disagree")
     if matrix.get("data_manifest_sha256") != sha256(manifest_path):
@@ -323,20 +391,26 @@ def main() -> int:
             viewed_anchors = list(pickle.load(handle))
     raw_root = root / "data/raw/extended-csi300-v1"
     online_manifest_path: Path | None = None
+    online_root: Path | None = None
     if args.online_root is not None:
-        online_root = args.online_root.resolve()
-        online_manifest_path = online_root / "manifest.json"
-        online_manifest = json.loads(online_manifest_path.read_text(encoding="utf-8"))
+        resolved_online_root = args.online_root.resolve()
+        online_root = resolved_online_root
+        online_manifest_path = resolved_online_root / "manifest.json"
+        online_manifest = json.loads(
+            (resolved_online_root / "manifest.json").read_text(encoding="utf-8")
+        )
         if online_manifest.get("status") != "PASS":
             raise RuntimeError("online snapshot is not PASS")
-        verify_manifest_files(online_root, online_manifest)
-        with (online_root / "online_data.pkl").open("rb") as handle:
+        verify_manifest_files(resolved_online_root, online_manifest)
+        with (resolved_online_root / "online_data.pkl").open("rb") as handle:
             online_symbols: dict[str, pd.DataFrame] = pickle.load(handle)
-        latest = pd.Timestamp(online_manifest["resolved_session"])
-        calendar_frame = pd.read_csv(online_root / "trade_cal.csv", dtype={"cal_date": str})
+        latest = cast(pd.Timestamp, pd.Timestamp(online_manifest["resolved_session"]))
+        calendar_frame = pd.read_csv(
+            resolved_online_root / "trade_cal.csv", dtype={"cal_date": str}
+        )
     else:
         online_symbols = symbols
-        latest = pd.Timestamp(manifest["latest_closed_session"])
+        latest = cast(pd.Timestamp, pd.Timestamp(manifest["latest_closed_session"]))
         calendar_frame = pd.read_csv(raw_root / "trade_cal.csv", dtype={"cal_date": str})
     calendar = pd.DatetimeIndex(
         pd.to_datetime(
@@ -371,6 +445,10 @@ def main() -> int:
         "data_manifest_sha256": sha256(online_manifest_path or manifest_path),
         "upstream_commit": upstream_head,
         "training_matrix_receipt_sha256": sha256(matrix_path),
+        "model_size": args.model_size,
+        "execution_profile": args.execution_profile,
+        "requested_device": args.device,
+        "execution_device": device,
         "inference_code_sha256": sha256(Path(__file__)),
         "config_sha256": hashlib.sha256(
             json.dumps(
@@ -378,6 +456,9 @@ def main() -> int:
                     "evaluation_batch_size": args.batch_size,
                     "online_batch_size": args.online_batch_size,
                     "evaluation_mode": evaluation_mode,
+                    "model_size": args.model_size,
+                    "execution_profile": args.execution_profile,
+                    "execution_device": device,
                     "formal_sessions_per_month": args.formal_sessions_per_month,
                     "sampling": {"temperature": 0.6, "top_p": 0.9, "top_k": 0, "sample_count": 10},
                 },
@@ -396,7 +477,7 @@ def main() -> int:
                 "evaluated_rows": len(anchors),
                 "evaluated_cross_sections": len(
                     {
-                        symbols[code].index[start + LOOKBACK - 1]
+                        frame_timestamp(symbols[code], start + LOOKBACK - 1)
                         for code, start in anchors
                     }
                 ),
@@ -420,7 +501,7 @@ def main() -> int:
             weights.loc[weights["trade_date"].astype(str) == latest_membership_date, "con_code"]
         )
     names: dict[str, str] = {}
-    if args.online_root is not None:
+    if online_root is not None:
         online_execution = json.loads((online_root / "execution.json").read_text(encoding="utf-8"))
         names.update(
             {
@@ -452,7 +533,7 @@ def main() -> int:
     output["forecast_sessions"] = [session.strftime("%Y-%m-%d") for session in y_latest]
 
     for model_id, size, track in cells:
-        reset_sampling_seed(torch)
+        reset_sampling_seed(torch, device=device)
         tokenizer_path, predictor_path, matrix_cell = model_paths(matrix, model_id)
         if not (tokenizer_path / "model.safetensors").is_file():
             raise RuntimeError(f"missing tokenizer checkpoint for {model_id}")
@@ -466,7 +547,7 @@ def main() -> int:
         model = Kronos.from_pretrained(predictor_path)
         tokenizer.eval()
         model.eval()
-        predictor = KronosPredictor(model, tokenizer, device="cuda:0", max_context=512, clip=5)
+        predictor = KronosPredictor(model, tokenizer, device=device, max_context=512, clip=5)
         metrics: dict[str, Any] = {}
         with torch.inference_mode():
             for split_name, anchors in eval_sets.items():
@@ -519,7 +600,7 @@ def main() -> int:
             # Evaluation may consume tens of thousands of Monte Carlo draws.
             # Reset before the online cross-section so FORMAL and ONLINE_ONLY
             # produce the same score for the same model, data and configuration.
-            reset_sampling_seed(torch)
+            reset_sampling_seed(torch, device=device)
             for batch_start in range(0, len(latest_starts), args.online_batch_size):
                 batch = latest_starts[batch_start : batch_start + args.online_batch_size]
                 frames, times = [], []
@@ -567,7 +648,7 @@ def main() -> int:
             "metrics": metrics,
         }
         del predictor, model, tokenizer
-        torch.cuda.empty_cache()
+        empty_device_cache(torch, device)
 
     rows = []
     for item in online_rows.values():
@@ -589,7 +670,18 @@ def main() -> int:
     output["status"] = "PASS"
     output["generated_at_utc"] = datetime.now(UTC).isoformat()
     atomic_json(output, args.out)
-    print(json.dumps({"status": "PASS", "as_of": output["as_of_session"], "scores": len(rows)}))
+    print(
+        json.dumps(
+            {
+                "status": "PASS",
+                "as_of": output["as_of_session"],
+                "scores": len(rows),
+                "model_size": args.model_size,
+                "execution_profile": args.execution_profile,
+                "execution_device": device,
+            }
+        )
+    )
     return 0
 
 

@@ -278,7 +278,9 @@ def test_unavailable_worker_job_fails_without_being_claimed(tmp_path: Path) -> N
     assert failed["execution_receipt"]["status"] == "UNAVAILABLE"
 
 
-def test_base_capability_can_pass_but_online_publication_stays_blocked(tmp_path: Path) -> None:
+def test_base_capability_runs_research_only_pipeline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     settings = active_settings(tmp_path, pipeline_mode="real", model_release="base")
     database = Database(settings.database_path)
     database.initialize()
@@ -289,13 +291,20 @@ def test_base_capability_can_pass_but_online_publication_stays_blocked(tmp_path:
         model_release=settings.model_release,
         requested_device=settings.execution_device,
     )
+    def fake_pipeline(database, active_settings, job, advance):  # type: ignore[no-untyped-def]
+        assert job["model_release"] == "base"
+        assert active_settings.model_release == "base"
+        advance("RESEARCH_ONLY", 0.9, "research only", "2026-08-12")
+        return "base-research-run"
+
+    monkeypatch.setattr("elanquant.orchestration.worker.run_real_pipeline", fake_pipeline)
     worker = Worker(settings, capability_probe=lambda _: capabilities())
     assert worker.run_once() is True
-    failed = jobs.get(str(submitted["id"]))
-    assert failed["status"] == "FAILED"
-    assert failed["started_at"] is None
-    assert failed["error_code"] == "MODEL_RELEASE_RESEARCH_ONLY"
-    assert failed["execution_receipt"]["status"] == "PASS"
+    completed = jobs.get(str(submitted["id"]))
+    assert completed["status"] == "SUCCEEDED"
+    assert completed["run_id"] == "base-research-run"
+    assert completed["execution_receipt"]["status"] == "PASS"
+    assert completed["execution_receipt"]["research_only"] is True
 
 
 def test_api_freezes_active_profile_and_exposes_additive_status(tmp_path: Path) -> None:

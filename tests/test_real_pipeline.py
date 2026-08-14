@@ -1,19 +1,25 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from fastapi.testclient import TestClient
+
 from elanquant.api.app import create_app
 from elanquant.orchestration.jobs import JobStore
 from elanquant.pipelines import real
 from elanquant.settings import Settings
 from elanquant.storage.database import Database
-from fastapi.testclient import TestClient
+from scripts.server import evaluate_and_infer
 
 
-@pytest.mark.parametrize("fail_finalization", [False, True])
+@pytest.mark.parametrize(
+    ("fail_finalization", "model_release"),
+    [(False, "small"), (True, "small"), (False, "base")],
+)
 def test_real_pipeline_publishes_only_contract_complete_artifacts_atomically(
-    tmp_path: Path, monkeypatch: Any, fail_finalization: bool
+    tmp_path: Path, monkeypatch: Any, fail_finalization: bool, model_release: str
 ) -> None:
     research_root = tmp_path / "research"
     matrix_receipt = research_root / "releases/training-matrix.json"
@@ -28,18 +34,26 @@ def test_real_pipeline_publishes_only_contract_complete_artifacts_atomically(
         pipeline_mode="real",
         matrix_receipt=matrix_receipt,
         evaluation_receipt=evaluation_receipt,
+        execution_profile="local-apple-silicon",
+        model_release=model_release,
+        execution_device="cpu",
     )
     database = Database(active.database_path)
     database.initialize()
     jobs = JobStore(database)
-    submitted, _ = jobs.submit_update_infer("2026-08-12")
+    submitted, _ = jobs.submit_update_infer(
+        "2026-08-12",
+        execution_profile=active.execution_profile,
+        model_release=model_release,
+        requested_device=active.execution_device,
+    )
     job = jobs.claim_next()
     assert job is not None
 
     model_ids = (
-        "small-zero-shot",
-        "small-official-ft",
-        "small-strict-pit",
+        f"{model_release}-zero-shot",
+        f"{model_release}-official-ft",
+        f"{model_release}-strict-pit",
     )
     commands: list[list[str]] = []
 
@@ -100,7 +114,7 @@ def test_real_pipeline_publishes_only_contract_complete_artifacts_atomically(
                     "rank": index + 1,
                     "code": code,
                     "name": code,
-                    "score": model_scores["small-strict-pit"],
+                    "score": model_scores[f"{model_release}-strict-pit"],
                     "reference_price": 10.1,
                     "model_scores": model_scores,
                 }
@@ -114,11 +128,20 @@ def test_real_pipeline_publishes_only_contract_complete_artifacts_atomically(
                     "forecast_sessions": ["2026-08-13"],
                     "inference_code_sha256": "d" * 64,
                     "config_sha256": "c" * 64,
+                    "model_size": model_release,
+                    "execution_profile": active.execution_profile,
+                    "execution_device": active.execution_device,
                 }
             ),
             encoding="utf-8",
         )
-        return {"status": "PASS", "scores": 250}
+        return {
+            "status": "PASS",
+            "scores": 250,
+            "model_size": model_release,
+            "execution_profile": active.execution_profile,
+            "execution_device": active.execution_device,
+        }
 
     evaluation_receipt.write_text(
         json.dumps(
@@ -142,7 +165,7 @@ def test_real_pipeline_publishes_only_contract_complete_artifacts_atomically(
                 },
                 "models": {
                     model_id: {
-                        "size": "small",
+                        "size": model_release,
                         "track": (
                             "zero_shot"
                             if "zero-shot" in model_id
@@ -179,6 +202,19 @@ def test_real_pipeline_publishes_only_contract_complete_artifacts_atomically(
         ),
         encoding="utf-8",
     )
+    if model_release == "small":
+        (matrix_receipt.parent / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": "elanquant_release_v1",
+                    "status": "PASS",
+                    "release_id": "small-test-release",
+                    "training_matrix_sha256": real.sha256(matrix_receipt),
+                    "formal_evaluation_sha256": real.sha256(evaluation_receipt),
+                }
+            ),
+            encoding="utf-8",
+        )
     original_fake_run = fake_run
 
     def provenance_fake_run(command: list[str], settings: Settings) -> dict[str, Any]:
@@ -239,21 +275,57 @@ def test_real_pipeline_publishes_only_contract_complete_artifacts_atomically(
         completed_job = connection.execute(
             "SELECT * FROM jobs WHERE id = ?", (job["id"],)
         ).fetchone()
-    assert run["protocol"] == "STRICT_PIT_SMALL"
+        publication_counts = {
+            table: connection.execute(f"SELECT COUNT(*) AS n FROM {table}").fetchone()["n"]
+            for table in (
+                "recommendation_sets",
+                "recommendation_items",
+                "paper_accounts",
+                "paper_positions",
+                "paper_gaps",
+                "paper_signal_publications",
+                "paper_intent_decisions",
+                "paper_orders",
+                "paper_fills",
+                "portfolio_snapshots",
+                "portfolio_position_valuations",
+            )
+        }
+    assert run["protocol"] == (
+        "STRICT_PIT_SMALL" if model_release == "small" else "STRICT_PIT_BASE_RESEARCH_ONLY"
+    )
     assert run["evaluation_receipt_sha256"] == real.sha256(evaluation_receipt)
     inference_command = next(
         command for command in commands if any("evaluate_and_infer.py" in item for item in command)
     )
     assert inference_command[inference_command.index("--online-batch-size") + 1] == "50"
+    assert inference_command[inference_command.index("--model-size") + 1] == model_release
+    assert (
+        inference_command[inference_command.index("--execution-profile") + 1]
+        == "local-apple-silicon"
+    )
+    assert inference_command[inference_command.index("--device") + 1] == "cpu"
     assert score_count == 250 * 3
     assert model_count == 3
     assert evaluation_count == 6
-    assert decision_count == 3
+    assert decision_count == (3 if model_release == "small" else 0)
     assert json.loads(snapshot_summary)["eligible_symbols"] == 250
-    assert len(orders) == 3
+    assert len(orders) == (3 if model_release == "small" else 0)
+    if model_release == "base":
+        assert set(publication_counts.values()) == {0}
+    else:
+        assert publication_counts["recommendation_sets"] == 1
+        assert publication_counts["recommendation_items"] == 3
+        assert publication_counts["paper_accounts"] == 1
+        assert publication_counts["portfolio_snapshots"] == 1
+    assert run["paper_publication_state"] == (
+        "FROZEN" if model_release == "small" else "RESEARCH_ONLY_NOT_PUBLISHED"
+    )
     assert run["scoreable"] == 0
     assert completed_job["status"] == "SUCCEEDED"
-    assert {row["due_session"] for row in orders} == {"2026-08-13"}
+    assert {row["due_session"] for row in orders} == (
+        {"2026-08-13"} if model_release == "small" else set()
+    )
     api = TestClient(create_app(active))
     payload = api.get("/api/v1/runs/latest").json()
     assert payload["scoreable"] is False
@@ -267,9 +339,9 @@ def test_real_pipeline_publishes_only_contract_complete_artifacts_atomically(
     assert stages == [
         "UPDATING_DATA",
         "VALIDATING_DATA",
-        "INFER_SMALL",
+        f"INFER_{model_release.upper()}",
         "SCORING",
-        "PAPER_LEDGER",
+        "PAPER_LEDGER" if model_release == "small" else "RESEARCH_ONLY",
     ]
 
 
@@ -320,3 +392,97 @@ def test_snapshot_summary_counts_symbol_reason_mapping() -> None:
         "missing_daily_or_adjustment": 2,
         "provider_schema_mismatch": 1,
     }
+
+
+def test_small_publication_requires_one_hash_bound_release_manifest(tmp_path: Path) -> None:
+    release = tmp_path / "release"
+    release.mkdir()
+    matrix = release / "training-matrix.json"
+    evaluation = release / "formal-evaluation.json"
+    matrix.write_text("matrix", encoding="utf-8")
+    evaluation.write_text("evaluation", encoding="utf-8")
+    settings = Settings(
+        database_path=tmp_path / "db.sqlite3",
+        artifact_root=tmp_path / "runs",
+        frontend_dist=tmp_path / "dist",
+        matrix_receipt=matrix,
+        evaluation_receipt=evaluation,
+    )
+    matrix_sha = real.sha256(matrix)
+    evaluation_sha = real.sha256(evaluation)
+    with pytest.raises(RuntimeError, match="manifest is missing"):
+        real.validate_publication_release(settings, matrix_sha, evaluation_sha)
+
+    manifest = release / "manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": "elanquant_release_v1",
+                "status": "PASS",
+                "release_id": "sealed-small",
+                "training_matrix_sha256": matrix_sha,
+                "formal_evaluation_sha256": evaluation_sha,
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert real.validate_publication_release(settings, matrix_sha, evaluation_sha)[
+        "release_id"
+    ] == "sealed-small"
+    with pytest.raises(RuntimeError, match="invalid or mismatched"):
+        real.validate_publication_release(settings, matrix_sha, "0" * 64)
+
+
+def test_runtime_selection_is_frozen_to_job_profile_release_and_device(tmp_path: Path) -> None:
+    settings = Settings(
+        database_path=tmp_path / "db.sqlite3",
+        artifact_root=tmp_path / "runs",
+        frontend_dist=tmp_path / "dist",
+        execution_profile="remote-linux-nvidia",
+        execution_device="cuda",
+    )
+    selected = real.resolve_runtime_selection(
+        settings,
+        {
+            "execution_profile": "remote-linux-nvidia",
+            "model_release": "base",
+            "requested_device": "cuda",
+        },
+    )
+    assert selected.execution_device == "cuda:0"
+    assert selected.publish_paper is False
+    with pytest.raises(RuntimeError, match="differs from the active deployment"):
+        real.resolve_runtime_selection(
+            settings,
+            {
+                "execution_profile": "local-apple-silicon",
+                "model_release": "small",
+                "requested_device": "cuda",
+            },
+        )
+
+
+def test_evaluator_device_resolution_is_explicit_and_has_no_fallback(
+    monkeypatch: Any,
+) -> None:
+    unavailable_cuda = SimpleNamespace(cuda=SimpleNamespace(is_available=lambda: False))
+    with pytest.raises(RuntimeError, match="CPU fallback is forbidden"):
+        evaluate_and_infer.resolve_device(
+            unavailable_cuda, "remote-linux-nvidia", "cuda"
+        )
+
+    cuda = SimpleNamespace(cuda=SimpleNamespace(is_available=lambda: True))
+    assert (
+        evaluate_and_infer.resolve_device(cuda, "remote-linux-nvidia", "cuda")
+        == "cuda:0"
+    )
+    mps = SimpleNamespace(
+        cuda=SimpleNamespace(is_available=lambda: False),
+        backends=SimpleNamespace(mps=SimpleNamespace(is_available=lambda: True)),
+    )
+    assert evaluate_and_infer.resolve_device(mps, "local-apple-silicon", "mps") == "mps"
+    monkeypatch.setenv("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+    with pytest.raises(RuntimeError, match="must be disabled"):
+        evaluate_and_infer.resolve_device(mps, "local-apple-silicon", "mps")
+    with pytest.raises(RuntimeError, match="not admitted"):
+        evaluate_and_infer.resolve_device(cuda, "remote-linux-nvidia", "cpu")
