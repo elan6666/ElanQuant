@@ -64,7 +64,7 @@ python -m pip install -e '.[dev,repro]'
 
 elanquant data import \
   --input examples/data/synthetic_daily.csv \
-  --output .elanquant/data/synthetic \
+  --output .elanquant/data/synthetic.csv \
   --calendar synthetic-weekday \
   --universe-policy synthetic-fixture \
   --pit-declaration research-demo-only \
