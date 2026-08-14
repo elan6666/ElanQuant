@@ -80,6 +80,7 @@ describe('ElanQuant dashboard states', () => {
     expect(screen.getByRole('heading', { name: 'Small 与 Base 四格对照' })).toBeInTheDocument()
     expect(screen.getAllByText('待运行')).toHaveLength(4)
     expect(screen.queryByText('严格PIT适配')).not.toBeInTheDocument()
+    expect(screen.queryByText(/small-strict-pit/)).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '股票排名' }))
     expect(screen.getAllByText('浦发银行')).toHaveLength(2)
@@ -89,6 +90,8 @@ describe('ElanQuant dashboard states', () => {
     expect(screen.getAllByText(/不是已实现收益，也不是上涨概率/).length).toBeGreaterThan(0)
     expect(screen.getByText('¥10.00')).toBeInTheDocument()
     expect(screen.getByText('¥10.20')).toBeInTheDocument()
+    expect(screen.getByText(/封存主模型用于本次排名/)).toBeInTheDocument()
+    expect(screen.queryByText(/严格PIT轨驱动排名/)).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '模拟账户' }))
     expect(screen.getByText('¥101,000')).toBeInTheDocument()
