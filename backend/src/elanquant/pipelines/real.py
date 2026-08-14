@@ -12,7 +12,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from elanquant.pipelines.paper import (
     Recommendation,
@@ -74,14 +74,19 @@ def resolve_runtime_selection(settings: Settings, job: dict[str, object]) -> Run
     )
 
 
-def expected_model_ids(model_release: str) -> set[str]:
+def expected_model_ids(model_release: str, matrix_schema: str) -> set[str]:
     if model_release not in {"small", "base"}:
         raise RuntimeError("unsupported model release")
-    return {
+    legacy = {
         f"{model_release}-zero-shot",
         f"{model_release}-official-ft",
         f"{model_release}-strict-pit",
     }
+    if matrix_schema == "elanquant_training_matrix_v2":
+        return legacy
+    if matrix_schema == "elanquant_kronos_four_cell_matrix_v3":
+        return legacy - {f"{model_release}-strict-pit"}
+    raise RuntimeError("unsupported training matrix schema")
 
 
 def validate_publication_release(
@@ -95,17 +100,144 @@ def validate_publication_release(
     if not manifest_path.is_file():
         raise RuntimeError("Small publication release manifest is missing")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict) or manifest.get("status") != "PASS":
+        raise RuntimeError("Small publication release manifest is invalid or mismatched")
+    schema = manifest.get("schema_version")
+    legacy_valid = (
+        schema == "elanquant_release_v1"
+        and manifest.get("training_matrix_sha256") == matrix_sha256
+        and manifest.get("formal_evaluation_sha256") == evaluation_sha256
+    )
+    v3_valid = (
+        schema == "elanquant_official_split_online_release_v3"
+        and manifest.get("training_matrix_sha256") == matrix_sha256
+        and manifest.get("rolling_evaluation_sha256") == evaluation_sha256
+        and manifest.get("primary_models")
+        == {"small": "small-official-ft", "base": "base-official-ft"}
+        and manifest.get("selection_basis") == "PREDECLARED_OFFICIAL_FT_METHOD_IDENTITY"
+        and manifest.get("test_metrics_used_for_selection") is False
+    )
+    if schema == "elanquant_official_split_online_release_v3":
+        historical_path = matrix_parent / "historical-catalog.json"
+        analysis_lock_path = matrix_parent / "analysis-lock.json"
+        v3_valid = (
+            v3_valid
+            and historical_path.is_file()
+            and analysis_lock_path.is_file()
+            and manifest.get("historical_catalog_sha256") == sha256(historical_path)
+            and manifest.get("analysis_lock_sha256") == sha256(analysis_lock_path)
+        )
+        canonical = dict(manifest)
+        claimed = canonical.pop("receipt_hash", None)
+        rendered = json.dumps(
+            canonical,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        v3_valid = v3_valid and claimed == hashlib.sha256(rendered.encode()).hexdigest()
     if (
-        not isinstance(manifest, dict)
-        or manifest.get("schema_version") != "elanquant_release_v1"
-        or manifest.get("status") != "PASS"
-        or not isinstance(manifest.get("release_id"), str)
+        not isinstance(manifest.get("release_id"), str)
         or not manifest["release_id"]
-        or manifest.get("training_matrix_sha256") != matrix_sha256
-        or manifest.get("formal_evaluation_sha256") != evaluation_sha256
+        or not (legacy_valid or v3_valid)
     ):
         raise RuntimeError("Small publication release manifest is invalid or mismatched")
     return manifest
+
+
+def normalized_evaluation_evidence(
+    matrix: dict[str, Any], evaluation: dict[str, Any], model_release: str
+) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]], str]:
+    matrix_schema = str(matrix.get("schema_version"))
+    expected = expected_model_ids(model_release, matrix_schema)
+    if matrix_schema == "elanquant_training_matrix_v2":
+        legacy_models = evaluation.get("models")
+        legacy_support = evaluation.get("evaluation_support")
+        if (
+            evaluation.get("status") != "PASS"
+            or evaluation.get("schema_version") != "elanquant_kronos_inference_v1"
+            or evaluation.get("evaluation_mode") != "FORMAL"
+            or evaluation.get("test_status") != "TEST_VIEWED"
+            or not isinstance(legacy_models, dict)
+            or set(legacy_models) != expected
+            or not isinstance(legacy_support, dict)
+        ):
+            raise RuntimeError("legacy formal evaluation receipt is incomplete")
+        return (
+            cast(dict[str, dict[str, Any]], legacy_models),
+            cast(dict[str, dict[str, Any]], legacy_support),
+            "evaluate_and_infer.py",
+        )
+    if matrix_schema != "elanquant_kronos_four_cell_matrix_v3":
+        raise RuntimeError("unsupported evaluation evidence")
+    entries = evaluation.get("entries")
+    if (
+        evaluation.get("status") != "PASS"
+        or evaluation.get("schema_version") != "elanquant_kronos_rolling_evaluation_v3"
+        or evaluation.get("test_status") != "TEST_VIEWED"
+        or evaluation.get("used_for_selection") is not False
+        or evaluation.get("promotion_eligible") is not False
+        or not isinstance(entries, list)
+    ):
+        raise RuntimeError("official-split-v3 rolling evaluation receipt is incomplete")
+    cell_by_id = {
+        str(row.get("id")): row
+        for row in matrix.get("cells", [])
+        if isinstance(row, dict) and str(row.get("id")) in expected
+    }
+    entry_by_id = {
+        str(row.get("model_cell_id")): row
+        for row in entries
+        if isinstance(row, dict) and str(row.get("model_cell_id")) in expected
+    }
+    if set(cell_by_id) != expected or set(entry_by_id) != expected:
+        raise RuntimeError("official-split-v3 evidence lacks the selected model size")
+    split_name = "test_viewed_official_v3"
+    models: dict[str, dict[str, Any]] = {}
+    support: dict[str, dict[str, Any]] = {}
+    for model_id in sorted(expected):
+        cell = cell_by_id[model_id]
+        entry = entry_by_id[model_id]
+        entry_support = entry.get("support")
+        metrics = entry.get("metrics")
+        if not isinstance(entry_support, dict) or not isinstance(metrics, dict):
+            raise RuntimeError(f"official-split-v3 metrics are incomplete: {model_id}")
+        rows, sections = entry_support.get("rows"), entry_support.get("sessions")
+        signal_sha = entry.get("signal_sha256")
+        if (
+            not isinstance(rows, int)
+            or rows <= 0
+            or not isinstance(sections, int)
+            or sections <= 0
+            or not valid_sha256(signal_sha)
+        ):
+            raise RuntimeError(f"official-split-v3 support is invalid: {model_id}")
+        model_metrics = {
+            "rank_ic": metrics.get("rank_ic"),
+            "ic": metrics.get("ic"),
+            "top10_mean_return": metrics.get("top10_mean_return"),
+            "rows": rows,
+            "cross_sections": sections,
+        }
+        models[model_id] = {
+            "size": model_release,
+            "track": "zero_shot" if model_id.endswith("zero-shot") else "official_style",
+            "predictor_sha256": cell.get("predictor_sha256"),
+            "tokenizer_sha256": cell.get("tokenizer_sha256"),
+            "config_sha256": cell.get("config_sha256"),
+            "metrics": {split_name: model_metrics},
+        }
+        existing = support.get(split_name)
+        candidate = {
+            "evaluated_rows": rows,
+            "evaluated_cross_sections": sections,
+            "anchor_set_sha256": signal_sha,
+        }
+        if existing is not None and existing != candidate:
+            raise RuntimeError("official-split-v3 cells do not share common support")
+        support[split_name] = candidate
+    return models, support, "evaluate_official_split_online_v3.py"
 
 
 def valid_sha256(value: object) -> bool:
@@ -272,10 +404,14 @@ def run_real_pipeline(
         raise RuntimeError("sealed matrix/evaluation release is missing")
     matrix_sha = sha256(settings.matrix_receipt)
     evaluation_sha = sha256(evaluation_path)
-    if runtime.publish_paper:
-        validate_publication_release(settings, matrix_sha, evaluation_sha)
+    matrix_result = json.loads(settings.matrix_receipt.read_text(encoding="utf-8"))
+    matrix_schema = str(matrix_result.get("schema_version"))
+    if runtime.publish_paper or matrix_schema == "elanquant_kronos_four_cell_matrix_v3":
+        release_manifest = validate_publication_release(settings, matrix_sha, evaluation_sha)
+    else:
+        release_manifest = None
     evaluation_result = json.loads(evaluation_path.read_text(encoding="utf-8"))
-    expected_models = expected_model_ids(runtime.model_release)
+    expected_models = expected_model_ids(runtime.model_release, matrix_schema)
     advance("UPDATING_DATA", 0.12, "Fetching immutable CSI300 online snapshot", None)
     fetch = _run(
         [
@@ -297,23 +433,18 @@ def run_real_pipeline(
         raise RuntimeError("online snapshot failed its terminal data gate")
     resolved = str(snapshot_manifest["resolved_session"])
     snapshot_hash = sha256(snapshot_manifest_path)
-    evaluation_models = evaluation_result.get("models")
-    evaluation_support = evaluation_result.get("evaluation_support")
-    if (
-        evaluation_result.get("status") != "PASS"
-        or evaluation_result.get("schema_version") != "elanquant_kronos_inference_v1"
-        or evaluation_result.get("evaluation_mode") != "FORMAL"
-        or evaluation_result.get("test_status") != "TEST_VIEWED"
-        or not isinstance(evaluation_models, dict)
-        or set(evaluation_models) != expected_models
-        or not isinstance(evaluation_support, dict)
-        or evaluation_result.get("training_matrix_receipt_sha256") != matrix_sha
-    ):
+    evaluation_models, evaluation_support, inference_script = normalized_evaluation_evidence(
+        matrix_result, evaluation_result, runtime.model_release
+    )
+    evaluation_matrix_sha = evaluation_result.get("training_matrix_receipt_sha256")
+    if evaluation_matrix_sha is None and matrix_schema == "elanquant_kronos_four_cell_matrix_v3":
+        evaluation_matrix_sha = matrix_sha
+    if evaluation_matrix_sha != matrix_sha:
         raise RuntimeError(
             f"formal {runtime.model_release} evaluation receipt is incomplete or mismatched"
         )
     expected_support: dict[str, tuple[int, int]] = {}
-    for split_name in ("validation_2025", "test_viewed_2026"):
+    for split_name in evaluation_support:
         support = evaluation_support.get(split_name)
         if not isinstance(support, dict):
             raise RuntimeError(f"formal support is incomplete: {split_name}")
@@ -372,10 +503,9 @@ def run_real_pipeline(
         f"Running pinned {release_label} cells on {runtime.execution_device}",
         resolved,
     )
-    inference_receipt = _run(
-        [
+    inference_command = [
             str(settings.research_python),
-            str(server_scripts / "evaluate_and_infer.py"),
+            str(server_scripts / inference_script),
             "--root",
             str(settings.artifact_root.parents[1]),
             "--upstream",
@@ -390,14 +520,21 @@ def run_real_pipeline(
             runtime.requested_device,
             "--online-root",
             str(snapshot_path),
-            "--skip-evaluation",
             "--online-batch-size",
             str(settings.inference_batch_size),
             "--out",
             str(artifact_path),
-        ],
-        settings,
-    )
+        ]
+    if matrix_schema == "elanquant_training_matrix_v2":
+        inference_command.insert(-4, "--skip-evaluation")
+    if (
+        release_manifest is not None
+        and matrix_schema == "elanquant_kronos_four_cell_matrix_v3"
+        and release_manifest.get("online_runner_sha256")
+        != sha256(server_scripts / inference_script)
+    ):
+        raise RuntimeError("official-split-v3 online runner differs from release manifest")
+    inference_receipt = _run(inference_command, settings)
     if inference_receipt.get("status") != "PASS":
         raise RuntimeError("Kronos inference receipt is not PASS")
     if (
@@ -419,6 +556,15 @@ def run_real_pipeline(
         or result.get("execution_device") != runtime.execution_device
     ):
         raise RuntimeError("Kronos output does not meet the complete ranking contract")
+    if matrix_schema == "elanquant_kronos_four_cell_matrix_v3" and (
+        result.get("schema_version") != "elanquant_official_split_online_inference_v3"
+        or result.get("primary_model_id") != f"{runtime.model_release}-official-ft"
+        or result.get("signal_definition")
+        != "INVERSE_NORMALIZED_TEN_DAY_MEAN_CLOSE_RETURN"
+        or result.get("sampling")
+        != {"temperature": 0.6, "top_p": 0.9, "top_k": 0, "sample_count": 10}
+    ):
+        raise RuntimeError("official-split-v3 online inference protocol drifted")
     if (
         sha256(settings.matrix_receipt) != matrix_sha
         or sha256(evaluation_path) != evaluation_sha
@@ -454,7 +600,11 @@ def run_real_pipeline(
     advance(
         "SCORING",
         0.74,
-        f"Persisting strict-PIT {release_label} research ranking",
+        (
+            f"Persisting official-FT {release_label} ranking"
+            if matrix_schema == "elanquant_kronos_four_cell_matrix_v3"
+            else f"Persisting strict-PIT {release_label} research ranking"
+        ),
         resolved,
     )
     snapshot_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"elanquant:{resolved}:{snapshot_hash}"))
@@ -536,6 +686,8 @@ def run_real_pipeline(
             evaluated_metrics = evaluated.get("metrics", {}) if isinstance(evaluated, dict) else {}
             validation = evaluated_metrics.get("validation_2025", {})
             viewed = evaluated_metrics.get("test_viewed_2026", {})
+            if not viewed:
+                viewed = evaluated_metrics.get("test_viewed_official_v3", {})
             connection.execute(
                 """
                 INSERT INTO model_versions(
@@ -599,9 +751,17 @@ def run_real_pipeline(
                 snapshot_id,
                 resolved,
                 (
-                    "STRICT_PIT_SMALL"
-                    if runtime.publish_paper
-                    else "STRICT_PIT_BASE_RESEARCH_ONLY"
+                    (
+                        "OFFICIAL_SPLIT_V3_SMALL"
+                        if runtime.publish_paper
+                        else "OFFICIAL_SPLIT_V3_BASE_RESEARCH_ONLY"
+                    )
+                    if matrix_schema == "elanquant_kronos_four_cell_matrix_v3"
+                    else (
+                        "STRICT_PIT_SMALL"
+                        if runtime.publish_paper
+                        else "STRICT_PIT_BASE_RESEARCH_ONLY"
+                    )
                 ),
                 str(artifact_path),
                 sha256(artifact_path),

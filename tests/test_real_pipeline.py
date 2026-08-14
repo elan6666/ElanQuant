@@ -25,7 +25,10 @@ def test_real_pipeline_publishes_only_contract_complete_artifacts_atomically(
     matrix_receipt = research_root / "releases/training-matrix.json"
     evaluation_receipt = research_root / "releases/formal-evaluation.json"
     matrix_receipt.parent.mkdir(parents=True)
-    matrix_receipt.write_text('{"status":"PASS"}\n', encoding="utf-8")
+    matrix_receipt.write_text(
+        '{"schema_version":"elanquant_training_matrix_v2","status":"PASS"}\n',
+        encoding="utf-8",
+    )
     matrix_sha = real.sha256(matrix_receipt)
     active = Settings(
         database_path=research_root / "artifacts/elanquant.sqlite3",

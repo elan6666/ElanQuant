@@ -151,9 +151,13 @@ function ExperimentCard({
 }) {
   const validation = cell.evaluations.validation_2025
   const viewed = cell.evaluations.test_viewed_2026
-  const validationRankIc = validation?.rank_ic ?? cell.rank_ic
+  const officialViewed = cell.evaluations.test_viewed_official_v3
+  const displayed = officialViewed ?? validation
+  const validationRankIc = displayed?.rank_ic ?? cell.rank_ic
   const zeroRankIc =
-    zeroShot?.evaluations.validation_2025?.rank_ic ?? zeroShot?.rank_ic ?? null
+    (officialViewed
+      ? zeroShot?.evaluations.test_viewed_official_v3?.rank_ic
+      : zeroShot?.evaluations.validation_2025?.rank_ic) ?? zeroShot?.rank_ic ?? null
   const delta =
     validationRankIc === null || zeroRankIc === null ? null : validationRankIc - zeroRankIc
   return (
@@ -163,21 +167,24 @@ function ExperimentCard({
         <div><span>{cell.model_size.toUpperCase()}</span><h2>{trackMeta[cell.track].label}</h2></div>
         <Badge state={cell.state}>{experimentStateLabel[cell.state]}</Badge>
       </div>
-      <div className="split-label"><b>VALIDATION / 2025</b><span>用于比较</span></div>
+      <div className="split-label">
+        <b>{officialViewed ? 'ROLLING TEST / TEST_VIEWED' : 'VALIDATION / 2025'}</b>
+        <span>{officialViewed ? '已查看，只描述结果' : '用于比较'}</span>
+      </div>
       <div className="experiment-card__metrics">
         <div><span>RankIC</span><strong>{formatNumber(validationRankIc, 4)}</strong></div>
-        <div><span>Pearson IC</span><strong>{formatNumber(validation?.pearson_ic ?? cell.pearson_ic, 4)}</strong></div>
-        <div><span>Top10标签期收益</span><strong>{formatPercent(validation?.top10_mean_return ?? cell.top10_mean_return)}</strong></div>
+        <div><span>Pearson IC</span><strong>{formatNumber(displayed?.pearson_ic ?? cell.pearson_ic, 4)}</strong></div>
+        <div><span>Top10标签期收益</span><strong>{formatPercent(displayed?.top10_mean_return ?? cell.top10_mean_return)}</strong></div>
       </div>
       <div className="metric-context">
-        <span>对零样本 RankIC Δ</span><b className={(delta ?? 0) >= 0 ? 'positive' : 'negative'}>{delta === null ? '—' : formatNumber(delta, 4)}</b>
-        <small>{validation ? `${validation.rows.toLocaleString()} 条股票样本 · ${validation.cross_sections} 个交易日截面` : '尚无样本支持回执'}</small>
+        <span>{officialViewed ? '与同规模零样本 RankIC 差（只描述）' : '对零样本 RankIC Δ'}</span><b className={(delta ?? 0) >= 0 ? 'positive' : 'negative'}>{delta === null ? '—' : formatNumber(delta, 4)}</b>
+        <small>{displayed ? `${displayed.rows.toLocaleString()} 条股票样本 · ${displayed.cross_sections} 个交易日截面` : '尚无样本支持回执'}</small>
       </div>
-      <div className="viewed-strip">
+      {!officialViewed && <div className="viewed-strip">
         <span>2026 已查看测试（只描述）</span>
         <b>RankIC {formatNumber(viewed?.rank_ic ?? null, 4)}</b>
         <small>{viewed ? `${viewed.rows.toLocaleString()} rows · 不可反向调参` : '尚无终态回执'}</small>
-      </div>
+      </div>}
       <p>{cell.note || trackMeta[cell.track].description}</p>
       <footer><code title={cell.model_hash || undefined}>MODEL {shortHash(cell.model_hash)}</code><span>{cell.receipt ? 'SEALED RECEIPT' : 'NO RECEIPT'}</span></footer>
     </article>

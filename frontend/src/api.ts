@@ -259,7 +259,11 @@ const parseExperiment = (value: unknown, path: string): ExperimentCell => {
     note: nullableString(item.note, `${path}.note`),
     evaluations: Object.fromEntries(
       Object.entries(evaluationsRaw).map(([split, evaluation]) => [
-        enumValue(split, ['validation_2025', 'test_viewed_2026'], `${path}.evaluations.split`),
+        enumValue(
+          split,
+          ['validation_2025', 'test_viewed_2026', 'test_viewed_official_v3'],
+          `${path}.evaluations.split`,
+        ),
         parseEvaluation(evaluation, `${path}.evaluations.${split}`),
       ]),
     ),

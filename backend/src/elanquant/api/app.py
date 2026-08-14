@@ -591,10 +591,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "cross_sections": raw["cross_sections"],
                 "anchor_set_sha256": raw["anchor_set_sha256"],
             }
-        expected_evaluation_splits = {"validation_2025", "test_viewed_2026"}
+        official_v3 = str(run["protocol"]).startswith("OFFICIAL_SPLIT_V3")
+        expected_evaluation_splits = (
+            {"test_viewed_official_v3"}
+            if official_v3
+            else {"validation_2025", "test_viewed_2026"}
+        )
+        expected_model_count = 2 if official_v3 else 3
         formal_evidence_complete = bool(run.get("evaluation_receipt_sha256")) and len(
             model_rows
-        ) == 3 and all(
+        ) == expected_model_count and all(
             set(
                 evaluations_by_model.get(
                     str(model["base_model_id"] or model["id"]), {}
@@ -605,7 +611,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         if not formal_evidence_complete and not str(run["protocol"]).startswith("PLACEHOLDER"):
             warnings.append(
-                "该历史运行缺少逐运行的双分区正式评估回执；实验指标已阻止展示。"
+                "该历史运行缺少完整的逐运行评估回执；实验指标已阻止展示。"
+                if official_v3
+                else "该历史运行缺少逐运行的双分区正式评估回执；实验指标已阻止展示。"
             )
         track_by_variant = {
             "zero_shot": "zero_shot",
@@ -616,6 +624,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         for model in model_rows:
             variant = str(model["variant"]).split("@", 1)[0]
             track = track_by_variant.get(variant)
+            public_evaluations = evaluations_by_model.get(
+                str(model["base_model_id"] or model["id"]), {}
+            )
+            displayed_evaluation = (
+                public_evaluations.get("test_viewed_official_v3", {})
+                if official_v3
+                else {}
+            )
             matrix.append(
                 {
                     "id": model["id"],
@@ -629,10 +645,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         and model["evaluation_receipt_sha256"]
                         else "blocked"
                     ),
-                    "rank_ic": model["validation_rank_ic"] if formal_evidence_complete else None,
-                    "pearson_ic": model["validation_ic"] if formal_evidence_complete else None,
+                    "rank_ic": (
+                        displayed_evaluation.get("rank_ic")
+                        if official_v3 and formal_evidence_complete
+                        else model["validation_rank_ic"] if formal_evidence_complete else None
+                    ),
+                    "pearson_ic": (
+                        displayed_evaluation.get("pearson_ic")
+                        if official_v3 and formal_evidence_complete
+                        else model["validation_ic"] if formal_evidence_complete else None
+                    ),
                     "top10_mean_return": (
-                        model["validation_top10_mean_return"]
+                        displayed_evaluation.get("top10_mean_return")
+                        if official_v3 and formal_evidence_complete
+                        else model["validation_top10_mean_return"]
                         if formal_evidence_complete
                         else None
                     ),
@@ -641,9 +667,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         model["evaluation_receipt"] if formal_evidence_complete else None
                     ),
                     "evaluations": (
-                        evaluations_by_model.get(
-                            str(model["base_model_id"] or model["id"]), {}
-                        )
+                        public_evaluations
                         if formal_evidence_complete
                         else {}
                     ),
@@ -665,7 +689,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "as_of": run["as_of_session"],
             "status": "success" if run["status"] == "SUCCEEDED" else str(run["status"]).lower(),
             "created_at": run["created_at"],
-            "model_id": "small-strict-pit",
+            "model_id": (
+                f"{job_identity['model_release']}-official-ft"
+                if official_v3 and job_identity is not None
+                else "small-strict-pit"
+            ),
             "protocol": run["protocol"],
             "model_versions": [model["id"] for model in model_rows],
             "scoreable": bool(run.get("scoreable")),
@@ -744,12 +772,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "data_as_of": data_session,
             "inference_as_of": latest_session,
             "active_job_id": None if active is None else str(active["id"]),
-            "primary_model": "small-strict-pit" if latest is not None else None,
+            "primary_model": (
+                (
+                    f"{active_settings.model_release}-official-ft"
+                    if active_settings.matrix_receipt.is_file()
+                    and "elanquant_kronos_four_cell_matrix_v3"
+                    in active_settings.matrix_receipt.read_text(encoding="utf-8")[:256]
+                    else "small-strict-pit"
+                )
+                if latest is not None
+                else None
+            ),
             "warnings": warnings,
             "active_jobs": 0 if active is None else 1,
             "latest_run": None if latest is None else dict(latest),
             "execution_mode": (
-                "REAL_STRICT_PIT"
+                "REAL_MODEL_INFERENCE"
                 if active_settings.pipeline_mode == "real"
                 else "PLACEHOLDER_RESEARCH_ONLY"
             ),
@@ -1192,6 +1230,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"runs": [dict(row) for row in rows]}
 
     def strict_ranks(connection: sqlite3.Connection, run_id: str) -> dict[str, int]:
+        run = connection.execute(
+            "SELECT protocol FROM inference_runs WHERE id = ?", (run_id,)
+        ).fetchone()
+        suffix = (
+            "%-official-ft"
+            if run is not None and str(run["protocol"]).startswith("OFFICIAL_SPLIT_V3")
+            else "%-strict-pit"
+        )
         return {
             str(row["code"]): int(row["rank"])
             for row in connection.execute(
@@ -1199,9 +1245,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 SELECT ss.code, ss.rank FROM stock_scores ss
                 JOIN inference_run_models irm
                   ON irm.run_id = ss.run_id AND irm.model_version_id = ss.model_version_id
-                WHERE ss.run_id = ? AND irm.base_model_id LIKE '%-strict-pit'
+                WHERE ss.run_id = ? AND irm.base_model_id LIKE ?
                 """,
-                (run_id,),
+                (run_id, suffix),
             ).fetchall()
         }
 
@@ -1409,33 +1455,36 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "code": code,
                     "name": row["name"],
                     "values": [],
-                    "strict_values": [],
+                    "primary_values": [],
                     "model_scores": {},
                     "reference_price": row["reference_price"],
                     "eligible": True,
                 },
             )
             values = item["values"]
-            strict_values = item["strict_values"]
+            primary_values = item["primary_values"]
             scores = item["model_scores"]
             assert isinstance(values, list)
-            assert isinstance(strict_values, list)
+            assert isinstance(primary_values, list)
             assert isinstance(scores, dict)
             score = float(row["score"])
             values.append(score)
             base_model_id = str(row["base_model_id"])
-            if base_model_id.endswith("strict-pit"):
-                strict_values.append(score)
+            official_v3 = str(exists["protocol"]).startswith("OFFICIAL_SPLIT_V3")
+            if (
+                official_v3 and base_model_id.endswith("official-ft")
+            ) or (not official_v3 and base_model_id.endswith("strict-pit")):
+                primary_values.append(score)
             scores[base_model_id] = score
             if str(row["scoreability"]).startswith("PLACEHOLDER"):
                 item["eligible"] = False
         aggregated = []
         for item in by_code.values():
             values = item.pop("values")
-            strict_values = item.pop("strict_values")
+            primary_values = item.pop("primary_values")
             assert isinstance(values, list)
-            assert isinstance(strict_values, list)
-            consensus_values = strict_values or values
+            assert isinstance(primary_values, list)
+            consensus_values = primary_values or values
             consensus = sum(consensus_values) / len(consensus_values)
             item["model_spread"] = max(values) - min(values) if values else None
             aggregated.append((consensus, item))
@@ -1531,7 +1580,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 JOIN inference_run_models irm
                   ON irm.run_id = ss.run_id AND irm.model_version_id = ss.model_version_id
                 JOIN inference_runs ir ON ir.id = ss.run_id
-                WHERE irm.base_model_id = 'small-strict-pit'
+                WHERE irm.base_model_id = CASE
+                    WHEN ir.protocol LIKE 'OFFICIAL_SPLIT_V3%'
+                    THEN 'small-official-ft'
+                    ELSE 'small-strict-pit'
+                END
                   AND ir.id = (
                     SELECT id FROM inference_runs
                     WHERE status = 'SUCCEEDED' ORDER BY created_at DESC LIMIT 1

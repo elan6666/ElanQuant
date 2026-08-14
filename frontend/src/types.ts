@@ -83,7 +83,9 @@ export interface ExperimentCell {
   model_hash: string | null
   receipt: string | null
   note: string | null
-  evaluations: Partial<Record<'validation_2025' | 'test_viewed_2026', EvaluationSplit>>
+  evaluations: Partial<
+    Record<'validation_2025' | 'test_viewed_2026' | 'test_viewed_official_v3', EvaluationSplit>
+  >
 }
 
 export interface EvaluationSplit {
