@@ -36,7 +36,7 @@ describe('ElanQuant dashboard states', () => {
     expect(screen.getByText('无真实账户')).toBeInTheDocument()
   })
 
-  it('submits the selected execution profile through the real job contract', async () => {
+  it('submits the active profile and labels the receipt from its frozen identity', async () => {
     const initial = snapshot()
     const client = clientFor(snapshot({
       system: {
@@ -52,7 +52,7 @@ describe('ElanQuant dashboard states', () => {
     render(<App client={client} />)
     fireEvent.click(await screen.findByRole('button', { name: /用本机更新并推理/ }))
     await waitFor(() => expect(client.submitUpdateInfer).toHaveBeenCalledWith('local-apple-silicon'))
-    expect(await screen.findByText(/本机已接受任务/)).toBeInTheDocument()
+    expect(await screen.findByText(/远程服务器已接受任务/)).toBeInTheDocument()
     expect(screen.getByText('本机数据截止')).toBeInTheDocument()
     expect(screen.queryByText('服务器数据截止')).not.toBeInTheDocument()
   })

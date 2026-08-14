@@ -502,6 +502,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 raise RuntimeError("historical Top3 source backtest identity is absent")
         return expected
 
+    def historical_artifact_root(catalog: dict[str, Any]) -> Path:
+        catalog_path = active_settings.historical_backtest_catalog.resolve()
+        if catalog.get("schema_version") == OFFICIAL_SPLIT_V3_HISTORICAL_SCHEMA:
+            declared_root = catalog.get("artifact_root")
+            if not isinstance(declared_root, str) or not Path(declared_root).is_absolute():
+                raise RuntimeError("historical artifact root is invalid")
+            root = Path(declared_root).resolve()
+        else:
+            root = catalog_path.parent.parent.resolve()
+        if not root.is_dir():
+            raise RuntimeError("historical artifact root is unavailable")
+        return root
+
     def load_historical_backtests() -> tuple[
         dict[str, Any] | None,
         dict[str, tuple[dict[str, Any], dict[str, Any]]],
@@ -517,11 +530,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 catalog = validate_official_split_v3_historical(raw_catalog)
             else:
                 catalog = validate_historical_catalog(raw_catalog)
-            root = (
-                Path(str(catalog["artifact_root"])).resolve()
-                if catalog.get("schema_version") == OFFICIAL_SPLIT_V3_HISTORICAL_SCHEMA
-                else catalog_path.parent.parent.resolve()
-            )
+            root = historical_artifact_root(catalog)
             loaded: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
             for entry in catalog["entries"]:
                 receipt_path = (root / str(entry["receipt_path"])).resolve()
@@ -1065,14 +1074,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         backtest_id: str,
         signal: Annotated[str, Query()] = "mean",
     ) -> dict[str, object]:
-        _, loaded = load_historical_backtests()
+        catalog, loaded = load_historical_backtests()
         selected = loaded.get(backtest_id)
         if selected is None:
             raise HTTPException(status_code=404, detail="Historical backtest not found")
+        if catalog is None:
+            raise HTTPException(status_code=503, detail="Historical catalog disappeared")
         _, receipt = selected
         if signal not in OFFICIAL_DEMO_SIGNALS:
             raise HTTPException(status_code=422, detail="Unsupported official demo signal")
-        root = active_settings.historical_backtest_catalog.resolve().parent.parent
+        try:
+            root = historical_artifact_root(catalog)
+        except RuntimeError as error:
+            raise HTTPException(
+                status_code=503, detail="Historical series is unavailable"
+            ) from error
         official_v3 = receipt.get("schema_version") == OFFICIAL_SPLIT_V3_BACKTEST_SCHEMA
         artifact = (
             {
@@ -1184,10 +1200,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         backtest_id: str,
         session: Annotated[date | None, Query()] = None,
     ) -> dict[str, object]:
-        _, loaded = load_historical_backtests()
+        catalog, loaded = load_historical_backtests()
         selected = loaded.get(backtest_id)
         if selected is None:
             raise HTTPException(status_code=404, detail="Historical backtest not found")
+        if catalog is None:
+            raise HTTPException(status_code=503, detail="Historical catalog disappeared")
         entry, receipt = selected
         official_v3 = receipt.get("schema_version") == OFFICIAL_SPLIT_V3_BACKTEST_SCHEMA
         holdings_pointer = entry.get("holdings")
@@ -1214,7 +1232,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if matrix_holdings
             else holdings_pointer["receipt_sha256"]
         )
-        root = active_settings.historical_backtest_catalog.resolve().parent.parent
+        try:
+            root = historical_artifact_root(catalog)
+        except RuntimeError as error:
+            raise HTTPException(
+                status_code=503, detail="Historical holdings evidence mismatch"
+            ) from error
         if matrix_holdings:
             artifact = (
                 {

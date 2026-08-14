@@ -1,4 +1,4 @@
-import type { ServiceState } from '../types'
+import type { ExecutionProfile, ServiceState } from '../types'
 
 export type PageKey = 'overview' | 'jobs' | 'research' | 'backtest' | 'ranking' | 'paper'
 
@@ -17,14 +17,15 @@ interface ShellProps {
   serviceState: ServiceState | 'connecting'
   refreshing: boolean
   onRefresh: () => void
+  executionProfile: ExecutionProfile
   children: React.ReactNode
 }
 
 const serviceLabel: Record<ShellProps['serviceState'], string> = {
   connecting: '正在连接',
-  ready: '服务器就绪',
+  ready: '运行服务就绪',
   degraded: '服务降级',
-  offline: '服务器离线',
+  offline: '运行服务离线',
 }
 
 export function Shell({
@@ -33,6 +34,7 @@ export function Shell({
   serviceState,
   refreshing,
   onRefresh,
+  executionProfile,
   children,
 }: ShellProps) {
   return (
@@ -72,7 +74,7 @@ export function Shell({
           <div className="topbar__connection">
             <span className={`connection-dot connection-dot--${serviceState}`} aria-hidden="true" />
             <span>{serviceLabel[serviceState]}</span>
-            <small>本机与远程服务使用同一研究协议</small>
+            <small>{executionProfile === 'local-apple-silicon' ? '本机运行 · Apple Silicon' : '远程运行 · Linux / NVIDIA'}</small>
           </div>
           <button className="text-button" type="button" onClick={onRefresh} disabled={refreshing}>
             {refreshing ? '刷新中…' : '刷新状态'}
@@ -89,6 +91,7 @@ export function Shell({
               onClick={() => onPageChange(item.key)}
               type="button"
               aria-label={item.label}
+              aria-current={page === item.key ? 'page' : undefined}
             >
               <span>{item.index}</span>
               <small>{item.label}</small>

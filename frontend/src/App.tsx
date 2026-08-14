@@ -34,7 +34,7 @@ export function App({ client = productionClient }: { client?: ApiClient }) {
       <div className="boot-screen" role="status">
         <div className="brand__seal">EQ</div>
         <span className="eyebrow">ElanQuant / Connecting</span>
-        <h1>正在读取服务器状态</h1>
+        <h1>正在读取运行服务状态</h1>
         <p>正在建立安全连接。</p>
         <div className="boot-line"><span /></div>
       </div>
@@ -45,7 +45,7 @@ export function App({ client = productionClient }: { client?: ApiClient }) {
     return (
       <div className="connection-screen">
         <span className="eyebrow">Connection unavailable</span>
-        <h1>无法读取 ElanQuant 服务器</h1>
+        <h1>无法读取 ElanQuant 运行服务</h1>
         <p>{dashboard.error || '没有收到服务器响应。'}</p>
         <p>请确认已配置的本机或远程运行服务可用，然后重试。</p>
         <button className="primary-action" type="button" onClick={() => void dashboard.refresh()}>
@@ -64,6 +64,7 @@ export function App({ client = productionClient }: { client?: ApiClient }) {
       serviceState={snapshot.system.service_state}
       refreshing={dashboard.refreshing}
       onRefresh={() => void dashboard.refresh()}
+      executionProfile={snapshot.system.active_execution_profile}
     >
       {dashboard.error ? (
         <div className="error-banner" role="alert">

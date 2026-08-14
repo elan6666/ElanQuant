@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -717,4 +718,30 @@ def test_official_split_v3_exposes_exact_eight_series_and_holdings(tmp_path: Pat
     holdings = client.get(f"/api/v1/research/backtests/{identifier}/holdings")
     assert holdings.status_code == 200
     assert holdings.json()["selected_session"] == "2026-01-05"
+    assert holdings.json()["holdings"][0]["instrument"] == "600000.SH"
+
+
+def test_official_split_v3_uses_declared_artifact_root_from_current_release(
+    tmp_path: Path,
+) -> None:
+    active, entries = publish_official_v3(tmp_path)
+    release = tmp_path / "releases" / "official-split-v3-candidate"
+    release.mkdir(parents=True)
+    release_catalog = release / "historical-catalog.json"
+    release_catalog.write_bytes(active.historical_backtest_catalog.read_bytes())
+    current = tmp_path / "releases" / "current"
+    current.symlink_to(release, target_is_directory=True)
+    active = replace(
+        active,
+        historical_backtest_catalog=current / "historical-catalog.json",
+    )
+    client = TestClient(api.create_app(active))
+
+    identifier = str(entries[0]["id"])
+    series = client.get(f"/api/v1/research/backtests/{identifier}/series?signal=mean")
+    holdings = client.get(f"/api/v1/research/backtests/{identifier}/holdings")
+
+    assert series.status_code == 200
+    assert series.json()["points"][0]["session"] == "2026-08-13"
+    assert holdings.status_code == 200
     assert holdings.json()["holdings"][0]["instrument"] == "600000.SH"

@@ -73,13 +73,10 @@ code, .metric strong, .count-label { font-family: "SFMono-Regular", "JetBrains M
 .primary-action:hover:not(:disabled) { transform: translateY(-3px); background: #e2f770; }
 .primary-action b { font-size: 24px; }
 .hero__action > small { padding: 14px 22px 0; color: #94aaa5; line-height: 1.6; }
-.profile-picker { margin: 0 0 14px; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; border: 0; }
-.profile-picker legend { margin-bottom: 8px; color: #776e65; font-size: 10px; font-weight: 700; }
-.profile-picker button { min-width: 0; min-height: 58px; padding: 10px 12px; display: flex; flex-direction: column; align-items: flex-start; color: var(--ink); text-align: left; background: rgba(255,253,248,.72); border: 1px solid #d1c5b8; border-radius: 11px; cursor: pointer; }
-.profile-picker button[aria-pressed="true"] { color: #fffaf4; background: var(--ink); border-color: var(--ink); }
-.profile-picker button strong { font-size: 12px; }
-.profile-picker button small { margin-top: 3px; padding: 0; color: inherit; font-size: 9px; line-height: 1.35; }
-.reproduction-link { margin: 12px 22px 0; color: #6f655d; font-size: 10px; text-underline-offset: 3px; }
+.execution-location { margin-bottom: 14px; padding: 11px 13px; display: grid; gap: 3px; color: #fffaf4; border: 1px solid #6e655e; border-radius: 11px; }
+.execution-location span { color: #b6aaa0; font-size: 9px; }
+.execution-location strong { font-size: 13px; }
+.execution-location small { color: #b6aaa0; font-size: 10px; }
 .receipt-note { margin: 14px 22px 0; padding: 8px 10px; color: var(--acid); font: 10px Menlo, monospace; border: 1px solid rgba(215,237,84,.3); overflow-wrap: anywhere; }
 .risk-strip { display: flex; flex-wrap: wrap; align-items: center; background: #dedbd1; border: 1px solid var(--line); border-top: 0; }
 .risk-strip > * { padding: 12px 17px; font-size: 10px; border-right: 1px solid var(--line); }
@@ -298,15 +295,15 @@ code, .metric strong, .count-label { font-family: "SFMono-Regular", "JetBrains M
   .mobile-nav { position: fixed; z-index: 30; left: 8px; right: 8px; bottom: 8px; padding: 6px; display: grid; grid-template-columns: repeat(6, 1fr); gap: 2px; background: rgba(16,33,31,.96); border: 1px solid #405650; box-shadow: 0 12px 40px rgba(0,0,0,.35); backdrop-filter: blur(14px); }
   .mobile-nav__item { min-width: 0; min-height: 44px; padding: 8px 1px; color: #8ba19b; background: transparent; border: 0; }
   .mobile-nav__item span, .mobile-nav__item small { display: block; }
-  .mobile-nav__item span { font: 8px Menlo, monospace; }
-  .mobile-nav__item small { margin-top: 3px; font-size: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mobile-nav__item span { font: 9px Menlo, monospace; }
+  .mobile-nav__item small { margin-top: 3px; font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .mobile-nav__item--active { color: var(--ink); background: var(--acid); }
   .hero { min-height: 0; padding: 30px 23px; gap: 25px; }
   .hero h1 { font-size: 49px; overflow-wrap: anywhere; }
   .hero__copy p, .hero__action > small, .primary-action span { overflow-wrap: anywhere; }
   .hero__action { min-height: 0; padding-top: 22px; }
   .hero__action-index { margin-left: 0; }
-  .hero__action > small, .receipt-note, .reproduction-link { padding-left: 0; margin-left: 0; }
+  .hero__action > small, .receipt-note { padding-left: 0; margin-left: 0; }
   .risk-strip > * { flex: 1 1 50%; border-bottom: 1px solid var(--line); }
   .metric-grid, .research-matrix, .matrix-key, .two-column { grid-template-columns: 1fr; }
   .metric { border-right: 0; border-bottom: 1px solid var(--line); }
@@ -341,7 +338,6 @@ code, .metric strong, .count-label { font-family: "SFMono-Regular", "JetBrains M
   .experiment-card__metrics div { border-right: 0; border-bottom: 1px solid var(--line); }
   .experiment-card__metrics div:last-child { border-bottom: 0; }
   .experiment-card { min-height: 390px; }
-  .profile-picker button { min-height: 60px; }
   .metric-help dl { grid-template-columns: 1fr; }
 }
 

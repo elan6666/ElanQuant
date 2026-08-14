@@ -1,8 +1,6 @@
-import { useState } from 'react'
 import { formatDateTime, formatSession, shortHash } from '../format'
 import type {
   DashboardSnapshot,
-  ExecutionLocation,
   ExecutionProfile,
   SubmitJobReceipt,
 } from '../types'
@@ -20,9 +18,6 @@ interface OverviewPageProps {
 }
 
 export function OverviewPage({ snapshot, submitting, receipt, onSubmit }: OverviewPageProps) {
-  const [selectedLocation, setSelectedLocation] = useState<ExecutionLocation>(
-    snapshot.system.default_execution_location,
-  )
   const activeJob = snapshot.jobs.find((job) => job.state === 'queued' || job.state === 'running')
   const latestJob = snapshot.jobs[0]
   const latestRun = snapshot.latest_run
@@ -31,15 +26,14 @@ export function OverviewPage({ snapshot, submitting, receipt, onSubmit }: Overvi
       (latestRun.status === 'stale' || latestRun.as_of !== snapshot.system.latest_closed_session),
   )
   const blockedJob = latestJob?.state === 'data_incomplete' ? latestJob : null
-  const fallbackLocation = (['local', 'remote'] as const).find(
-    (location) => snapshot.system.execution_profiles[location].available,
-  )
-  const activeLocation = snapshot.system.execution_profiles[selectedLocation].available
-    ? selectedLocation
-    : fallbackLocation
+  const activeLocation = snapshot.system.default_execution_location
   const activeProfile = activeLocation
     ? snapshot.system.execution_profiles[activeLocation].profile_id
     : null
+  const activeLocationLabel = activeLocation === 'local' ? '本机' : '远程服务器'
+  const receiptLocationLabel = receipt?.execution_profile === 'local-apple-silicon'
+    ? '本机'
+    : '远程服务器'
 
   return (
     <>
@@ -47,34 +41,15 @@ export function OverviewPage({ snapshot, submitting, receipt, onSubmit }: Overvi
         <div className="hero__copy">
           <span className="eyebrow">收盘后按需运行</span>
           <h1>更新数据，生成今天的研究结果</h1>
-          <p>选择运行位置后，系统会检查最新收盘数据，并生成股票排名和模拟账户记录。</p>
+          <p>系统会在当前运行位置检查最新收盘数据，并生成股票排名和模拟账户记录。</p>
         </div>
         <div className="hero__action">
           <span className="hero__action-index">RUN / 01</span>
-          <fieldset className="profile-picker">
-            <legend>运行位置</legend>
-            {(['local', 'remote'] as const).map((location) => {
-              const availability = snapshot.system.execution_profiles[location]
-              return (
-                <button
-                  aria-pressed={activeLocation === location}
-                  disabled={!availability.available || submitting || Boolean(activeJob)}
-                  key={location}
-                  onClick={() => setSelectedLocation(location)}
-                  type="button"
-                >
-                  <strong>{location === 'local' ? '本机' : '远程服务器'}</strong>
-                  <small>
-                    {availability.available
-                      ? location === 'local'
-                        ? '这台 Mac · 默认 Small'
-                        : '已配置的 GPU 主机'
-                      : availability.reason || '未配置'}
-                  </small>
-                </button>
-              )
-            })}
-          </fieldset>
+          <div className="execution-location" aria-label={`当前运行位置：${activeLocationLabel}`}>
+            <span>当前运行位置</span>
+            <strong>{activeLocationLabel}</strong>
+            <small>{activeLocation === 'local' ? '这台 Mac · 默认 Small' : '已配置的 Linux / NVIDIA 主机'}</small>
+          </div>
           <button
             className="primary-action"
             type="button"
@@ -97,12 +72,11 @@ export function OverviewPage({ snapshot, submitting, receipt, onSubmit }: Overvi
               ? '任务已提交，可以离开此页面；稍后到“任务”查看进度。'
               : '不会重新训练模型，不会连接真实账户；重复点击会合并为同一任务。'}
           </small>
-          <a className="reproduction-link" href="https://github.com/elan6666/ElanQuant#选择运行位置" rel="noreferrer" target="_blank">第一次使用？查看 README 复现指南 ↗</a>
           {receipt ? (
             <div className="receipt-note" role="status">
               {receipt.coalesced
                 ? '已复用正在运行的任务'
-                : `${activeLocation === 'local' ? '本机' : '远程服务器'}已接受任务`} · {receipt.job_id}
+                : `${receiptLocationLabel}已接受任务`} · {receipt.job_id}
             </div>
           ) : null}
         </div>
