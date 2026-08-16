@@ -9,8 +9,8 @@
 </p>
 
 <p align="center">
-  <a href="#快速开始">快速开始</a> ·
-  <a href="#三种复现方式">复现路径</a> ·
+  <a href="#weight-only">只用权重预测</a> ·
+  <a href="#deep-reproduction">深度复现</a> ·
   <a href="./docs/REPRODUCTION.md">完整复现</a> ·
   <a href="./docs/OPERATIONS.md">运维手册</a>
 </p>
@@ -66,7 +66,29 @@ ElanQuant 是一个可审计的 A 股 Kronos 研究与模拟交易项目。当�
 单个网页实例只提交到它已经配置好的运行位置；不会把“本机/远程”误当成两种模型。
 页面只显示并提交到当前部署位置，不能用一个假切换跨越两个独立部署。
 
-## 三种复现方式
+## 先选择你的路径
+
+| 选择 | 你想完成什么 | 需要什么 | 最终得到什么 |
+| --- | --- | --- | --- |
+| [只用公开权重](#weight-only) | 用公开 Kronos 权重预测或研究一只股票 | Python、受支持设备、自有日频数据和交易日日历 | 单标的零样本预测与完整本地回执 |
+| [深度复现](#deep-reproduction) | 重建四模型实验、评估与 Top50/Top3 回测 | 许可合规的 PIT 数据、Linux/NVIDIA、Qlib 与长任务算力 | 一条新的、不可变的数据/训练/评估/回测证据链 |
+
+前者服务于“我想用权重分析股票”；后者服务于“我想复现研究方法”。单标预测不等同于
+完整 CSI300 实验，也不能被描述为历史策略复现。
+
+<a id="weight-only"></a>
+
+## 路径 A：只使用公开权重预测或分析股票
+
+**适合只想使用公开权重、对自己的股票数据做可复核零样本预测的用户。** 此路径不训练
+模型、不重建 CSI300 研究、不生成模拟订单，也不构成策略回测或投资结论。
+
+| 步骤 | 会做什么 | 不会做什么 |
+| --- | --- | --- |
+| 安装与合成检查 | 验证 CLI、数据契约和前端 | 不下载行情或模型 |
+| Bootstrap | 下载并校验公开 Tokenizer、Small/Base 权重 | 不生成 A 股微调模型 |
+| 数据导入 | 校验自己的 CSV/Parquet 并生成回执 | 不替你证明供应商数据满足 PIT |
+| 零样本推理 | 用至少 90 行历史数据预测一只股票 | 不做 CSI300 排名或策略回测 |
 
 开始前请确认 Python 版本。ElanQuant 要求 Python 3.11 或更高版本；macOS 自带的
 `python3` 可能仍是 3.9，不能直接使用。
@@ -77,7 +99,7 @@ git --version
 node --version
 ```
 
-### A. 五分钟检查代码和界面
+### 1. 五分钟检查代码和界面
 
 不需要行情凭据，也不下载研究数据。使用仓库中的合成样例检查安装、数据契约与网页：
 
@@ -104,7 +126,7 @@ npm --prefix frontend run build
 合成数据仅用于验证管线，不会生成可解释为 A 股研究结果的指标。
 这一层构建网页代码，但不启动后端服务，也不执行 Kronos 模型。
 
-### B. 下载官方权重并运行单标的零样本预测
+### 2. 下载官方权重并运行单标的零样本预测
 
 模型推理需要 PyTorch 和 Kronos 官方依赖：
 
@@ -188,7 +210,23 @@ elanquant infer zero-shot \
 `mean(next_10_predicted_closes) / current_close - 1` 公式。这是单标的模型预测，
 不是股票推荐、完整 A 股排名或回测。
 
-### C. 完整微调与历史回测的当前边界
+<a id="deep-reproduction"></a>
+
+## 路径 B：深度复现四模型训练、评估与历史回测
+
+**只适合要重建研究证据链的用户。** 你需要独立取得具有明确许可证的、点时可得的
+数据快照，并在自己的 Linux/NVIDIA 研究主机上运行。这里的“复现”是用同一输入字节
+重建方法与回执；不同供应商修订或不同历史成分记录必然会形成一份新的数据身份。
+
+### 工作流
+
+1. 固定 ElanQuant commit、Kronos 上游 commit 与公开权重回执。
+2. 导入并审计原始行情、交易日日历和 PIT 成分资格；训练/验证的有效窗口必须按边界规则审计。
+3. 分别训练 Small/Base 的 Tokenizer → Predictor，生成四格矩阵。
+4. **先**封存 analysis lock，再运行每模型的信号、Top50 与 Top3 Qlib 回测。
+5. 重算所有哈希、审计持仓/每日结果，最后才封存 release；已查看滚动测试不参与选模。
+
+### 完整微调与历史回测的当前边界
 
 1. 准备 CSV 或 Parquet。最少字段为
    `instrument,timestamp,open,high,low,close`；`volume,amount` 可选。
@@ -201,9 +239,10 @@ elanquant infer zero-shot \
 
 这一层目前是仓库内 `scripts/server/` 的高级源码工作流，依赖用户自己的数据供应器、Qlib、
 GPU 调度和新的不可变 run 目录。它没有被打包成 `elanquant train` 一键命令；因此当前可公开
-复现的终点是数据契约、官方权重校验与单标零样本预测，不应把上述列表解读为已有的
-第三方一键全研究复现。服务器运维入口与手工门禁见 [运维手册](docs/OPERATIONS.md)和
-[研究协议](docs/RESEARCH_PROTOCOL.md)。
+复现的终点是数据契约、官方权重校验与单标零样本预测。要运行完整研究工作流，请严格按
+[完整复现指南](docs/REPRODUCTION.md)的锁定、训练、分析、审计顺序执行；不要把它误读为
+第三方的一键数据下载或保证相同收益。服务器运维入口与手工门禁见 [运维手册](docs/OPERATIONS.md)
+和 [研究协议](docs/RESEARCH_PROTOCOL.md)。
 
 项目不会把原始行情、处理数据、checkpoint 或权重提交到 Git。若使用 Tushare-compatible
 数据源，token 必须由用户自行保管；也可以提供自己的、返回兼容 DataFrame 的 `get_pro()`

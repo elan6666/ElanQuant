@@ -9,8 +9,8 @@
 </p>
 
 <p align="center">
-  <a href="#quick-start">Quick start</a> ·
-  <a href="#reproduce">Reproduce</a> ·
+  <a href="#weight-only">Use public weights</a> ·
+  <a href="#deep-reproduction">Deep reproduction</a> ·
   <a href="./docs/OPERATIONS.md">Operations</a> ·
   <a href="./docs/DATA_POLICY.md">Data policy</a>
 </p>
@@ -53,7 +53,31 @@ at `GET /api/v1/system/status`. A UI instance can submit only to the profile it
 was configured for; it does not pretend that separate machines are one shared
 runtime.
 
-## Quick start
+## Choose your path
+
+| Choose this path | You want to | You need | You get |
+| --- | --- | --- | --- |
+| [Use public weights](#weight-only) | predict or inspect a stock with the published Kronos weights | Python, a supported device, and your own daily bars/calendar | a single-instrument zero-shot forecast and a complete local receipt |
+| [Deep reproduction](#deep-reproduction) | rebuild the four-cell experiment and Top50/Top3 studies | a licensed PIT dataset, Linux/NVIDIA, Qlib and long-running compute | a new immutable data/training/evaluation/backtest evidence chain |
+
+Path A is for a user who wants to use the weights. Path B is for a research
+user who wants to reproduce the method. Do not take a Path A forecast as a
+reproduction of the historical study.
+
+<a id="weight-only"></a>
+
+## Path A — use public weights for prediction or analysis
+
+**Use this when you only need an auditable zero-shot forecast for your own
+stock data.** It does not train a model, rebuild the CSI300 study, create a
+paper order or claim investment performance.
+
+| Step | What happens | What it does not do |
+| --- | --- | --- |
+| Install and synthetic check | verifies CLI, data contract and frontend | downloads no market data or model |
+| Bootstrap | fetches and SHA-checks public tokenizer/Small/Base files | does not create an A-share fine-tuned checkpoint |
+| Data import | validates your CSV/Parquet and writes a receipt | does not certify your vendor data as point-in-time |
+| Zero-shot inference | forecasts one instrument from 90+ historical rows | does not rank CSI300 or backtest a trading strategy |
 
 ### 1. Clone and install
 
@@ -173,7 +197,15 @@ output, upstream, weights and execution identities. Its displayed 10-day value
 is `mean(next_10_predicted_closes) / current_close - 1`: not a probability and
 not realised return.
 
-## Reproduce
+<a id="deep-reproduction"></a>
+
+## Path B — deep reproduction
+
+**Use this only when you intend to rebuild the research evidence chain.** It
+requires separately licensed historical data and a Linux/NVIDIA research host.
+It is intentionally not a one-command download: data availability, PIT
+membership history, vendor revisions and licences must be declared rather than
+hidden.
 
 There are two honest reproducibility levels:
 
