@@ -55,6 +55,7 @@ packages = ["backend/src/elanquant"]
 "configs" = "elanquant/resources/configs"
 "docs" = "elanquant/resources/docs"
 "examples" = "elanquant/resources/examples"
+"assets" = "elanquant/resources/assets"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

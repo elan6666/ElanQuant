@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 72" role="img" aria-labelledby="title desc">
+  <title id="title">ElanQuant</title>
+  <desc id="desc">ElanQuant research console logo</desc>
+  <rect x="2" y="2" width="68" height="68" rx="18" fill="#ad5133"/>
+  <path d="M22 19h27v8H31v9h15v8H31v9h19v8H22V19Z" fill="#fffaf4"/>
+  <text x="86" y="34" fill="#2f2925" font-family="ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="28" font-weight="800" letter-spacing="-1.2">ElanQuant</text>
+  <text x="87" y="55" fill="#695e54" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing="1.8">RESEARCH CONSOLE</text>
+</svg>

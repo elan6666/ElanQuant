@@ -1,3 +1,20 @@
+<p align="center">
+  <img src="./assets/elanquant-logo.svg" width="320" alt="ElanQuant" />
+</p>
+
+<p align="center"><strong>可审计的 A 股 Kronos 研究控制台。</strong></p>
+
+<p align="center">
+  <a href="./README.en.md">English</a> · <a href="./README.md">简体中文</a>
+</p>
+
+<p align="center">
+  <a href="#快速开始">快速开始</a> ·
+  <a href="#三种复现方式">复现路径</a> ·
+  <a href="./docs/REPRODUCTION.md">完整复现</a> ·
+  <a href="./docs/OPERATIONS.md">运维手册</a>
+</p>
+
 # ElanQuant
 
 ElanQuant 是一个可审计的 A 股 Kronos 研究与模拟交易项目。当前公开版本只保留
