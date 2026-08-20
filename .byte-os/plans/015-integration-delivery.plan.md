@@ -1,7 +1,7 @@
 ---
 id: 015
 title: Integration, migration, review and delivery
-status: pending
+status: complete
 wave: 2
 updated_at: 2026-08-14T07:50:00Z
 owner_role: Root Integrator

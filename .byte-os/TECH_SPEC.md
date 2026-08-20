@@ -78,6 +78,10 @@ provenance. Local/remote changes only ExecutionIdentity.
 - Public experiment and historical selectors filter to the four active IDs.
 - Legacy strict-PIT evidence remains accepted by internal decoders and audit endpoints.
 - Ranking exposes reference price and a formula-level explanation of ten-day predicted change.
+- A separate GET-only unified-comparison ranking endpoint reads sealed weekly
+  score artifacts for B2 and Kronos Base.  It never writes `inference_runs`,
+  `stock_scores` or paper-ledger tables, and cannot be substituted for the
+  online daily ranking API.
 
 ## Testing
 

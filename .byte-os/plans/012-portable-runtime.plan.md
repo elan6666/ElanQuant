@@ -1,7 +1,7 @@
 ---
 id: 012
 title: Local and remote execution profiles
-status: completed
+status: complete
 wave: 1
 updated_at: 2026-08-14T10:40:00Z
 owner_role: Platform Engineer

@@ -2,12 +2,13 @@ import { Badge } from '../components/Badge'
 import { EmptyState } from '../components/EmptyState'
 import { JobProgress } from '../components/JobProgress'
 import { formatDateTime, jobStateLabel, stageLabel } from '../format'
-import type { Job } from '../types'
+import type { CrossModelComparison, Job } from '../types'
 
-export function JobsPage({ jobs, submitting, onRetry }: { jobs: Job[]; submitting: boolean; onRetry: (id: string) => void }) {
+export function JobsPage({ jobs, comparison, submitting, onRetry }: { jobs: Job[]; comparison?: CrossModelComparison; submitting: boolean; onRetry: (id: string) => void }) {
   if (jobs.length === 0) {
     return (
       <PageFrame>
+        {comparison?.available ? <section className="state-panel"><span className="eyebrow">Imported model evidence</span><h2>并列模型研究证据</h2><p>iTransformer B2 与 Kronos Base 的严格周频回执已导入；这不是在线任务。</p></section> : null}
         <EmptyState title="还没有任务" description="从总览启动一次推理后，任务会显示在这里。" />
       </PageFrame>
     )
@@ -16,6 +17,7 @@ export function JobsPage({ jobs, submitting, onRetry }: { jobs: Job[]; submittin
   return (
     <PageFrame>
       <div className="jobs-layout">
+        {comparison?.available ? <section className="state-panel"><span className="eyebrow">Imported model evidence</span><h2>并列模型研究证据</h2><p>iTransformer B2 与 Kronos Base 的严格周频回执已导入；这是封存历史研究，不是在线任务或模拟账户订单。</p><div className="matrix-key">{comparison.models.map((model) => <div key={model.id}><b>{model.family === 'itransformer_b2' ? 'B2' : 'KB'}</b><span><strong>{model.label}</strong><small>过去 {model.input.lookback_sessions} 个交易日输入 · {comparison.protocol?.signal_end} 最新封存锚点</small></span></div>)}</div></section> : null}
         <JobProgress job={jobs[0]!} />
         <div className="job-history">
           <div className="section-heading">

@@ -6,6 +6,14 @@
 - Integrator: root
 - Date: 2026-08-14
 
+## 2026-08-20 model-family exploration
+
+| Agent | Scope | Result |
+|---|---|---|
+| comparison_contracts | Server B2 B2 source/artifact feasibility | confirmed sealed B2 has 17 mature weekly anchors through 2026-07-24 and 80-session inputs; no current D0 exists for a fresher result |
+| comparison_frontend | Current frontend model/selector constraints | confirmed Jobs, matrix, historical and ranking hard-code Kronos and need independent family-aware contracts |
+| elanquant_integration | Backend/API safety boundary | confirmed existing Kronos historical and online ranking APIs must remain separate from B2 artifact-only evidence |
+
 ## Exploration completed
 
 - `base_receipt_audit`: official split/training/evaluation/backtest migration.

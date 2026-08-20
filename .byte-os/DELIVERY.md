@@ -51,3 +51,17 @@ Status: **SHIP**
   viewed window is not a blind final test and does not support an alpha claim.
 - Historical Top3 mean: -28.52% in 2025 and -17.47% in opened 2026, with much
   larger drawdowns than Top50. It is negative sensitivity evidence only.
+# Delivery — iTransformer B2 weekly model integration (2026-08-20)
+
+Delivered a first-class, read-only iTransformer B2 research surface beside
+Kronos. The website now shows imported weekly evidence in Jobs and Experiment
+Matrix, retains the shared Top1/Top3/Top50 comparison in Historical Backtest,
+and allows Stock Ranking to switch to B2 or Kronos Base weekly score snapshots.
+
+The B2 selection is explicitly labelled strict-weekly, 80-session input and
+latest sealed as-of 2026-07-24. It is not daily, current, a probability or an
+order source. The online Kronos ranking and paper account remain unchanged.
+
+Verification: 160 server pytest passed (one skipped), Ruff/compileall passed,
+28 frontend tests/ESLint/build passed, live B2 weekly endpoint returned 17
+sessions and 280 candidates, and SQLite stayed unchanged across GET checks.

@@ -701,7 +701,58 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
         return {"session": session, "items": output}
 
-    def load_unified_comparison() -> dict[str, object]:
+    def _unified_rankings(path: Path, expected_rows: int) -> dict[str, list[dict[str, object]]]:
+        """Parse the receipt-bound weekly score artifact without inventing returns.
+
+        These scores are ranking values on the shared weekly anchors.  They are
+        intentionally kept out of the daily online-ranking and paper pipelines.
+        """
+        rows: dict[str, list[dict[str, object]]] = {}
+        seen: set[tuple[str, str]] = set()
+        with path.open(encoding="utf-8", newline="") as handle:
+            reader = csv.DictReader(handle)
+            if reader.fieldnames != ["anchor", "instrument", "score"]:
+                raise RuntimeError("unified prediction columns differ")
+            for row in reader:
+                anchor, instrument = row.get("anchor"), row.get("instrument")
+                if (
+                    not isinstance(anchor, str)
+                    or not anchor
+                    or not isinstance(instrument, str)
+                    or not instrument
+                ):
+                    raise RuntimeError("unified prediction identity is invalid")
+                key = (anchor, instrument)
+                if key in seen:
+                    raise RuntimeError("unified prediction has duplicate support")
+                try:
+                    score = float(row["score"])
+                except (KeyError, TypeError, ValueError) as error:
+                    raise RuntimeError("unified prediction score is invalid") from error
+                if not math.isfinite(score):
+                    raise RuntimeError("unified prediction score is non-finite")
+                seen.add(key)
+                rows.setdefault(anchor, []).append({"instrument": instrument, "score": score})
+        if (
+            len(seen) != expected_rows
+            or not rows
+            or any(len(items) > 1000 for items in rows.values())
+        ):
+            raise RuntimeError("unified prediction support differs")
+        for anchor, items in rows.items():
+            rows[anchor] = [
+                {"rank": index, **item}
+                for index, item in enumerate(
+                    sorted(
+                        items,
+                        key=lambda item: (-float(item["score"]), str(item["instrument"])),
+                    ),
+                    start=1,
+                )
+            ]
+        return rows
+
+    def load_unified_comparison(*, include_rankings: bool = False) -> dict[str, object]:
         catalog_path = active_settings.unified_comparison_catalog.resolve()
         if not catalog_path.is_file():
             return {"available": False, "id": None, "protocol": None, "models": []}
@@ -792,6 +843,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ),
             )
             models: list[dict[str, object]] = []
+            ranking_snapshots: dict[str, dict[str, list[dict[str, object]]]] = {}
             for family_id, family, label, description, lookback, features in families:
                 cells = [
                     entries[f"{family_id}:{portfolio}"] for portfolio in ("top1", "top3", "top50")
@@ -799,6 +851,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 first = cells[0]
                 source = evidence_by_family[family_id]
                 _unified_artifact(root, source["artifacts"]["scores"], "score")
+                if include_rankings:
+                    expected_rows = support.get("signal_rows")
+                    if not isinstance(expected_rows, int) or expected_rows <= 0:
+                        raise RuntimeError("unified prediction row count is invalid")
+                    ranking_snapshots[family_id] = _unified_rankings(
+                        _unified_artifact(root, source["artifacts"]["predictions"], "prediction"),
+                        expected_rows,
+                    )
                 strategies: list[dict[str, object]] = []
                 for receipt in cells:
                     artifacts = receipt["artifacts"]
@@ -833,7 +893,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         "strategies": strategies,
                     }
                 )
-            return {
+            output: dict[str, object] = {
                 "available": True,
                 "id": catalog["protocol_id"],
                 "protocol": {
@@ -851,6 +911,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 },
                 "models": models,
             }
+            if include_rankings:
+                output["_ranking_snapshots"] = ranking_snapshots
+            return output
         except (
             KeyError,
             OSError,
@@ -1353,6 +1416,48 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         or tampered catalog deliberately returns 503 through the loader.
         """
         return load_unified_comparison()
+
+    @app.get("/api/v1/research/comparisons/{comparison_id}/rankings")
+    def research_comparison_rankings(
+        comparison_id: str,
+        model_id: Annotated[str, Query()],
+        as_of: str | None = Query(default=None),
+    ) -> dict[str, object]:
+        comparison = load_unified_comparison(include_rankings=True)
+        if not comparison.get("available") or comparison.get("id") != comparison_id:
+            raise HTTPException(status_code=404, detail="Unified comparison not found")
+        models = comparison.get("models")
+        snapshots = comparison.get("_ranking_snapshots")
+        if not isinstance(models, list) or not isinstance(snapshots, dict):
+            raise HTTPException(status_code=503, detail="Unified ranking is unavailable")
+        model = next(
+            (item for item in models if isinstance(item, dict) and item.get("id") == model_id),
+            None,
+        )
+        by_session = snapshots.get(model_id)
+        if not isinstance(model, dict) or not isinstance(by_session, dict):
+            raise HTTPException(status_code=404, detail="Comparison model not found")
+        sessions = sorted(str(session) for session in by_session)
+        selected = as_of or sessions[-1]
+        rows = by_session.get(selected)
+        if not isinstance(rows, list):
+            raise HTTPException(status_code=404, detail="Comparison ranking session not found")
+        return {
+            "comparison_id": comparison_id,
+            "model": {
+                "id": model["id"], "family": model["family"], "label": model["label"],
+                "checkpoint_sha256": model["checkpoint_sha256"],
+                "input": model["input"],
+                "frequency": "strict_weekly",
+                "signal_definition": (
+                    "共同周频横截面模型分数；用于排序，不是预测收益率、上涨概率或每日信号。"
+                ),
+                "viewed": True,
+            },
+            "sessions": sessions,
+            "as_of": selected,
+            "rankings": rows,
+        }
 
     @app.get("/api/v1/research/backtests/{backtest_id}")
     def research_backtest(backtest_id: str) -> dict[str, object]:

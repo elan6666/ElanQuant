@@ -258,3 +258,19 @@
   views while retaining them in run history. The deployed frontend now accepts
   the real `INFER_BASE` and `RESEARCH_ONLY` job stages and renders the Base
   research branch without pretending that it published a paper ledger.
+
+## 2026-08-20 — iTransformer B2 first-class weekly research surface
+
+- Added a separate GET-only weekly ranking endpoint sourced from the sealed
+  B2/Kronos unified-comparison evidence; each source CSV is hash-checked and
+  duplicate support rows, bad schemas and non-finite scores fail closed.
+- Added B2/Kronos weekly evidence cards to Jobs and Experiment Matrix, preserved
+  the unified Top1/Top3/Top50 historical comparison, and made Stock Ranking
+  selectable between daily Kronos and sealed weekly B2/Kronos Base views.
+- B2 remains 80-session strict-weekly evidence with latest sealed anchor
+  2026-07-24. Kronos Base comparison uses 90-session input on those same
+  weekly anchors; neither is represented as a current daily ranking.
+- Server gate: 160 pytest passed (one skipped), Ruff and compileall passed.
+  Frontend: 28 tests, ESLint and production build passed. Live B2 ranking
+  returned 17 sessions and 280 candidates; comparison GETs left SQLite's
+  logical hash unchanged.

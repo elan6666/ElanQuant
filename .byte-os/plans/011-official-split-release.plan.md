@@ -1,7 +1,7 @@
 ---
 id: 011
 title: Official-split data and four-cell release
-status: in_progress
+status: complete
 wave: 1
 updated_at: 2026-08-14T07:50:00Z
 owner_role: Research Tech Lead

@@ -1,5 +1,27 @@
 # Byte Auto Run
 
+## 2026-08-20 — iTransformer first-class model integration
+
+- Goal: expose the sealed iTransformer B2 strict-weekly research model beside
+  Kronos across Jobs, Experiment Matrix, Historical Backtest and Stock Ranking;
+  add only receipt-bound weekly ranking snapshots, never a fabricated daily B2
+  signal.
+- Started at: 2026-08-20T20:10:00+08:00
+- Current loop: 3
+- Completed stages: discussion, existing-codebase harness recheck, model/API/
+  server evidence exploration, scope shaping, Plan 016 build, review, three
+  iterations, live deployment and delivery record.
+- Remaining plans: none.
+- Review verdict: ship.
+- Iteration count: 3/3.
+- Subagent mode: on; read-only B2 source, frontend and backend-contract audits
+  used disjoint scopes.
+- Hard blockers: none.  The latest B2 admissible snapshot is 2026-07-24; a
+  new current weekly snapshot needs a separately admitted future D0 and is not
+  represented as complete by this integration.
+- Exact resume action: when a newer admitted weekly D0/calendar exists, create
+  a new B2 evidence plan; never overwrite the current sealed snapshot.
+
 - Goal: deliver the official-split Small/Base retraining reset, rolling-test
   evaluation and Top50/Top3 backtests, local/remote inference, third-party
   reproducibility and simplified evidence-led product.

@@ -472,6 +472,18 @@ export interface CrossModelComparisonModel {
   strategies: CrossModelStrategy[]
 }
 
+export interface WeeklyModelRanking {
+  comparison_id: string
+  model: Pick<CrossModelComparisonModel, 'id' | 'family' | 'label' | 'checkpoint_sha256' | 'input'> & {
+    frequency: 'strict_weekly'
+    signal_definition: string
+    viewed: true
+  }
+  sessions: string[]
+  as_of: string
+  rankings: Array<{ rank: number; instrument: string; score: number }>
+}
+
 export interface DashboardSnapshot {
   system: SystemStatus
   jobs: Job[]
@@ -501,6 +513,12 @@ export interface ApiClient {
     session?: string,
     signal?: AbortSignal,
   ): Promise<HistoricalHoldingsSnapshot | null>
+  getWeeklyModelRanking(
+    comparisonId: string,
+    modelId: string,
+    asOf?: string,
+    signal?: AbortSignal,
+  ): Promise<WeeklyModelRanking>
   submitUpdateInfer(profile: ExecutionProfile, signal?: AbortSignal): Promise<SubmitJobReceipt>
   retryJob(id: string, signal?: AbortSignal): Promise<SubmitJobReceipt>
 }

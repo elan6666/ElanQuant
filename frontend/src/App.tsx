@@ -82,7 +82,7 @@ export function App({ client = productionClient }: { client?: ApiClient }) {
         />
       ) : null}
       {page === 'jobs' ? (
-        <JobsPage jobs={snapshot.jobs} submitting={dashboard.submitting} onRetry={(id) => void dashboard.retry(id)} />
+        <JobsPage jobs={snapshot.jobs} comparison={snapshot.cross_model_comparison} submitting={dashboard.submitting} onRetry={(id) => void dashboard.retry(id)} />
       ) : null}
       {page === 'research' ? (
         <ResearchPage
@@ -91,6 +91,7 @@ export function App({ client = productionClient }: { client?: ApiClient }) {
           catalogAvailable={snapshot.research_catalog_available}
           runs={snapshot.runs}
           diff={snapshot.run_diff}
+          comparison={snapshot.cross_model_comparison}
         />
       ) : null}
       {page === 'backtest' ? (
@@ -104,7 +105,7 @@ export function App({ client = productionClient }: { client?: ApiClient }) {
           />
         </>
       ) : null}
-      {page === 'ranking' ? <RankingPage run={snapshot.latest_run} /> : null}
+      {page === 'ranking' ? <RankingPage run={snapshot.latest_run} comparison={snapshot.cross_model_comparison} onLoadWeeklyRanking={client.getWeeklyModelRanking} /> : null}
       {page === 'paper' ? (
         <PaperPage account={snapshot.paper} summary={snapshot.paper_summary} />
       ) : null}

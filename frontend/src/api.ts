@@ -26,6 +26,7 @@ import type {
   StockScore,
   SubmitJobReceipt,
   SystemStatus,
+  WeeklyModelRanking,
 } from './types'
 
 export class ApiContractError extends Error {
@@ -1060,6 +1061,55 @@ const parseCrossModelComparison = (value: unknown): CrossModelComparison => {
   }
 }
 
+const parseWeeklyModelRanking = (value: unknown): WeeklyModelRanking => {
+  const item = object(value, 'weekly_model_ranking')
+  const model = object(item.model, 'weekly_model_ranking.model')
+  const input = object(model.input, 'weekly_model_ranking.model.input')
+  const sessions = strings(item.sessions, 'weekly_model_ranking.sessions')
+  const asOf = string(item.as_of, 'weekly_model_ranking.as_of')
+  const rankings = array(item.rankings, 'weekly_model_ranking.rankings').map((raw, index) => {
+    const row = object(raw, `weekly_model_ranking.rankings[${index}]`)
+    return {
+      rank: number(row.rank, `weekly_model_ranking.rankings[${index}].rank`),
+      instrument: string(row.instrument, `weekly_model_ranking.rankings[${index}].instrument`),
+      score: number(row.score, `weekly_model_ranking.rankings[${index}].score`),
+    }
+  })
+  if (
+    item.comparison_id === undefined ||
+    model.frequency !== 'strict_weekly' ||
+    model.viewed !== true ||
+    !sessions.includes(asOf) ||
+    new Set(sessions).size !== sessions.length ||
+    [...sessions].sort().some((session, index) => session !== sessions[index]) ||
+    rankings.length === 0 ||
+    rankings.some((row, index) => row.rank !== index + 1) ||
+    new Set(rankings.map((row) => row.instrument)).size !== rankings.length
+  ) {
+    throw new ApiContractError('weekly_model_ranking 封存身份或排序不符合契约')
+  }
+  return {
+    comparison_id: string(item.comparison_id, 'weekly_model_ranking.comparison_id'),
+    model: {
+      id: string(model.id, 'weekly_model_ranking.model.id'),
+      family: enumValue(model.family, ['itransformer_b2', 'kronos_base'], 'weekly_model_ranking.model.family'),
+      label: string(model.label, 'weekly_model_ranking.model.label'),
+      checkpoint_sha256: string(model.checkpoint_sha256, 'weekly_model_ranking.model.checkpoint_sha256'),
+      input: {
+        description: string(input.description, 'weekly_model_ranking.model.input.description'),
+        lookback_sessions: number(input.lookback_sessions, 'weekly_model_ranking.model.input.lookback_sessions'),
+        features: strings(input.features, 'weekly_model_ranking.model.input.features'),
+      },
+      frequency: 'strict_weekly',
+      signal_definition: string(model.signal_definition, 'weekly_model_ranking.model.signal_definition'),
+      viewed: true,
+    },
+    sessions,
+    as_of: asOf,
+    rankings,
+  }
+}
+
 const parseHistoricalHoldings = (value: unknown): HistoricalHoldingsSnapshot => {
   const item = object(value, 'historical_holdings')
   const source = object(item.source, 'historical_holdings.source')
@@ -1304,6 +1354,19 @@ export const createApiClient = (): ApiClient => ({
     const parsed = parseHistoricalHoldings(raw)
     if (parsed.backtest_id !== backtestId || (session && parsed.selected_session !== session)) {
       throw new ApiContractError('historical_holdings 回执身份与请求不一致')
+    }
+    return parsed
+  },
+
+  async getWeeklyModelRanking(comparisonId, modelId, asOf, signal) {
+    const query = new URLSearchParams({ model_id: modelId })
+    if (asOf) query.set('as_of', asOf)
+    const parsed = parseWeeklyModelRanking(await requestJson(
+      `/api/v1/research/comparisons/${encodeURIComponent(comparisonId)}/rankings?${query.toString()}`,
+      { signal },
+    ))
+    if (parsed.comparison_id !== comparisonId || parsed.model.id !== modelId || (asOf && parsed.as_of !== asOf)) {
+      throw new ApiContractError('weekly_model_ranking 请求身份不匹配')
     }
     return parsed
   },

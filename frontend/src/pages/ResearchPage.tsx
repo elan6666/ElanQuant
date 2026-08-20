@@ -4,6 +4,7 @@ import { experimentStateLabel, formatDateTime, formatNumber, formatPercent, shor
 import type {
   ExperimentCell,
   ExperimentTrack,
+  CrossModelComparison,
   ResearchRun,
   RunDiff,
   RunSummary,
@@ -53,9 +54,10 @@ interface ResearchPageProps {
   catalogAvailable: boolean
   runs: RunSummary[]
   diff: RunDiff | null
+  comparison?: CrossModelComparison
 }
 
-export function ResearchPage({ run, catalog, catalogAvailable, runs, diff }: ResearchPageProps) {
+export function ResearchPage({ run, catalog, catalogAvailable, runs, diff, comparison }: ResearchPageProps) {
   const evidence = catalogAvailable ? catalog : []
   const cells = sizes.flatMap((model) =>
     visibleTracks.map(
@@ -138,6 +140,12 @@ export function ResearchPage({ run, catalog, catalogAvailable, runs, diff }: Res
           </div>
         </section>
       ))}
+
+      {comparison?.available ? <section className="model-evidence">
+        <div className="section-heading model-evidence__heading"><div><span className="eyebrow">Imported weekly research models</span><h2>iTransformer 与 Kronos Base 共同周频评估</h2></div><span className="count-label">{comparison.models.length} MODELS</span></div>
+        <p className="muted">这两项使用相同的严格周频锚点和标签；输入窗口不同是模型定义的一部分。封存结果只作研究比较，不参与当前在线模型选择。</p>
+        <div className="research-matrix">{comparison.models.map((model) => <article className="experiment-card" key={model.id}><div className="experiment-card__head"><div><span>{model.family === 'itransformer_b2' ? 'ITRANSFORMER' : 'KRONOS'}</span><h2>{model.label}</h2></div><Badge tone="warning">已查看</Badge></div><div className="split-label"><b>STRICT WEEKLY</b><span>过去 {model.input.lookback_sessions} 个交易日输入</span></div><div className="experiment-card__metrics"><div><span>RankIC</span><strong>{formatNumber(model.common_metrics.rank_ic, 4)}</strong></div><div><span>Pearson IC</span><strong>{formatNumber(model.common_metrics.pearson_ic, 4)}</strong></div></div><p>{comparison.protocol?.signal_start} → {comparison.protocol?.signal_end} · {comparison.protocol?.universe}</p></article>)}</div>
+      </section> : null}
 
       <RunEvidence runs={runs} diff={diff} />
 

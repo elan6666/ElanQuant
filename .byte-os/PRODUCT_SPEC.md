@@ -32,6 +32,18 @@ model evidence on either Apple Silicon or a user-owned Linux/NVIDIA server.
 Strict-PIT is retired from active selectors. Existing strict-PIT releases,
 receipts and database lineage remain read-only as `RETIRED_SUPERSEDED` evidence.
 
+## Imported weekly research model
+
+- `itransformer-r16g-r3-b2` is a separate CSI300 strict-weekly research model,
+  not a Kronos variant.  It uses 80 observed past sessions of open-to-open log
+  returns and a weekly holding-period target.
+- Its displayed 2026-07-24 ranking is a sealed viewed-research snapshot.  It
+  is selectable in research views, but is not a current daily ranking, paper
+  model or promotion candidate.
+- The separately evaluated public `kronos-base-zero-shot` weekly snapshot
+  shares the B2 anchors/execution only for controlled cross-model comparison;
+  it retains its 90-session OHLCVA input contract.
+
 ## Data and evaluation contract
 
 - Raw train slice: 2011-01-01..2022-12-31.

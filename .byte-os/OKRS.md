@@ -8,6 +8,10 @@ depending on the owner's private infrastructure.
 
 ## Key Results
 
+10. Integrate the sealed iTransformer B2 CSI300 strict-weekly model as a
+    first-class research family beside Kronos: model-aware matrix, historical
+    comparison and artifact-only weekly ranking snapshots with explicit cadence.
+
 1. Freeze four active cells across Small and Base: official zero-shot and new
    official-date-aligned fine-tune, with code/data/config/weight hashes and
    immutable training receipts; retire strict-PIT from public product selectors.

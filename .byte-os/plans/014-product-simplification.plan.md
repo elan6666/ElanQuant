@@ -1,7 +1,7 @@
 ---
 id: 014
 title: Four-cell web product and metric semantics
-status: in_progress
+status: complete
 wave: 1
 updated_at: 2026-08-14T07:50:00Z
 owner_role: Product Designer

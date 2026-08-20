@@ -20,6 +20,11 @@ import {
 const clientFor = (value: ReturnType<typeof snapshot>): ApiClient => ({
   getSnapshot: vi.fn().mockResolvedValue(value),
   getHistoricalHoldings: vi.fn().mockResolvedValue(null),
+  getWeeklyModelRanking: vi.fn().mockResolvedValue({
+    comparison_id: crossModelComparison.id,
+    model: { id: 'itransformer-b2', family: 'itransformer_b2', label: 'iTransformer B2', checkpoint_sha256: 'b'.repeat(64), input: crossModelComparison.models[0]!.input, frequency: 'strict_weekly', signal_definition: '周频模型分数', viewed: true },
+    sessions: ['2026-07-24'], as_of: '2026-07-24', rankings: [{ rank: 1, instrument: '600000.SH', score: 0.1 }],
+  }),
   submitUpdateInfer: vi.fn().mockResolvedValue({ job_id: 'job-new', coalesced: false, execution_profile: 'legacy-yilangliu' }),
   retryJob: vi.fn().mockResolvedValue({ job_id: 'job-retry', coalesced: false, execution_profile: 'legacy-yilangliu' }),
 })
@@ -35,6 +40,22 @@ describe('ElanQuant dashboard states', () => {
     expect(screen.getByText('还没有推理结果')).toBeInTheDocument()
     expect(screen.getByText(/不会用示例数据冒充成功/)).toBeInTheDocument()
     expect(screen.getByText('无真实账户')).toBeInTheDocument()
+  })
+
+  it('switches stock ranking to the sealed weekly iTransformer model without calling the online job API', async () => {
+    window.history.replaceState(null, '', '#/ranking')
+    const client = clientFor(snapshot({ cross_model_comparison: crossModelComparison }))
+    render(<App client={client} />)
+    fireEvent.click(await screen.findByRole('button', { name: /iTransformer B2.*周频封存/ }))
+    expect(await screen.findByRole('heading', { name: /iTransformer B2 周频排名/ })).toBeInTheDocument()
+    expect(screen.getByText(/不是今日信号、预测收益率或上涨概率/)).toBeInTheDocument()
+    expect(client.getWeeklyModelRanking).toHaveBeenCalledWith(
+      crossModelComparison.id,
+      'itransformer-b2',
+      undefined,
+      expect.any(AbortSignal),
+    )
+    expect(client.submitUpdateInfer).not.toHaveBeenCalled()
   })
 
   it('submits the active profile and labels the receipt from its frozen identity', async () => {

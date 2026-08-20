@@ -42,6 +42,9 @@ and Paper Account. Methods is removed; its durable explanations move to README.
 - Show current reference price and derived predicted average when available.
 - Input completeness and model-score spread include denominator/definition;
   raw per-model scores remain collapsed by default.
+- A model selector separates the current daily Kronos ranking from sealed
+  weekly B2 and weekly Kronos Base research snapshots.  A weekly model always
+  displays its as-of anchor, 80/90-session input and "not a daily signal".
 
 ## First-run/reproduction
 

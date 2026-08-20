@@ -2,11 +2,11 @@
 schema_version: 1
 mode: auto
 project_kind: existing_codebase
-stage: building
-current_workflow: byte-build
-next_workflow: byte-build
-review_verdict: pending
-iteration_count: 0
+stage: delivered
+current_workflow: byte-deliver
+next_workflow: byte-status
+review_verdict: ship
+iteration_count: 3
 harness_status: ready
 hard_blocked: false
 updated_at: 2026-08-14T23:36:00+08:00
@@ -122,6 +122,8 @@ read-only and independently audited with no P0/P1.
 
 ## Next
 
-Complete final Safari 1440/390 visual QA after the Mac is unlocked, then commit
-the reviewed compatibility/runtime delivery locally. Do not push unless the
-owner explicitly activates publication.
+Plan 016 is complete: iTransformer B2 is now a first-class, read-only weekly
+research model alongside Kronos. Jobs and the experiment page show its imported
+evidence; historical backtests retain the unified comparison; stock ranking can
+switch between current daily Kronos and each model's sealed weekly score table.
+The current B2 anchor is 2026-07-24 and is explicitly not a current signal.
