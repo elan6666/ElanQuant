@@ -5,3 +5,6 @@ loopback_host: 127.0.0.1
 port: 8765
 initial_cash: 100000
 top_k: 3
+# Independent, read-only B2/Kronos weekly comparison.  Paths in this config
+# resolve from ``source/``; the sealed evidence itself remains outside source.
+unified_comparison_catalog: ../artifacts/unified-weekly-comparison/itransformer-b2-vs-kronos-base-weekly-r7/catalog.json

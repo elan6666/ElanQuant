@@ -11,6 +11,7 @@ import {
   paperAccount,
   paperSummary,
   passedSmallCell,
+  crossModelComparison,
   runningJob,
   snapshot,
   successRun,
@@ -356,5 +357,19 @@ describe('ElanQuant dashboard states', () => {
       '2026-07-28',
       expect.any(AbortSignal),
     )
+  })
+
+  it('compares B2 and Kronos on one protocol while preserving their distinct input windows', async () => {
+    render(<App client={clientFor(snapshot({ cross_model_comparison: crossModelComparison }))} />)
+    fireEvent.click(await screen.findByRole('button', { name: '历史回测' }))
+    expect(screen.getByRole('heading', { name: '统一评估期模型对比' })).toBeInTheDocument()
+    expect(screen.getAllByText(/过去 80 个交易日/).length).toBeGreaterThan(0)
+    expect(screen.getByText('RankIC')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Top50' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: /Kronos Base/ }))
+    expect(screen.getAllByText(/过去 90 个交易日/).length).toBeGreaterThan(0)
+    fireEvent.click(screen.getByRole('button', { name: 'Top3' }))
+    expect(screen.getByText(/Kronos Base · Zero-shot · Top3/)).toBeInTheDocument()
+    expect(screen.getByText(/尚未公开期末持仓回执/)).toBeInTheDocument()
   })
 })

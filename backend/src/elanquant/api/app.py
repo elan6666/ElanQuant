@@ -40,6 +40,21 @@ from elanquant.contracts.historical_variants import (
 )
 from elanquant.contracts.official_demo import SIGNALS as OFFICIAL_DEMO_SIGNALS
 from elanquant.contracts.official_demo import sha256_file
+from elanquant.contracts.unified_comparison import (
+    CATALOG_SCHEMA as UNIFIED_COMPARISON_CATALOG_SCHEMA,
+)
+from elanquant.contracts.unified_comparison import (
+    RESULT_SCHEMA as UNIFIED_COMPARISON_RESULT_SCHEMA,
+)
+from elanquant.contracts.unified_comparison import (
+    validate_catalog as validate_unified_comparison_catalog,
+)
+from elanquant.contracts.unified_comparison import (
+    validate_model_evidence as validate_unified_comparison_evidence,
+)
+from elanquant.contracts.unified_comparison import (
+    validate_result_receipt as validate_unified_comparison_result,
+)
 from elanquant.execution import load_execution_profile
 from elanquant.orchestration.jobs import JobStore
 from elanquant.pipelines.paper import ACCOUNT_ID
@@ -431,9 +446,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     active_profile = load_execution_profile(
         active_settings.execution_profile, active_settings.execution_profiles_root
     )
-    active_profile.validate_request(
-        active_settings.model_release, active_settings.execution_device
-    )
+    active_profile.validate_request(active_settings.model_release, active_settings.execution_device)
     database = Database(active_settings.database_path)
     database.initialize()
     jobs = JobStore(database)
@@ -586,6 +599,270 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ) from error
         return catalog, loaded
 
+    def _unified_comparison_root(catalog_path: Path) -> Path:
+        """Resolve the project root from a catalog below artifacts/.
+
+        The cross-model track is deliberately outside the Qlib catalog.  Its
+        receipt paths are project-root-relative and therefore cannot inherit
+        the historical catalog's parent arithmetic.
+        """
+        for candidate in (catalog_path.resolve(), *catalog_path.resolve().parents):
+            if candidate.name == "artifacts":
+                root = candidate.parent.resolve()
+                if root.is_dir():
+                    return root
+        raise RuntimeError("unified comparison catalog is not below artifacts")
+
+    def _unified_artifact(root: Path, artifact: object, name: str) -> Path:
+        if not isinstance(artifact, dict):
+            raise RuntimeError(f"unified {name} artifact is invalid")
+        path, digest = artifact.get("path"), artifact.get("sha256")
+        if not isinstance(path, str) or not valid_sha256(digest):
+            raise RuntimeError(f"unified {name} artifact identity is invalid")
+        resolved = (root / path).resolve()
+        if root not in resolved.parents or not resolved.is_file():
+            raise RuntimeError(f"unified {name} artifact escaped the sealed root")
+        if sha256_file(resolved) != digest:
+            raise RuntimeError(f"unified {name} artifact hash differs")
+        return resolved
+
+    def _unified_csv_series(path: Path) -> list[dict[str, object]]:
+        points: list[dict[str, object]] = []
+        previous = ""
+        with path.open(encoding="utf-8", newline="") as handle:
+            reader = csv.DictReader(handle)
+            required_columns = {"session", "strategy", "benchmark", "excess"}
+            if reader.fieldnames is None or not required_columns.issubset(reader.fieldnames):
+                raise RuntimeError("unified daily series columns differ")
+            for row in reader:
+                session = row.get("session")
+                if not isinstance(session, str) or not session or session <= previous:
+                    raise RuntimeError("unified daily series session ordering differs")
+                try:
+                    strategy = float(row["strategy"])
+                    benchmark = float(row["benchmark"])
+                    excess = float(row["excess"])
+                except (KeyError, TypeError, ValueError) as error:
+                    raise RuntimeError("unified daily series numeric cell is invalid") from error
+                if not all(math.isfinite(item) for item in (strategy, benchmark, excess)):
+                    raise RuntimeError("unified daily series contains non-finite values")
+                points.append(
+                    {
+                        "session": session,
+                        "strategy": strategy,
+                        "benchmark": benchmark,
+                        "excess": excess,
+                        "strategy_nav": 1.0 + strategy,
+                        "benchmark_nav": 1.0 + benchmark,
+                    }
+                )
+                previous = session
+        if not points:
+            raise RuntimeError("unified daily series is empty")
+        return points
+
+    def _unified_holdings(path: Path) -> dict[str, object]:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict) or set(raw) != {"session", "items"}:
+            raise RuntimeError("unified holdings payload is invalid")
+        session, items = raw["session"], raw["items"]
+        if not isinstance(session, str) or not session or not isinstance(items, list):
+            raise RuntimeError("unified holdings identity is invalid")
+        output: list[dict[str, object]] = []
+        seen: set[str] = set()
+        for item in items:
+            if not isinstance(item, dict) or set(item) != {
+                "instrument",
+                "weight",
+                "amount",
+                "value",
+            }:
+                raise RuntimeError("unified holding is invalid")
+            code = item["instrument"]
+            if not isinstance(code, str) or not code or code in seen:
+                raise RuntimeError("unified holding instrument is invalid")
+            values = (item["weight"], item["amount"], item["value"])
+            if any(
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(float(value))
+                or float(value) < 0
+                for value in values
+            ):
+                raise RuntimeError("unified holding numeric value is invalid")
+            seen.add(code)
+            output.append(
+                {
+                    "instrument": code,
+                    "weight": float(item["weight"]),
+                    "amount": float(item["amount"]),
+                    "value": float(item["value"]),
+                }
+            )
+        return {"session": session, "items": output}
+
+    def load_unified_comparison() -> dict[str, object]:
+        catalog_path = active_settings.unified_comparison_catalog.resolve()
+        if not catalog_path.is_file():
+            return {"available": False, "id": None, "protocol": None, "models": []}
+        try:
+            catalog = validate_unified_comparison_catalog(
+                json.loads(catalog_path.read_text(encoding="utf-8"))
+            )
+            if catalog.get("schema_version") != UNIFIED_COMPARISON_CATALOG_SCHEMA:
+                raise RuntimeError("unified comparison catalog schema differs")
+            root = _unified_comparison_root(catalog_path)
+            entries: dict[str, dict[str, Any]] = {}
+            protocol_sha = catalog.get("protocol_receipt_sha256")
+            if not valid_sha256(protocol_sha):
+                raise RuntimeError("unified comparison protocol identity is invalid")
+            for entry in catalog["entries"]:
+                receipt_path = _unified_artifact(
+                    root,
+                    {"path": entry["receipt_path"], "sha256": entry["receipt_sha256"]},
+                    "result receipt",
+                )
+                receipt = validate_unified_comparison_result(
+                    json.loads(receipt_path.read_text(encoding="utf-8"))
+                )
+                if (
+                    receipt.get("schema_version") != UNIFIED_COMPARISON_RESULT_SCHEMA
+                    or receipt.get("protocol_receipt_sha256") != protocol_sha
+                    or receipt.get("protocol_id") != catalog.get("protocol_id")
+                ):
+                    raise RuntimeError("unified comparison result protocol differs")
+                key = f"{receipt['model_family_id']}:{receipt['portfolio_id']}"
+                entries[key] = receipt
+            if len(entries) != 6:
+                raise RuntimeError("unified comparison matrix is incomplete")
+            protocol_path = _unified_artifact(
+                root,
+                {"path": catalog.get("protocol_path"), "sha256": protocol_sha},
+                "protocol receipt",
+            )
+            if not protocol_path.is_file():
+                raise RuntimeError("unified comparison protocol receipt differs")
+            protocol_raw = json.loads(protocol_path.read_text(encoding="utf-8"))
+            common = protocol_raw.get("common_protocol")
+            if not isinstance(common, dict):
+                raise RuntimeError("unified common protocol is invalid")
+            evaluation_range = common.get("evaluation_range")
+            support = common.get("support")
+            if not isinstance(evaluation_range, dict) or not isinstance(support, dict):
+                raise RuntimeError("unified comparison protocol support is invalid")
+            evidence_by_family: dict[str, dict[str, Any]] = {}
+            evidence_rows = protocol_raw.get("source_evidence")
+            if not isinstance(evidence_rows, list):
+                raise RuntimeError("unified comparison evidence is invalid")
+            for evidence_row in evidence_rows:
+                if not isinstance(evidence_row, dict):
+                    raise RuntimeError("unified comparison evidence row is invalid")
+                evidence_path = _unified_artifact(
+                    root,
+                    {
+                        "path": evidence_row.get("receipt_path"),
+                        "sha256": evidence_row.get("receipt_sha256"),
+                    },
+                    "model evidence receipt",
+                )
+                evidence = validate_unified_comparison_evidence(
+                    json.loads(evidence_path.read_text(encoding="utf-8"))
+                )
+                if evidence.get("model_family_id") != evidence_row.get("model_family_id"):
+                    raise RuntimeError("unified comparison evidence identity differs")
+                evidence_by_family[str(evidence["model_family_id"])] = evidence
+            if len(evidence_by_family) != 2:
+                raise RuntimeError("unified comparison evidence is incomplete")
+            families = (
+                (
+                    "itransformer-b2-r16g-r3",
+                    "itransformer_b2",
+                    "iTransformer B2",
+                    "过去 80 个交易日的 CSI300 开盘到开盘对数收益",
+                    80,
+                    ["open-to-open log return"],
+                ),
+                (
+                    "kronos-base-zero-shot",
+                    "kronos_base",
+                    "Kronos Base（公开 zero-shot）",
+                    "过去 90 个交易日 OHLCVA，经实例标准化后预测路径",
+                    90,
+                    ["open", "high", "low", "close", "volume", "amount"],
+                ),
+            )
+            models: list[dict[str, object]] = []
+            for family_id, family, label, description, lookback, features in families:
+                cells = [
+                    entries[f"{family_id}:{portfolio}"] for portfolio in ("top1", "top3", "top50")
+                ]
+                first = cells[0]
+                source = evidence_by_family[family_id]
+                _unified_artifact(root, source["artifacts"]["scores"], "score")
+                strategies: list[dict[str, object]] = []
+                for receipt in cells:
+                    artifacts = receipt["artifacts"]
+                    series = _unified_csv_series(
+                        _unified_artifact(root, artifacts["daily_series"], "daily series")
+                    )
+                    holdings_artifact = _unified_artifact(root, artifacts["holdings"], "holdings")
+                    holdings = _unified_holdings(holdings_artifact)
+                    holdings["receipt_sha256"] = artifacts["holdings"]["sha256"]
+                    strategies.append(
+                        {
+                            "id": receipt["portfolio_id"],
+                            "label": f"Top{receipt['portfolio_id'][3:]}",
+                            "topk": int(receipt["portfolio_id"][3:]),
+                            "metrics": receipt["portfolio_metrics"],
+                            "series": series,
+                            "holdings": holdings,
+                        }
+                    )
+                models.append(
+                    {
+                        "id": family_id,
+                        "family": family,
+                        "label": label,
+                        "input": {
+                            "description": description,
+                            "lookback_sessions": lookback,
+                            "features": features,
+                        },
+                        "checkpoint_sha256": source.get("model_sha256"),
+                        "common_metrics": first["prediction_metrics"],
+                        "strategies": strategies,
+                    }
+                )
+            return {
+                "available": True,
+                "id": catalog["protocol_id"],
+                "protocol": {
+                    "id": catalog["protocol_id"],
+                    "label": "CSI300 严格周频共同评估（已查看研究结果）",
+                    "universe": "CSI300 共同支持集",
+                    "frequency": "严格周频（约 5 个交易日）",
+                    "signal_start": evaluation_range["start"],
+                    "signal_end": evaluation_range["end"],
+                    "execution_start": common.get("execution_start", evaluation_range["start"]),
+                    "execution_end": common.get("execution_end", evaluation_range["end"]),
+                    "anchor_set_sha256": common["anchor_set_sha256"],
+                    "label_definition": "同一锚点后下一周开盘到开盘实际收益",
+                    "viewed": True,
+                },
+                "models": models,
+            }
+        except (
+            KeyError,
+            OSError,
+            json.JSONDecodeError,
+            RuntimeError,
+            TypeError,
+            ValueError,
+        ) as error:
+            raise HTTPException(
+                status_code=503, detail="Unified comparison failed its sealed evidence gate"
+            ) from error
+
     def public_backtest(
         entry: dict[str, Any], receipt: dict[str, Any], receipt_sha256: str
     ) -> dict[str, object]:
@@ -598,13 +875,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         provider_receipt_sha256 = receipt.get(
             "provider_receipt_sha256",
-            receipt.get(
-                "source_provider_receipt_sha256", source.get("provider_receipt_sha256")
-            ),
+            receipt.get("source_provider_receipt_sha256", source.get("provider_receipt_sha256")),
         )
-        if not valid_sha256(signal_receipt_sha256) or not valid_sha256(
-            provider_receipt_sha256
-        ):
+        if not valid_sha256(signal_receipt_sha256) or not valid_sha256(provider_receipt_sha256):
             raise RuntimeError("historical public source identity is incomplete")
         curve_semantics = receipt.get(
             "curve_semantics",
@@ -664,9 +937,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "evaluation_split": evaluation_split,
                 "result_role": receipt.get(
                     "result_role",
-                    entry.get(
-                        "result_role", "TRAINING_VALIDATION_CHECKPOINT_SELECTION"
-                    ),
+                    entry.get("result_role", "TRAINING_VALIDATION_CHECKPOINT_SELECTION"),
                 ),
                 "used_for_selection": receipt.get(
                     "used_for_selection", entry.get("used_for_selection", True)
@@ -758,9 +1029,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         evaluations_by_model: dict[str, dict[str, dict[str, object]]] = {}
         for evaluation in evaluations:
             raw = dict(evaluation)
-            evaluations_by_model.setdefault(str(raw["base_model_id"]), {})[
-                str(raw["split"])
-            ] = {
+            evaluations_by_model.setdefault(str(raw["base_model_id"]), {})[str(raw["split"])] = {
                 "rank_ic": raw["rank_ic"],
                 "pearson_ic": raw["ic"],
                 "top10_mean_return": raw["top10_mean_return"],
@@ -770,21 +1039,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             }
         official_v3 = str(run["protocol"]).startswith("OFFICIAL_SPLIT_V3")
         expected_evaluation_splits = (
-            {"test_viewed_official_v3"}
-            if official_v3
-            else {"validation_2025", "test_viewed_2026"}
+            {"test_viewed_official_v3"} if official_v3 else {"validation_2025", "test_viewed_2026"}
         )
         expected_model_count = 2 if official_v3 else 3
-        formal_evidence_complete = bool(run.get("evaluation_receipt_sha256")) and len(
-            model_rows
-        ) == expected_model_count and all(
-            set(
-                evaluations_by_model.get(
-                    str(model["base_model_id"] or model["id"]), {}
-                )
+        formal_evidence_complete = (
+            bool(run.get("evaluation_receipt_sha256"))
+            and len(model_rows) == expected_model_count
+            and all(
+                set(evaluations_by_model.get(str(model["base_model_id"] or model["id"]), {}))
+                == expected_evaluation_splits
+                for model in model_rows
             )
-            == expected_evaluation_splits
-            for model in model_rows
         )
         if not formal_evidence_complete and not str(run["protocol"]).startswith("PLACEHOLDER"):
             warnings.append(
@@ -805,9 +1070,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 str(model["base_model_id"] or model["id"]), {}
             )
             displayed_evaluation = (
-                public_evaluations.get("test_viewed_official_v3", {})
-                if official_v3
-                else {}
+                public_evaluations.get("test_viewed_official_v3", {}) if official_v3 else {}
             )
             matrix.append(
                 {
@@ -825,12 +1088,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "rank_ic": (
                         displayed_evaluation.get("rank_ic")
                         if official_v3 and formal_evidence_complete
-                        else model["validation_rank_ic"] if formal_evidence_complete else None
+                        else model["validation_rank_ic"]
+                        if formal_evidence_complete
+                        else None
                     ),
                     "pearson_ic": (
                         displayed_evaluation.get("pearson_ic")
                         if official_v3 and formal_evidence_complete
-                        else model["validation_ic"] if formal_evidence_complete else None
+                        else model["validation_ic"]
+                        if formal_evidence_complete
+                        else None
                     ),
                     "top10_mean_return": (
                         displayed_evaluation.get("top10_mean_return")
@@ -840,18 +1107,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         else None
                     ),
                     "model_hash": model["checkpoint_sha256"],
-                    "receipt": (
-                        model["evaluation_receipt"] if formal_evidence_complete else None
-                    ),
-                    "evaluations": (
-                        public_evaluations
-                        if formal_evidence_complete
-                        else {}
-                    ),
+                    "receipt": (model["evaluation_receipt"] if formal_evidence_complete else None),
+                    "evaluations": (public_evaluations if formal_evidence_complete else {}),
                     "note": (
                         f"未知模型变体 {variant}；已阻止展示为正式实验。"
                         if track is None
-                        else warnings[0] if warnings else None
+                        else warnings[0]
+                        if warnings
+                        else None
                     ),
                 }
             )
@@ -981,9 +1244,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "model_release": active_settings.model_release,
             "execution_device": active_settings.execution_device,
             "inference_batch_size": active_settings.inference_batch_size,
-            "release_research_only": active_profile.is_research_only(
-                active_settings.model_release
-            ),
+            "release_research_only": active_profile.is_research_only(active_settings.model_release),
             "available_releases": list(active_profile.allowed_releases),
             "broker_connected": False,
             "automatic_schedule": False,
@@ -1040,8 +1301,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     or method_lock.get("online_contract_sha256")
                     != sha256_file(Path(str(online_release_contract.__file__)).resolve())
                     or analysis_lock.get("matrix_sha256") != matrix_sha
-                    or method_lock.get("viewed_results_root")
-                    != analysis_lock.get("results_root")
+                    or method_lock.get("viewed_results_root") != analysis_lock.get("results_root")
                 ):
                     raise RuntimeError("official-split-v3 active release chain is mismatched")
                 experiments = official_split_v3_experiments(
@@ -1085,6 +1345,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ],
         }
 
+    @app.get("/api/v1/research/comparisons")
+    def research_comparisons() -> dict[str, object]:
+        """Return the separately sealed B2/Kronos common-weekly comparison.
+
+        Absence is normal before the server-only producer finishes; a malformed
+        or tampered catalog deliberately returns 503 through the loader.
+        """
+        return load_unified_comparison()
+
     @app.get("/api/v1/research/backtests/{backtest_id}")
     def research_backtest(backtest_id: str) -> dict[str, object]:
         _, loaded = load_historical_backtests()
@@ -1092,9 +1361,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if selected is None:
             raise HTTPException(status_code=404, detail="Historical backtest not found")
         entry, receipt = selected
-        return {
-            "backtest": public_backtest(entry, receipt, str(entry["receipt_sha256"]))
-        }
+        return {"backtest": public_backtest(entry, receipt, str(entry["receipt_sha256"]))}
 
     @app.get("/api/v1/research/backtests/{backtest_id}/series")
     def research_backtest_series(
@@ -1198,9 +1465,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                                 f"historical series contains a non-finite {identity}"
                             )
                         optional_values[identity] = value
-                    points.append(
-                        {"session": row["datetime"], **values, **optional_values}
-                    )
+                    points.append({"session": row["datetime"], **values, **optional_values})
         except (OSError, TypeError, ValueError, RuntimeError) as error:
             raise HTTPException(
                 status_code=503, detail="Historical series failed its evidence gate"
@@ -1216,9 +1481,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {
             "backtest_id": receipt["id"],
             "signal": signal,
-            "curve_semantics": receipt.get(
-                "curve_semantics", HISTORICAL_CURVE_SEMANTICS
-            ),
+            "curve_semantics": receipt.get("curve_semantics", HISTORICAL_CURVE_SEMANTICS),
             "points": points,
         }
 
@@ -1236,12 +1499,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         entry, receipt = selected
         official_v3 = receipt.get("schema_version") == OFFICIAL_SPLIT_V3_BACKTEST_SCHEMA
         holdings_pointer = entry.get("holdings")
-        sidecar_holdings = isinstance(holdings_pointer, dict) and set(
-            holdings_pointer
-        ) == {"receipt_path", "receipt_sha256"}
-        matrix_holdings = isinstance(holdings_pointer, dict) and set(
-            holdings_pointer
-        ) == {"artifact_path", "artifact_sha256"}
+        sidecar_holdings = isinstance(holdings_pointer, dict) and set(holdings_pointer) == {
+            "receipt_path",
+            "receipt_sha256",
+        }
+        matrix_holdings = isinstance(holdings_pointer, dict) and set(holdings_pointer) == {
+            "artifact_path",
+            "artifact_sha256",
+        }
         if official_v3:
             holdings_pointer = {
                 "artifact_path": receipt["holdings_path"],
@@ -1255,9 +1520,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
         assert isinstance(holdings_pointer, dict)
         holdings_receipt_sha256 = str(
-            entry["receipt_sha256"]
-            if matrix_holdings
-            else holdings_pointer["receipt_sha256"]
+            entry["receipt_sha256"] if matrix_holdings else holdings_pointer["receipt_sha256"]
         )
         try:
             root = historical_artifact_root(catalog)
@@ -1316,17 +1579,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 if (
                     sidecar.get("backtest_id") != receipt["id"]
                     or sidecar.get("evaluation_split") != entry["evaluation_split"]
-                    or sidecar.get("strategy_variant_id")
-                    != entry["strategy_variant_id"]
+                    or sidecar.get("strategy_variant_id") != entry["strategy_variant_id"]
                     or sidecar.get("execution_domain") != "HISTORICAL_QLIB_SIMULATION"
                     or sidecar.get("online_paper_equivalent") is not False
                     or sidecar.get("promotion_eligible") is not False
                     or sidecar.get("backtest_receipt_path") != entry["receipt_path"]
                     or sidecar.get("backtest_receipt_sha256") != entry["receipt_sha256"]
-                    or sidecar.get("source_signal_receipt_sha256")
-                    != receipt_signal_sha256
-                    or sidecar.get("source_provider_receipt_sha256")
-                    != receipt_provider_sha256
+                    or sidecar.get("source_signal_receipt_sha256") != receipt_signal_sha256
+                    or sidecar.get("source_provider_receipt_sha256") != receipt_provider_sha256
                     or not isinstance(artifact, dict)
                 ):
                     raise RuntimeError("historical holdings sidecar identity is invalid")
@@ -1347,10 +1607,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if (
                 root not in artifact_path.parents
                 or not artifact_path.is_file()
-                or (
-                    not official_v3
-                    and artifact_bytes != artifact.get("bytes")
-                )
+                or (not official_v3 and artifact_bytes != artifact.get("bytes"))
                 or artifact_bytes > 64_000_000
                 or not valid_sha256(artifact.get("sha256"))
                 or sha256_file(artifact_path) != artifact["sha256"]
@@ -1359,12 +1616,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "elanquant_historical_daily_holdings_v1",
                     "elanquant_historical_model_holdings_v1",
                 }
-                or artifact.get("columns")
-                != list(HOLDINGS_COLUMNS)
-                or (
-                    not official_v3
-                    and artifact.get("rows", 200_001) > 200_000
-                )
+                or artifact.get("columns") != list(HOLDINGS_COLUMNS)
+                or (not official_v3 and artifact.get("rows", 200_001) > 200_000)
                 or artifact.get("sessions", 1_001) > 1000
             ):
                 raise RuntimeError("historical holdings evidence mismatch")
@@ -1657,9 +1910,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "against_run_id": str(baseline["id"]),
             "comparable": True,
             "same_session": current["as_of_session"] == baseline["as_of_session"],
-            "identity_changes": {
-                field: current[field] != baseline[field] for field in fields
-            },
+            "identity_changes": {field: current[field] != baseline[field] for field in fields},
             "top3_overlap": len(current_top3 & baseline_top3),
             "top10_overlap": len(current_top10 & baseline_top10),
             "top3_added": sorted(current_top3 - baseline_top3),
@@ -1747,9 +1998,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ).fetchone()
             )
             previous_ranks = (
-                {}
-                if previous is None
-                else strict_ranks(connection, str(previous["id"]))
+                {} if previous is None else strict_ranks(connection, str(previous["id"]))
             )
             recommended = {
                 str(row["code"])
@@ -1796,9 +2045,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             values.append(score)
             base_model_id = str(row["base_model_id"])
             official_v3 = str(exists["protocol"]).startswith("OFFICIAL_SPLIT_V3")
-            if (
-                official_v3 and base_model_id.endswith("official-ft")
-            ) or (not official_v3 and base_model_id.endswith("strict-pit")):
+            if (official_v3 and base_model_id.endswith("official-ft")) or (
+                not official_v3 and base_model_id.endswith("strict-pit")
+            ):
                 primary_values.append(score)
             scores[base_model_id] = score
             if str(row["scoreability"]).startswith("PLACEHOLDER"):
@@ -1940,9 +2189,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     else "AVERAGE_COST_FALLBACK"
                 )
                 position_value = int(row["quantity"]) * last_price
-                unrealized = int(row["quantity"]) * (
-                    last_price - float(row["average_cost"])
-                )
+                unrealized = int(row["quantity"]) * (last_price - float(row["average_cost"]))
             position_payload.append(
                 {
                     "code": row["code"],
@@ -2100,9 +2347,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 }
             ),
             "latest_decisions": [dict(row) for row in decisions],
-            "warnings": [
-                f"{row['signal_session']}: {row['note']}" for row in legacy
-            ],
+            "warnings": [f"{row['signal_session']}: {row['note']}" for row in legacy],
         }
 
     @app.get("/api/v1/paper/nav")

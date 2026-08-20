@@ -408,6 +408,70 @@ export interface HistoricalHoldingsSnapshot {
   holdings: HistoricalHolding[]
 }
 
+/** A single, execution-aligned comparison is intentionally separate from the
+ * Kronos-only historical catalogue.  Raw model outputs are not comparable;
+ * only the protocol and strategy metrics below share a denominator. */
+export interface CrossModelComparison {
+  available: boolean
+  id: string | null
+  protocol: {
+    id: string
+    label: string
+    universe: string
+    frequency: string
+    signal_start: string
+    signal_end: string
+    execution_start: string
+    execution_end: string
+    anchor_set_sha256: string
+    label_definition: string
+    viewed: boolean
+  } | null
+  models: CrossModelComparisonModel[]
+}
+
+export interface CrossModelComparisonMetrics {
+  rank_ic?: number | null
+  pearson_ic?: number | null
+  icir?: number | null
+  mae?: number | null
+  rmse?: number | null
+  coverage?: number | null
+  total_return_with_cost?: number | null
+  benchmark_return?: number | null
+  excess_return_with_cost?: number | null
+  information_ratio_with_cost?: number | null
+  max_drawdown_with_cost?: number | null
+  turnover_mean?: number | null
+}
+
+export interface CrossModelHolding {
+  instrument: string
+  weight: number
+  amount?: number | null
+  value?: number | null
+}
+
+export interface CrossModelStrategy {
+  id: string
+  label: string
+  topk: 1 | 3 | 50
+  metrics: CrossModelComparisonMetrics
+  series: HistoricalBacktestPoint[]
+  holdings: { session: string; items: CrossModelHolding[]; receipt_sha256?: string | null } | null
+}
+
+export interface CrossModelComparisonModel {
+  id: string
+  family: 'itransformer_b2' | 'kronos_base'
+  label: string
+  input: { description: string; lookback_sessions: number; features: string[] }
+  checkpoint_sha256: string
+  common_metrics: CrossModelComparisonMetrics
+  native_metrics?: Record<string, number | string | null>
+  strategies: CrossModelStrategy[]
+}
+
 export interface DashboardSnapshot {
   system: SystemStatus
   jobs: Job[]
@@ -417,6 +481,7 @@ export interface DashboardSnapshot {
   historical_backtests: HistoricalBacktest[]
   historical_backtest_available: boolean
   historical_backtest_series: Record<string, HistoricalBacktestPoint[]>
+  cross_model_comparison?: CrossModelComparison
   runs: RunSummary[]
   run_diff: RunDiff | null
   paper: PaperAccount | null

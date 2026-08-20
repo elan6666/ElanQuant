@@ -1,5 +1,6 @@
 import type {
   ApiClient,
+  CrossModelComparison,
   DashboardSnapshot,
   DataHealth,
   EvaluationSplit,
@@ -991,6 +992,74 @@ const parseHistoricalSeries = (value: unknown): HistoricalBacktestPoint[] => {
   })
 }
 
+const parseCrossModelComparison = (value: unknown): CrossModelComparison => {
+  const item = object(value, 'cross_model_comparison')
+  const available = boolean(item.available, 'cross_model_comparison.available')
+  if (!available) return { available: false, id: null, protocol: null, models: [] }
+  const protocol = object(item.protocol, 'cross_model_comparison.protocol')
+  const models = array(item.models, 'cross_model_comparison.models').map((rawModel, index) => {
+    const modelPath = `cross_model_comparison.models[${index}]`
+    const model = object(rawModel, modelPath)
+    const input = object(model.input, `${modelPath}.input`)
+    const common = object(model.common_metrics, `${modelPath}.common_metrics`)
+    const metric = (raw: Record<string, unknown>, key: string) => optionalNumber(raw[key], `${modelPath}.${key}`)
+    return {
+      id: string(model.id, `${modelPath}.id`),
+      family: enumValue(model.family, ['itransformer_b2', 'kronos_base'], `${modelPath}.family`),
+      label: string(model.label, `${modelPath}.label`),
+      input: {
+        description: string(input.description, `${modelPath}.input.description`),
+        lookback_sessions: number(input.lookback_sessions, `${modelPath}.input.lookback_sessions`),
+        features: strings(input.features, `${modelPath}.input.features`),
+      },
+      checkpoint_sha256: string(model.checkpoint_sha256, `${modelPath}.checkpoint_sha256`),
+      common_metrics: {
+        rank_ic: metric(common, 'rank_ic'), pearson_ic: metric(common, 'pearson_ic'), icir: metric(common, 'icir'),
+        mae: metric(common, 'mae'), rmse: metric(common, 'rmse'), coverage: metric(common, 'coverage'),
+      },
+      native_metrics: model.native_metrics === undefined || model.native_metrics === null ? undefined : Object.fromEntries(Object.entries(object(model.native_metrics, `${modelPath}.native_metrics`)).map(([key, candidate]) => [key, candidate === null || typeof candidate === 'string' ? candidate : number(candidate, `${modelPath}.native_metrics.${key}`)])),
+      strategies: array(model.strategies, `${modelPath}.strategies`).map((rawStrategy, strategyIndex) => {
+        const path = `${modelPath}.strategies[${strategyIndex}]`
+        const strategy = object(rawStrategy, path)
+        const metrics = object(strategy.metrics, `${path}.metrics`)
+        const holdingsRaw = strategy.holdings === undefined || strategy.holdings === null ? null : object(strategy.holdings, `${path}.holdings`)
+        return {
+          id: string(strategy.id, `${path}.id`), label: string(strategy.label, `${path}.label`),
+          topk: (() => {
+            const candidate = number(strategy.topk, `${path}.topk`)
+            if (candidate !== 1 && candidate !== 3 && candidate !== 50) {
+              throw new ApiContractError(`${path}.topk 的值不受支持`)
+            }
+            return candidate as 1 | 3 | 50
+          })(),
+          metrics: {
+            total_return_with_cost: optionalNumber(metrics.total_return_with_cost, `${path}.metrics.total_return_with_cost`),
+            benchmark_return: optionalNumber(metrics.benchmark_return, `${path}.metrics.benchmark_return`),
+            excess_return_with_cost: optionalNumber(metrics.excess_return_with_cost, `${path}.metrics.excess_return_with_cost`),
+            information_ratio_with_cost: optionalNumber(metrics.information_ratio_with_cost, `${path}.metrics.information_ratio_with_cost`),
+            max_drawdown_with_cost: optionalNumber(metrics.max_drawdown_with_cost, `${path}.metrics.max_drawdown_with_cost`),
+            turnover_mean: optionalNumber(metrics.turnover_mean, `${path}.metrics.turnover_mean`),
+          },
+          series: array(strategy.series, `${path}.series`).map((rawPoint, pointIndex) => {
+            const point = object(rawPoint, `${path}.series[${pointIndex}]`)
+            return { session: string(point.session, `${path}.series[${pointIndex}].session`), strategy: number(point.strategy, `${path}.series[${pointIndex}].strategy`), benchmark: number(point.benchmark, `${path}.series[${pointIndex}].benchmark`), excess: optionalNumber(point.excess, `${path}.series[${pointIndex}].excess`) ?? 0, strategy_nav: optionalNumber(point.strategy_nav, `${path}.series[${pointIndex}].strategy_nav`) ?? 1, benchmark_nav: optionalNumber(point.benchmark_nav, `${path}.series[${pointIndex}].benchmark_nav`) ?? 1 }
+          }),
+          holdings: holdingsRaw === null ? null : {
+            session: string(holdingsRaw.session, `${path}.holdings.session`),
+            receipt_sha256: optionalString(holdingsRaw.receipt_sha256, `${path}.holdings.receipt_sha256`),
+            items: array(holdingsRaw.items, `${path}.holdings.items`).map((rawHolding, holdingIndex) => { const holding = object(rawHolding, `${path}.holdings.items[${holdingIndex}]`); return { instrument: string(holding.instrument, `${path}.holdings.items[${holdingIndex}].instrument`), weight: number(holding.weight, `${path}.holdings.items[${holdingIndex}].weight`), amount: optionalNumber(holding.amount, `${path}.holdings.items[${holdingIndex}].amount`), value: optionalNumber(holding.value, `${path}.holdings.items[${holdingIndex}].value`) } }),
+          },
+        }
+      }),
+    }
+  })
+  return {
+    available: true, id: optionalString(item.id, 'cross_model_comparison.id'),
+    protocol: { id: string(protocol.id, 'cross_model_comparison.protocol.id'), label: string(protocol.label, 'cross_model_comparison.protocol.label'), universe: string(protocol.universe, 'cross_model_comparison.protocol.universe'), frequency: string(protocol.frequency, 'cross_model_comparison.protocol.frequency'), signal_start: string(protocol.signal_start, 'cross_model_comparison.protocol.signal_start'), signal_end: string(protocol.signal_end, 'cross_model_comparison.protocol.signal_end'), execution_start: string(protocol.execution_start, 'cross_model_comparison.protocol.execution_start'), execution_end: string(protocol.execution_end, 'cross_model_comparison.protocol.execution_end'), anchor_set_sha256: string(protocol.anchor_set_sha256, 'cross_model_comparison.protocol.anchor_set_sha256'), label_definition: string(protocol.label_definition, 'cross_model_comparison.protocol.label_definition'), viewed: boolean(protocol.viewed, 'cross_model_comparison.protocol.viewed') },
+    models,
+  }
+}
+
 const parseHistoricalHoldings = (value: unknown): HistoricalHoldingsSnapshot => {
   const item = object(value, 'historical_holdings')
   const source = object(item.source, 'historical_holdings.source')
@@ -1148,13 +1217,14 @@ const collection = (value: unknown, keys: string[], path: string): unknown[] => 
 
 export const createApiClient = (): ApiClient => ({
   async getSnapshot(signal) {
-    const [systemRaw, jobsRaw, runRaw, runsRaw, researchRaw, backtestsRaw, paperRaw] = await Promise.all([
+    const [systemRaw, jobsRaw, runRaw, runsRaw, researchRaw, backtestsRaw, comparisonRaw, paperRaw] = await Promise.all([
       requestJson('/api/v1/system/status', { signal }),
       requestJson('/api/v1/jobs', { signal }),
       optionalJson('/api/v1/runs/latest', signal),
       requestJson('/api/v1/runs?limit=10', { signal }),
       optionalServiceJson('/api/v1/research/experiments', signal),
       optionalServiceJson('/api/v1/research/backtests', signal),
+      optionalServiceJson('/api/v1/research/comparisons', signal),
       optionalJson('/api/v1/paper/account', signal),
     ])
     const jobItems = collection(jobsRaw, ['items', 'jobs'], 'jobs_response')
@@ -1216,6 +1286,8 @@ export const createApiClient = (): ApiClient => ({
       historical_backtests: historical.backtests,
       historical_backtest_available: historical.available,
       historical_backtest_series: Object.fromEntries(historicalSeriesRaw),
+      cross_model_comparison:
+        comparisonRaw === null ? { available: false, id: null, protocol: null, models: [] } : parseCrossModelComparison(comparisonRaw),
       runs,
       run_diff: diffRaw === null ? null : parseRunDiff(diffRaw),
       paper: paperRaw === null ? null : parsePaper(paperRaw, orders, nav),

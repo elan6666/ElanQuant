@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { createApiClient } from './api'
 import { Shell, type PageKey } from './components/Shell'
+import { CrossModelComparisonPanel } from './components/CrossModelComparisonPanel'
 import { JobsPage } from './pages/JobsPage'
 import { HistoricalBacktestPage } from './pages/HistoricalBacktestPage'
 import { OverviewPage } from './pages/OverviewPage'
@@ -93,12 +94,15 @@ export function App({ client = productionClient }: { client?: ApiClient }) {
         />
       ) : null}
       {page === 'backtest' ? (
-        <HistoricalBacktestPage
-          backtests={snapshot.historical_backtests}
-          available={snapshot.historical_backtest_available}
-          seriesById={snapshot.historical_backtest_series}
-          onLoadHoldings={client.getHistoricalHoldings}
-        />
+        <>
+          <CrossModelComparisonPanel comparison={snapshot.cross_model_comparison} />
+          <HistoricalBacktestPage
+            backtests={snapshot.historical_backtests}
+            available={snapshot.historical_backtest_available}
+            seriesById={snapshot.historical_backtest_series}
+            onLoadHoldings={client.getHistoricalHoldings}
+          />
+        </>
       ) : null}
       {page === 'ranking' ? <RankingPage run={snapshot.latest_run} /> : null}
       {page === 'paper' ? (

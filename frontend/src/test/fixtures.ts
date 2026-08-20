@@ -1,5 +1,6 @@
 import type {
   DashboardSnapshot,
+  CrossModelComparison,
   ExperimentCell,
   HistoricalBacktest,
   Job,
@@ -7,6 +8,22 @@ import type {
   PaperSummary,
   ResearchRun,
 } from '../types'
+
+export const crossModelComparison: CrossModelComparison = {
+  available: true,
+  id: 'b2-vs-kronos-base-v1',
+  protocol: {
+    id: 'csi300-weekly-b2-aligned-v1', label: 'B2 对齐评估', universe: '沪深300', frequency: '周频信号 / T+1 开盘执行', signal_start: '2024-07-01', signal_end: '2026-07-31', execution_start: '2024-07-08', execution_end: '2026-08-07', anchor_set_sha256: 'a'.repeat(64), label_definition: '下一周收益率；共同锚点内按截面计算 IC。', viewed: true,
+  },
+  models: [
+    {
+      id: 'itransformer-b2', family: 'itransformer_b2', label: 'iTransformer B2', input: { description: '严格周频 B2：以过去 80 个交易日的特征窗口预测下一周收益。', lookback_sessions: 80, features: ['OHLCV', '技术因子'] }, checkpoint_sha256: 'b'.repeat(64), common_metrics: { rank_ic: 0.031, pearson_ic: 0.026, icir: 0.42, coverage: 0.97 }, native_metrics: { validation_loss: 0.43 }, strategies: [1, 3, 50].map((topk) => ({ id: `b2-top${topk}`, label: `Top${topk}`, topk: topk as 1 | 3 | 50, metrics: { total_return_with_cost: 0.12, benchmark_return: 0.08, excess_return_with_cost: 0.04, max_drawdown_with_cost: -0.09, turnover_mean: 0.16 }, series: [{ session: '2024-07-08', strategy: 0, benchmark: 0, excess: 0, strategy_nav: 1, benchmark_nav: 1 }, { session: '2026-08-07', strategy: 0.12, benchmark: 0.08, excess: 0.04, strategy_nav: 1.12, benchmark_nav: 1.08 }], holdings: { session: '2026-08-07', receipt_sha256: 'c'.repeat(64), items: [{ instrument: '600000.SH', weight: 0.5, amount: 1000, value: 10_000 }, { instrument: '000001.SZ', weight: 0.5, amount: 800, value: 10_000 }] } })),
+    },
+    {
+      id: 'kronos-base', family: 'kronos_base', label: 'Kronos Base · Zero-shot', input: { description: '公开 Base 权重：以过去 90 个交易日 OHLCVA 路径预测未来 10 日价格路径。', lookback_sessions: 90, features: ['OHLCVA'] }, checkpoint_sha256: 'd'.repeat(64), common_metrics: { rank_ic: 0.019, pearson_ic: 0.014, icir: 0.21, coverage: 0.96 }, strategies: [1, 3, 50].map((topk) => ({ id: `kronos-top${topk}`, label: `Top${topk}`, topk: topk as 1 | 3 | 50, metrics: { total_return_with_cost: 0.09, benchmark_return: 0.08, excess_return_with_cost: 0.01, max_drawdown_with_cost: -0.11, turnover_mean: 0.12 }, series: [{ session: '2024-07-08', strategy: 0, benchmark: 0, excess: 0, strategy_nav: 1, benchmark_nav: 1 }, { session: '2026-08-07', strategy: 0.09, benchmark: 0.08, excess: 0.01, strategy_nav: 1.09, benchmark_nav: 1.08 }], holdings: null })),
+    },
+  ],
+}
 
 export const runningJob: Job = {
   id: 'job-20260812-001',

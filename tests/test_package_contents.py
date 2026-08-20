@@ -13,6 +13,7 @@ def test_wheel_declares_public_reproduction_resources() -> None:
     assert force == {
         "README.md": "elanquant/resources/README.md",
         "THIRD_PARTY_NOTICES.md": "elanquant/resources/THIRD_PARTY_NOTICES.md",
+        "assets": "elanquant/resources/assets",
         "configs": "elanquant/resources/configs",
         "docs": "elanquant/resources/docs",
         "examples": "elanquant/resources/examples",

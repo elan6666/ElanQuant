@@ -564,6 +564,31 @@ h1, h2, h3 { font-family: "Iowan Old Style", "Baskerville", "Songti SC", "STSong
 .decision-list article p { margin: 0; color: #6f655d; font-size: 10px; line-height: 1.5; }
 
 .backtest-heading { align-items: center; }
+.cross-model-panel { margin: 0 0 22px; padding: 24px; color: var(--ink); background: #fffdf8; border: 1px solid var(--line); border-radius: 17px; }
+.cross-model-panel__heading { display: flex; justify-content: space-between; gap: 18px; align-items: end; }
+.cross-model-panel__heading h2, .cross-model-panel__heading h3, .comparison-holdings h3 { margin: 6px 0 0; font: 26px "Iowan Old Style", serif; }
+.cross-model-panel__heading p { margin: 7px 0 0; color: #645b53; font-size: 11px; }
+.cross-model-panel__dates { display: grid; gap: 5px; text-align: right; color: #6f655d; font: 10px Menlo, monospace; }
+.cross-model-panel__dates strong { color: var(--red); font-weight: 700; }
+.comparison-protocol { margin: 19px 0; padding: 11px 13px; color: #514b45; background: #e8eee8; border: 1px solid #b9cbc2; border-radius: 10px; font-size: 11px; line-height: 1.55; }
+.comparison-pickers { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px; }
+.comparison-pickers > div { display: flex; gap: 8px; }
+.comparison-choice, .comparison-topk { min-height: 54px; padding: 10px 13px; color: var(--ink); background: #fffdf8; border: 1px solid #d8cfc5; border-radius: 10px; text-align: left; cursor: pointer; }
+.comparison-choice { flex: 1; }
+.comparison-choice strong, .comparison-choice small { display: block; }
+.comparison-choice strong { font-size: 12px; }.comparison-choice small { margin-top: 5px; color: #746b63; font-size: 9px; }
+.comparison-topk { min-width: 66px; text-align: center; font-weight: 700; }
+.comparison-choice.is-active, .comparison-topk.is-active { color: #fffaf4; background: #3b342f; border-color: #3b342f; box-shadow: inset 0 3px 0 var(--red); }
+.comparison-choice:disabled, .comparison-topk:disabled { cursor: not-allowed; opacity: .42; }
+.comparison-choice:focus-visible, .comparison-topk:focus-visible { outline: 3px solid rgba(38,122,131,.32); outline-offset: 2px; }
+.comparison-input { margin-top: 15px; display: grid; grid-template-columns: 110px 1fr; gap: 6px 16px; padding: 13px 15px; background: #f3eee6; border-radius: 10px; }
+.comparison-input span { color: #776d64; font-size: 10px; }.comparison-input strong { font-size: 11px; }.comparison-input small { grid-column: 2; color: #655c55; font-size: 10px; }
+.comparison-metric-grid { margin-top: 15px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.comparison-metric-grid > div { padding: 14px; background: #fffdf8; }.comparison-metric-grid span, .comparison-metric-grid strong, .comparison-metric-grid small { display: block; }
+.comparison-metric-grid span { color: #756b63; font-size: 10px; }.comparison-metric-grid strong { margin: 7px 0; font: 21px "Iowan Old Style", serif; }.comparison-metric-grid small { color: #6f655d; font-size: 9px; line-height: 1.45; }
+.comparison-chart { margin-top: 18px; }.comparison-chart svg { display: block; width: 100%; height: 245px; background: repeating-linear-gradient(to top, transparent 0, transparent 24%, rgba(47,43,40,.06) 25%); border: 1px solid var(--line); }.comparison-chart polyline { fill: none; stroke-width: 2; }.comparison-chart__itransformer { stroke: var(--red); }.comparison-chart__kronos { stroke: var(--cyan); stroke-dasharray: 7 4; }.comparison-chart__zero { stroke: #b7aea4; stroke-width: .4; stroke-dasharray: 2 2; }.comparison-legend__itransformer::before { background: var(--red); }.comparison-legend__kronos::before { background: repeating-linear-gradient(to right, var(--cyan) 0 8px, transparent 8px 12px); }
+.comparison-strategy { margin-top: 20px; padding: 18px; display: grid; grid-template-columns: minmax(220px, .7fr) 1.3fr; gap: 20px; color: #f8f0e7; background: #3b342f; border-radius: 13px; }.comparison-strategy p { margin: 7px 0 0; color: #d7ccc2; font-size: 10px; line-height: 1.5; }.comparison-strategy__metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: #5c5149; }.comparison-strategy__metrics > div { padding: 11px; background: #473e38; }.comparison-strategy__metrics span, .comparison-strategy__metrics strong, .comparison-strategy__metrics small { display: block; }.comparison-strategy__metrics span { color: #d7ccc2; font-size: 9px; }.comparison-strategy__metrics strong { margin: 6px 0; font: 17px "Iowan Old Style", serif; }.comparison-strategy__metrics small { color: #c9beb4; font-size: 8px; line-height: 1.4; }
+.comparison-holdings { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--line); }.comparison-holdings > p { color: #6e645c; font-size: 10px; }.comparison-holdings > small { display: block; margin-top: 8px; color: #81766d; font: 9px Menlo, monospace; }.comparison-empty { padding: 14px; color: #6f655d; background: #f3eee6; border-radius: 9px; font-size: 10px; }.comparison-evidence { margin-top: 16px; color: #7b7068; font: 9px Menlo, monospace; line-height: 1.5; }
 .identity-card--backtest { color: #fffaf3; background: #3b342f; border-color: var(--cyan); }
 .identity-card--backtest span, .identity-card--backtest small { color: #d9cfc5; }
 .track-separation {
@@ -713,6 +738,17 @@ h1, h2, h3 { font-family: "Iowan Old Style", "Baskerville", "Songti SC", "STSong
   .ranking-tools > small { margin-left: 0; }
   .tear-grid { grid-template-columns: 1fr 1fr; }
   .official-signal-grid { grid-template-columns: 1fr 1fr; }
+  .cross-model-panel { padding: 18px; }
+  .cross-model-panel__heading { align-items: flex-start; flex-direction: column; }
+  .cross-model-panel__dates { text-align: left; }
+  .comparison-pickers { grid-template-columns: 1fr; }
+  .comparison-pickers > div { flex-wrap: wrap; }
+  .comparison-topk { flex: 1; }
+  .comparison-input { grid-template-columns: 1fr; }
+  .comparison-input small { grid-column: 1; }
+  .comparison-metric-grid { grid-template-columns: 1fr 1fr; }
+  .comparison-strategy { grid-template-columns: 1fr; }
+  .comparison-strategy__metrics { grid-template-columns: 1fr 1fr; }
   .track-separation { grid-template-columns: 1fr; }
   .track-separation > b { display: none; }
   .track-separation > p { grid-column: 1; }

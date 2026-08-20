@@ -32,12 +32,19 @@ class Settings:
     proxy_client: Path = PROJECT_ROOT / ".elanquant/provider/get_pro.py"
     upstream_root: Path = PROJECT_ROOT / ".elanquant/upstream/Kronos"
     matrix_receipt: Path = PROJECT_ROOT / ".elanquant/releases/current/training-matrix.json"
-    evaluation_receipt: Path = (
-        PROJECT_ROOT / ".elanquant/releases/current/formal-evaluation.json"
-    )
+    evaluation_receipt: Path = PROJECT_ROOT / ".elanquant/releases/current/formal-evaluation.json"
     research_catalog: Path = PROJECT_ROOT / ".elanquant/releases/research-catalog.json"
     historical_backtest_catalog: Path = (
         PROJECT_ROOT / ".elanquant/releases/historical-backtest-catalog-v6.json"
+    )
+    # This is intentionally a separate read-only catalog.  It must never be
+    # folded into the Kronos/Qlib historical catalog, whose validation rules
+    # describe a different protocol.
+    unified_comparison_catalog: Path = (
+        PROJECT_ROOT
+        / "artifacts/unified-weekly-comparison"
+        / "itransformer-b2-vs-kronos-base-weekly-v1"
+        / "catalog.json"
     )
 
     @classmethod
@@ -190,8 +197,14 @@ class Settings:
             historical_backtest_catalog=resolved_path(
                 "ELANQUANT_HISTORICAL_BACKTEST_CATALOG",
                 "historical_backtest_catalog",
+                Path(root / ".elanquant/releases/historical-backtest-catalog-v6.json"),
+            ),
+            unified_comparison_catalog=resolved_path(
+                "ELANQUANT_UNIFIED_COMPARISON_CATALOG",
+                "unified_comparison_catalog",
                 Path(
-                    root / ".elanquant/releases/historical-backtest-catalog-v6.json"
+                    "artifacts/unified-weekly-comparison/"
+                    "itransformer-b2-vs-kronos-base-weekly-v1/catalog.json"
                 ),
             ),
         )
